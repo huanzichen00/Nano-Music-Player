@@ -1,5 +1,6 @@
 use super::{
     action::{Action, Category},
+    artwork::ArtworkLoader,
     config::Settings,
     i18n::{self, Language, translate},
     navigation::{Filter, Group, Screen},
@@ -39,6 +40,8 @@ pub struct Controller {
     notice_since: std::time::Instant,
     letter_jump: Option<(std::time::Instant, Screen)>,
     thumbnails: HashMap<usize, slint::Image>,
+    artwork: ArtworkLoader,
+    artwork_resolution: u32,
     shortcut_edit: Option<Action>,
     shortcut_capture: Option<bool>,
 }
@@ -81,6 +84,8 @@ impl Controller {
             notice_since: std::time::Instant::now(),
             letter_jump: None,
             thumbnails: HashMap::new(),
+            artwork: ArtworkLoader::default(),
+            artwork_resolution: 0,
             shortcut_edit: None,
             shortcut_capture: None,
         }
@@ -233,6 +238,11 @@ impl Controller {
             None
         };
         let effects = self.state.apply(action);
+        // Start audio immediately; focus effects still need the new screen to exist.
+        let (audio, effects): (Vec<_>, Vec<_>) = effects
+            .into_iter()
+            .partition(|effect| matches!(effect, Effect::Audio(_)));
+        self.effects(ui, audio);
         self.sync(ui);
         self.effects(ui, effects);
     }
@@ -363,6 +373,8 @@ impl Controller {
                 Ok(tracks) => {
                     self.state.merge_library(tracks);
                     self.thumbnails.clear();
+                    self.artwork.clear();
+                    self.last_track = None;
                     self.rows_dirty = true;
                 }
                 Err(message) => self.state.notice = message,
@@ -386,6 +398,7 @@ impl Controller {
                 Ok(Some(result)) => {
                     self.state.merge_library(result.tracks);
                     self.thumbnails.clear();
+                    self.artwork.clear();
                     self.rows_dirty = true;
                     self.last_track = None;
                     self.state.notice = format!(
@@ -459,6 +472,9 @@ impl Controller {
             }
         }
         self.sync(ui);
+        if let Some(artwork) = self.artwork.poll() {
+            ui.set_artwork(artwork);
+        }
     }
 
     fn sync(&mut self, ui: &AppWindow) {
@@ -613,11 +629,12 @@ impl Controller {
             ) {
                 let row_height = ui.get_list_row_height();
                 let row_y = self.state.navigation.selected() as f32 * row_height;
-                let visible_height = if *screen == Screen::Search {
-                    324.0
-                } else {
-                    368.0
-                } * scale;
+                let visible_height = ui.get_list_viewport_height()
+                    - if *screen == Screen::Search {
+                        44.0 * scale
+                    } else {
+                        0.0
+                    };
                 let scroll = ui.get_list_scroll_y();
                 if row_y + scroll < 0.0 {
                     ui.set_list_scroll_y(-row_y);
@@ -629,19 +646,26 @@ impl Controller {
         }
         self.last_screen = Some(screen.clone());
         let track = self.state.current.and_then(|id| self.state.tracks.get(id));
+        let artwork_resolution = (240.0 * scale * ui.window().scale_factor()).ceil() as u32;
+        let track_changed = self.last_track != self.state.current;
+        if track_changed || artwork_resolution != self.artwork_resolution {
+            let artwork = track
+                .zip(self.state.current)
+                .map(|(track, id)| self.artwork.request(id, &track.artwork, artwork_resolution))
+                .unwrap_or_else(|| {
+                    self.artwork.cancel();
+                    slint::Image::default()
+                });
+            // Keep the existing cover visible while a sharper version is prepared on resize.
+            if track_changed || artwork.size().width > 0 {
+                ui.set_artwork(artwork);
+            }
+            self.artwork_resolution = artwork_resolution;
+        }
         if self.last_track != self.state.current {
             ui.set_track_title(track.map_or("", |t| t.title.as_str()).into());
             ui.set_track_artist(track.map_or("", |t| t.artist.as_str()).into());
             ui.set_track_album(track.map_or("", |t| t.album.as_str()).into());
-            let artwork = track
-                .map(|t| {
-                    decode_artwork(
-                        &t.artwork,
-                        (240.0 * 3.0 * ui.window().scale_factor()).ceil() as u32,
-                    )
-                })
-                .unwrap_or_default();
-            ui.set_artwork(artwork);
             ui.set_lyric_lines(ModelRc::new(VecModel::from(
                 track.map_or_else(Vec::new, |t| {
                     t.lyrics.lines().into_iter().map(Into::into).collect()
