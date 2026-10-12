@@ -152,6 +152,22 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "仅为草稿 · 未保存",
         "下書き · 未保存",
     ),
+    ("Name (optional)", "名称（可选）", "名前（任意）"),
+    (
+        "Select songs, then Review",
+        "选择歌曲后检查",
+        "曲を選択して確認へ",
+    ),
+    (
+        "Review, then Create to save",
+        "检查后点击创建以保存",
+        "確認後、作成で保存",
+    ),
+    (
+        "Create saves this playlist",
+        "点击创建以保存播放列表",
+        "作成でプレイリストを保存",
+    ),
     (
         "Song selection is coming next.",
         "歌曲选择功能即将加入。",

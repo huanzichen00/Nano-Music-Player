@@ -977,6 +977,25 @@ impl Controller {
                     self.playlist_paths.push(path);
                 }
             }
+            "review" => {
+                if ui.get_playlist_name().trim().is_empty() {
+                    let prefix = self.text("New Playlist");
+                    let mut number = 1;
+                    let name = loop {
+                        let name = format!("{prefix} {number}");
+                        if !self
+                            .state
+                            .playlists
+                            .iter()
+                            .any(|playlist| playlist.name.to_lowercase() == name.to_lowercase())
+                        {
+                            break name;
+                        }
+                        number += 1;
+                    };
+                    ui.set_playlist_name(name.into());
+                }
+            }
             "up" | "down" => {
                 if let Some(index) = self.playlist_paths.iter().position(|p| *p == path) {
                     let next = if command == "up" {

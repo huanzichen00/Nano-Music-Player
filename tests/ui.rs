@@ -1148,6 +1148,36 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         "playlist names remain literal even when matching UI keys"
     );
     choose_language(&ui, &controller, Language::English);
+    // Selecting songs alone enables Review; a blank name becomes a unique native-style name.
+    controller.borrow_mut().execute(&ui, Action::NewPlaylist);
+    let candidate = ui.get_playlist_candidates().row_data(0).unwrap().id;
+    ui.invoke_playlist_action("toggle".into(), candidate.clone());
+    assert_eq!(ui.get_playlist_name(), "");
+    click(&ui, 178.0, 409.0);
+    assert!(ui.get_playlist_reviewing());
+    assert_eq!(ui.get_playlist_name(), "New Playlist 1");
+    snapshot(&ui, "playlist-automatic-name");
+    click(&ui, 178.0, 409.0);
+    wait_for_playlist_save(&ui, &controller);
+    assert!(!ui.get_playlist_editor_open());
+    assert!(
+        playlists::load(&database)
+            .unwrap()
+            .iter()
+            .any(|p| p.name == "New Playlist 1")
+    );
+    controller.borrow_mut().execute(&ui, Action::NewPlaylist);
+    ui.invoke_playlist_action("toggle".into(), candidate);
+    tap(&ui, Key::Return); // Selecting a song leaves name input; Enter now reviews.
+    assert!(ui.get_playlist_reviewing());
+    assert!(!ui.get_playlist_saving());
+    assert_eq!(ui.get_playlist_name(), "New Playlist 2");
+    tap(&ui, Key::Escape);
+    tap(&ui, Key::Escape);
+    assert!(
+        !ui.get_playlist_editor_open(),
+        "automatic-name draft cancellation closes the editor"
+    );
     controller.borrow_mut().execute(&ui, Action::NowPlaying);
 
     // Empty/loading states come from a fresh library rather than a disconnected adapter.
@@ -1155,7 +1185,13 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     let mut empty = Controller::new(empty_directory.path().to_path_buf());
     empty.initialize(&ui);
     empty.execute(&ui, Action::NewPlaylist);
-    assert!(ui.get_playlist_library_loading());
+    assert!(
+        ui.get_playlist_library_loading(),
+        "loading state: open={}, saving={}, candidates={}",
+        ui.get_playlist_editor_open(),
+        ui.get_playlist_saving(),
+        ui.get_playlist_candidates().row_count()
+    );
     snapshot(&ui, "playlist-loading");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     while ui.get_playlist_library_loading() {

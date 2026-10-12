@@ -148,7 +148,7 @@ export component AppWindow inherits Window {
         if root.playlist-saving { return; }
         if name == "cancel" { root.playlist-editor-open = false; root.focus-screen(); }
         root.playlist-command(name, id);
-        if name == "toggle" { keyboard.focus(); }
+        if name == "toggle" || name == "review" { keyboard.focus(); }
     }
 
     // Menu commands share the Rust reducer; no menu accelerators bypass keyboard context guards.

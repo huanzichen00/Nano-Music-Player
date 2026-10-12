@@ -17,10 +17,18 @@ export component PlaylistEditor inherits Rectangle {
     out property <bool> reviewing: review;
     private property <bool> review;
     private property <int> selected-row;
+    private property <string> instruction: root.message != "Draft only · not saved" ? root.message
+        : root.review ? "Create saves this playlist"
+        : root.draft.length == 0 ? "Select songs, then Review" : "Review, then Create to save";
     callback command(string, string);
     public function focus-name() { name-input.focus(); }
     public function reset-view() { root.review = false; root.selected-row = 0; candidate-scroll.content-y = 0px; draft-scroll.content-y = 0px; }
-    public function review-draft() { if root.name != "" && root.draft.length > 0 { root.review = true; root.selected-row = 0; } }
+    public function review-draft() {
+        if root.draft.length > 0 && !root.saving {
+            root.command("review", "");
+            if root.name != "" { root.review = true; root.selected-row = 0; }
+        }
+    }
     public function back-to-selection() { root.review = false; root.selected-row = 0; }
     public function move-selection(delta: int) {
         root.selected-row = clamp(root.selected-row + delta, 0, max(0, (root.review ? root.draft.length : root.candidates.length) - 1));
@@ -50,7 +58,7 @@ export component PlaylistEditor inherits Rectangle {
         Rectangle {
             x: 10px * root.s; y: 33px * root.s; width: parent.width - 20px * root.s; height: 32px * root.s;
             background: white; border-color: name-input.has-focus ? #4b96da : #b6bbc0; border-width: 1px * root.s; border-radius: 4px * root.s;
-            if root.name == "": Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr("Enter a playlist name"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
+            if root.name == "": Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr("Name (optional)"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
             name-input := TextInput { enabled: root.open && !root.review && !root.saving; x: 8px * root.s; width: parent.width - 16px * root.s; text <=> root.name; font-size: 12px * root.s; color: #263441; single-line: true; vertical-alignment: center; }
         }
         Text { x: 10px * root.s; y: 75px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr("Choose Songs") + " · " + root.draft.length; font-size: 11px * root.s; color: #49637c; vertical-alignment: center; }
@@ -93,7 +101,7 @@ export component PlaylistEditor inherits Rectangle {
         NanoActionButton { x: 82px * root.s; width: 64px * root.s; s: root.s; text-size: 10px * root.s; label: "Move Down"; enabled: root.selected-row + 1 < root.draft.length && !root.persisted && !root.saving; clicked => { root.command("down", root.draft[root.selected-row].id); root.selected-row += 1; } }
         NanoActionButton { x: 154px * root.s; width: 76px * root.s; s: root.s; label: "Remove"; enabled: root.selected-row < root.draft.length && !root.persisted && !root.saving; clicked => { root.command("remove", root.draft[root.selected-row].id); root.selected-row = max(0, min(root.selected-row, root.draft.length - 1)); } }
     }
-    Text { x: 10px * root.s; y: root.height - 64px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr(root.message); color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
+    Text { x: 10px * root.s; y: root.height - 64px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr(root.instruction); color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
     NanoActionButton { x: 10px * root.s; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; label: root.review ? "Back" : "Cancel"; enabled: !root.saving; clicked => { if root.review { root.back-to-selection(); } else { root.command("cancel", ""); } } }
-    NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; label: root.saving ? "Saving…" : (root.review ? "Create" : "Review"); enabled: root.name != "" && root.draft.length > 0 && !root.persisted && !root.saving; clicked => { if root.review { root.command("create", ""); } else { root.review-draft(); } } }
+    NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; label: root.saving ? "Saving…" : (root.review ? "Create" : "Review"); enabled: (!root.review || root.name != "") && root.draft.length > 0 && !root.persisted && !root.saving; clicked => { if root.review { root.command("create", ""); } else { root.review-draft(); } } }
 }
