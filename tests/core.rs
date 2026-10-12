@@ -1625,10 +1625,10 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
             .iter()
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
-        ["All Songs", "alpha", "Zulu"]
+        ["Add Playlist", "All Songs", "alpha", "Zulu"]
     );
-    assert_eq!(state.selection_count(), 3);
-    state.navigation.select(2);
+    assert_eq!(state.selection_count(), 4);
+    state.navigation.select(3);
     state.apply(Action::Activate);
     assert!(matches!(
         state.navigation.current().screen,
@@ -1670,4 +1670,31 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
         state.apply(Action::NewPlaylist).as_slice(),
         [Effect::NewPlaylist]
     ));
+}
+
+#[test]
+fn playlist_creation_and_all_songs_share_keyboard_selection() {
+    let mut state = music_state();
+    state.navigation.open(Screen::Groups(Group::Playlists));
+    assert_eq!(state.navigation.selected(), 0);
+    assert_eq!(state.selection_count(), 2);
+    assert!(matches!(
+        state.rows()[0].target,
+        Target::Action(Action::NewPlaylist)
+    ));
+    state.apply(Action::SelectNext);
+    assert_eq!(state.navigation.selected(), 1);
+    state.apply(Action::SelectPrevious);
+    assert_eq!(state.navigation.selected(), 0);
+    assert!(matches!(
+        state.apply(Action::Activate).as_slice(),
+        [Effect::NewPlaylist]
+    ));
+    assert_eq!(state.current, None);
+    state.apply(Action::SelectNext);
+    state.apply(Action::Activate);
+    assert_eq!(
+        state.navigation.current().screen,
+        Screen::Songs(Filter::All)
+    );
 }

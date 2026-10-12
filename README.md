@@ -62,7 +62,7 @@ Genius currently has an explicitly labeled interface preview with example songs.
 
 ## Playlists
 
-Open **Music → Playlists → Add Playlist** or **File → New Playlist…**. Enter a name, press Enter to leave the name field, and select songs with checkboxes or **J/K + Space**. Choose Review, arrange the order with Move Up/Move Down or Remove, then Create. Saved playlists appear in Music → Playlists and survive restarts; their playback queue follows your chosen order. Cancel leaves the library and playback unchanged. Saving happens in the background; a failed save retains the draft for retry.
+Open **Music → Playlists → Add Playlist** or **File → New Playlist…**. The Add Playlist entry participates in J/K navigation above All Songs; press Enter to open it. Enter a name, press Enter to leave the name field, and select songs with checkboxes or **J/K + Space**. Choose Review, arrange the order with Move Up/Move Down or Remove, then Create. Saved playlists appear in Music → Playlists and survive restarts; their playback queue follows your chosen order. Cancel leaves the library and playback unchanged. Saving happens in the background; a failed save retains the draft for retry.
 
 Names must be nonempty, single-line and at most 100 characters; duplicate names are rejected regardless of case. Missing paths remain stored and songs absent from the current library are skipped. Editing/deleting saved playlists and iTunes synchronization are not included yet.
 

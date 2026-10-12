@@ -1026,6 +1026,37 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     // Opening the parent list renders the compact playlist rows with their note glyph.
     ui.invoke_command("back".into());
     controller.borrow_mut().poll(&ui);
+    // The fixed Add toolbar participates in exactly the same J/K selection as the rows.
+    assert_eq!(ui.get_selected(), 0);
+    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "Add Playlist");
+    tap(&ui, "j");
+    assert_eq!(ui.get_selected(), 1);
+    assert_eq!(ui.get_rows().row_data(1).unwrap().title, "All Songs");
+    tap(&ui, "k");
+    assert_eq!(ui.get_selected(), 0);
+    tap(&ui, Key::Return);
+    assert!(ui.get_playlist_editor_open());
+    tap(&ui, "j");
+    assert_eq!(
+        ui.get_playlist_name(),
+        "j",
+        "keyboard entry starts in the name field"
+    );
+    tap(&ui, Key::Escape);
+    assert!(!ui.get_playlist_editor_open());
+    assert_eq!(
+        controller.borrow().state.queue.current(),
+        queue_before_playlist
+    );
+    click(&ui, 120.0, 42.0); // Add toolbar uses the same semantic row activation.
+    assert!(ui.get_playlist_editor_open());
+    tap(&ui, "k");
+    assert_eq!(
+        ui.get_playlist_name(),
+        "k",
+        "pointer entry keeps name editing focused"
+    );
+    tap(&ui, Key::Escape);
     snapshot(&ui, "playlist-list-preview");
     for language in [
         Language::SimplifiedChinese,
@@ -1033,16 +1064,16 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         Language::English,
     ] {
         choose_language(&ui, &controller, language);
-        assert_eq!(ui.get_rows().row_data(1).unwrap().title, "Evening Mix");
+        assert_eq!(ui.get_rows().row_data(2).unwrap().title, "Evening Mix");
         assert_eq!(
-            ui.get_rows().row_data(1).unwrap().subtitle,
+            ui.get_rows().row_data(2).unwrap().subtitle,
             match language {
                 Language::English => "2 songs",
                 Language::SimplifiedChinese => "2 首歌曲",
                 Language::Japanese => "2 曲",
             }
         );
-        assert_eq!(ui.get_playlist_name(), "Evening Mix");
+        assert_eq!(ui.get_playlist_name(), "k");
         snapshot(&ui, &format!("playlist-list-{}", language.code()));
     }
     tap(&ui, "r");
@@ -1112,7 +1143,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     controller.borrow_mut().execute(&ui, Action::Back);
     choose_language(&ui, &controller, Language::SimplifiedChinese);
     assert_eq!(
-        ui.get_rows().row_data(2).unwrap().title,
+        ui.get_rows().row_data(3).unwrap().title,
         "Music",
         "playlist names remain literal even when matching UI keys"
     );

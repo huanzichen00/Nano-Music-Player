@@ -76,12 +76,18 @@ impl Controller {
                 state.notice = format!("{message}; using default shortcuts");
                 Keymap::default()
             });
-        let loading = Some(thumbnails::load(directory.join("library.sqlite3")));
         let database = directory.join("library.sqlite3");
         let (sender, receiver) = std::sync::mpsc::channel();
+        let (library_sender, library_receiver) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
+            // Migrate before the scanner's large metadata SELECT can hold a read lock.
+            // Both operations remain off the UI thread; a playlist error never blocks music.
             let _ = sender.send(playlists::load(&database));
+            if let Ok(result) = thumbnails::load(database).recv() {
+                let _ = library_sender.send(result);
+            }
         });
+        let loading = Some(library_receiver);
         let romaji_store = romaji::Store::new(directory.join("library.sqlite3"));
         Self {
             state,
@@ -753,7 +759,13 @@ impl Controller {
                     | Screen::Fonts
             ) {
                 let row_height = ui.get_list_row_height();
-                let row_y = self.state.navigation.selected() as f32 * row_height;
+                let playlist_list = *screen == Screen::Groups(Group::Playlists);
+                let row_index = self
+                    .state
+                    .navigation
+                    .selected()
+                    .saturating_sub(usize::from(playlist_list));
+                let row_y = row_index as f32 * row_height;
                 let visible_height = ui.get_list_viewport_height()
                     - if *screen == Screen::Search {
                         44.0 * scale

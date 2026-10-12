@@ -271,12 +271,15 @@ impl State {
             Screen::Groups(Group::Playlists) => {
                 let mut playlists: Vec<_> = self.playlists.iter().collect();
                 playlists.sort_by_cached_key(|p| (p.name.to_lowercase(), p.name.clone(), p.id));
-                let mut rows = vec![Row {
-                    title: "All Songs".into(),
-                    subtitle: format!("{} songs", self.tracks.len()),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::Songs(Filter::All)),
-                }];
+                let mut rows = vec![
+                    row("Add Playlist", Target::Action(Action::NewPlaylist)),
+                    Row {
+                        title: "All Songs".into(),
+                        subtitle: format!("{} songs", self.tracks.len()),
+                        artwork_id: None,
+                        target: Target::Screen(Screen::Songs(Filter::All)),
+                    },
+                ];
                 rows.extend(playlists.into_iter().map(|playlist| Row {
                     title: playlist.name.clone(),
                     subtitle: format!("{} songs", playlist.tracks.len()),
@@ -472,7 +475,7 @@ impl State {
                 }
             }
             Screen::NowPlaying => 7,
-            Screen::Groups(Group::Playlists) => 1 + self.playlists.len(),
+            Screen::Groups(Group::Playlists) => 2 + self.playlists.len(),
             Screen::Groups(group) => self
                 .tracks
                 .iter()

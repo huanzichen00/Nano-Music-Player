@@ -23,16 +23,15 @@ export component LibraryView inherits Rectangle {
     out property <bool> search-focused: input.has-focus;
     out property <length> row-height: (root.rows.length > 0 && root.rows[0].show-artwork ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
-    callback new-playlist();
     callback edited(string);
     public function focus-search() { input.focus(); }
     background: #fff;
     if root.playlist-list: Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
-        background: @linear-gradient(180deg, #4794e4, #1666bb);
-        Image { source: @image-url("../assets/icons/music.svg"); colorize: white; x: 8px * root.s; y: 8px * root.s; width: 14px * root.s; height: 14px * root.s; }
-        Text { x: 28px * root.s; width: parent.width - 40px * root.s; height: parent.height; text: I18n.tr("Add Playlist"); color: white; font-size: 12px * root.s; font-weight: 700; vertical-alignment: center; }
-        TouchArea { mouse-cursor: pointer; clicked => { if root.enabled { root.new-playlist(); } } }
+        background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : @linear-gradient(180deg, #f5f7f9, #d4d9df);
+        Image { source: @image-url("../assets/icons/music.svg"); colorize: root.selected == 0 ? white : #3c78b1; x: 8px * root.s; y: 8px * root.s; width: 14px * root.s; height: 14px * root.s; }
+        Text { x: 28px * root.s; width: parent.width - 40px * root.s; height: parent.height; text: I18n.tr("Add Playlist"); color: root.selected == 0 ? white : #1e69b4; font-size: 12px * root.s; font-weight: 700; vertical-alignment: center; }
+        TouchArea { mouse-cursor: pointer; clicked => { if root.enabled { root.activated(0); } } }
     }
     Rectangle {
         visible: root.search;
@@ -50,10 +49,11 @@ export component LibraryView inherits Rectangle {
     Flickable {
         y: (root.search ? 44px : (root.playlist-list ? 32px : 0px)) * root.s;
         height: root.height - self.y; width: root.width;
-        content-height: max(self.height, root.rows.length * root.row-height);
+        content-height: max(self.height, (root.rows.length - (root.playlist-list ? 1 : 0)) * root.row-height);
         content-y <=> root.scroll-y;
         for row[index] in root.rows: Rectangle {
-            y: index * root.row-height; width: root.width; height: root.row-height;
+            visible: !root.playlist-list || index > 0;
+            y: (index - (root.playlist-list ? 1 : 0)) * root.row-height; width: root.width; height: root.row-height;
             background: root.selected == index ? @linear-gradient(180deg, #4794e4, #1666bb) : #fff;
             Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #d5d5d5; }
             if root.playlist-list: Image {

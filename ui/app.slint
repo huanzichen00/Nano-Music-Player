@@ -286,11 +286,10 @@ export component AppWindow inherits Window {
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 y: (root.artwork-list || root.playlist-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list;
-                new-playlist => { root.command("new_playlist"); keyboard.focus(); }
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 text-font-family: root.ui-font-family;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
-                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }
             }
             if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
