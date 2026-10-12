@@ -1487,3 +1487,30 @@ fn old_settings_default_to_english_and_language_survives_restart() {
         assert!(!loaded.device_mode);
     }
 }
+
+#[test]
+fn music_genius_entry_opens_preview_without_changing_playback() {
+    let mut state = music_state();
+    state.navigation.open(Screen::Music);
+    let entry = state
+        .rows()
+        .iter()
+        .position(|row| matches!(row.target, Target::GeniusPreview))
+        .unwrap();
+    for current in [None, Some(0)] {
+        state.current = current;
+        state.status = PlaybackStatus::Paused;
+        state.position = 23.5;
+        state.navigation.select(entry);
+        let queue = state.queue.current();
+        assert!(matches!(
+            state.apply(Action::Activate).as_slice(),
+            [Effect::GeniusPreview]
+        ));
+        assert_eq!(state.navigation.current().screen, Screen::Music);
+        assert_eq!(state.current, current);
+        assert_eq!(state.status, PlaybackStatus::Paused);
+        assert_eq!(state.position, 23.5);
+        assert_eq!(state.queue.current(), queue);
+    }
+}

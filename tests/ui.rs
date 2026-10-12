@@ -145,6 +145,23 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert_eq!(ui.get_selected(), 0);
     tap(&ui, Key::Return);
     assert_eq!(ui.get_screen_title(), "Music");
+    assert_eq!(ui.get_rows().row_data(6).unwrap().title, "Genius");
+    ui.set_notice("".into());
+    snapshot(&ui, "music-genius-entry");
+    click(&ui, 120.0, 376.0);
+    assert!(ui.get_genius_preview_open());
+    assert_eq!(ui.get_screen_title(), "Music");
+    tap(&ui, Key::Return);
+    assert_eq!(
+        ui.get_genius_preview_stage(),
+        0,
+        "a song is required for a seed"
+    );
+    assert!(controller.borrow().state.current.is_none());
+    tap(&ui, Key::Escape);
+    assert!(!ui.get_genius_preview_open());
+    controller.borrow_mut().state.navigation.select(0);
+    controller.borrow_mut().poll(&ui);
     for _ in 0..4 {
         tap(&ui, Key::DownArrow);
     }

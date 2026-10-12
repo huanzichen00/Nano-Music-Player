@@ -110,6 +110,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "下書き完成 · 保存は今後対応",
     ),
     ("Genius Preview…", "Genius 预览…", "Genius プレビュー…"),
+    ("Genius", "Genius", "Genius"),
+    (
+        "Preview · recommendations coming next",
+        "预览 · 推荐功能即将推出",
+        "プレビュー · おすすめ機能は近日公開",
+    ),
     (
         "Mock preview · example songs",
         "模拟预览 · 示例歌曲",

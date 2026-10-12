@@ -20,6 +20,7 @@ pub enum Target {
     Action(Action),
     Shortcut(Action),
     Language(Language),
+    GeniusPreview,
 }
 
 #[derive(Clone)]
@@ -41,6 +42,7 @@ pub enum Effect {
     LanguageChanged,
     RomajiVisibilityChanged,
     ConfigureDeepSeek,
+    GeniusPreview,
     GenerateRomaji {
         id: usize,
     },
@@ -222,6 +224,12 @@ impl State {
                 to("Albums", Screen::Groups(Group::Albums)),
                 to("Songs", Screen::Songs(Filter::All)),
                 to("Genres", Screen::Groups(Group::Genres)),
+                Row {
+                    title: "Genius".into(),
+                    subtitle: "Preview · recommendations coming next".into(),
+                    artwork_id: None,
+                    target: Target::GeniusPreview,
+                },
                 row("Search", Target::Action(Action::Search)),
                 row("Import Music…", Target::Action(Action::ImportFolder)),
             ],
@@ -608,6 +616,7 @@ impl State {
                                     return vec![Effect::LanguageChanged];
                                 }
                                 Target::Action(action) => return self.apply(action),
+                                Target::GeniusPreview => return vec![Effect::GeniusPreview],
                                 Target::Shortcut(action) => {
                                     return vec![Effect::EditShortcut(action)];
                                 }

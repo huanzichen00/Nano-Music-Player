@@ -5,6 +5,7 @@ Status: all three UI phases verified. Manual playlist library-selection and pers
 ## Phase 1 — Genius interface preview (verified)
 
 - Add a nano-style Genius symbol between Repeat and Shuffle in expanded Now Playing controls.
+- Add Music → Genius with a translated preview subtitle. Pointer and keyboard activation open the same preview while preserving Music navigation, playback and queue. Without a playing song, show a choose-song prompt and disable Create, including Enter.
 - Freeze the seed title/artist when opening a preview. Show clearly labeled example rows; never present All Songs as recommendations.
 - Demonstrate Create, Refresh, Play, and Save states without changing audio playback or saving a playlist. Expose a callback for future backend integration.
 - Verify pointer entry, seed stability, refresh, close, mock state transitions, and keyboard isolation.

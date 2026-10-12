@@ -6,6 +6,7 @@ export component GeniusPreview inherits Rectangle {
     in property <float> s: 1;
     in property <string> seed-title;
     in property <string> seed-artist;
+    in property <bool> seed-available;
     in-out property <int> stage;
     in-out property <int> variation;
     callback command(string);
@@ -30,7 +31,7 @@ export component GeniusPreview inherits Rectangle {
     }
     if root.stage == 0: Text {
         x: 16px * root.s; y: 151px * root.s; width: parent.width - 32px * root.s; height: 163px * root.s;
-        text: I18n.tr("Genius will build a playlist around this song.\n\nThis interface preview uses example songs. Recommendations are not connected yet.");
+        text: root.seed-available ? I18n.tr("Genius will build a playlist around this song.\n\nThis interface preview uses example songs. Recommendations are not connected yet.") : I18n.tr("Choose a song from Music");
         color: #6c7885; font-size: 12px * root.s; wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
     }
     if root.stage > 0: Flickable {
@@ -52,7 +53,7 @@ export component GeniusPreview inherits Rectangle {
     }
     Rectangle {
         x: 0px; width: root.width; y: root.height - 82px * root.s; height: 82px * root.s; background: @linear-gradient(180deg, #e4e8ec, #cad1d9);
-        NanoActionButton { x: 10px * root.s; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; label: root.stage == 0 ? "Create" : "Refresh"; clicked => { root.command(root.stage == 0 ? "create" : "refresh"); } }
+        NanoActionButton { x: 10px * root.s; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; enabled: root.seed-available; label: root.stage == 0 ? "Create" : "Refresh"; clicked => { root.command(root.stage == 0 ? "create" : "refresh"); } }
         NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; enabled: root.stage > 0; label: "Play"; clicked => { root.command("play"); } }
         NanoActionButton { x: 10px * root.s; y: 45px * root.s; width: parent.width - 20px * root.s; s: root.s; enabled: root.stage > 0; label: "Save"; clicked => { root.command("save"); } }
     }

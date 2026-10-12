@@ -310,6 +310,7 @@ impl Controller {
                     ui.set_deepseek_message(self.text(&message));
                     ui.set_deepseek_settings_open(true);
                 }
+                Effect::GeniusPreview => ui.invoke_open_genius_preview(),
                 Effect::GenerateRomaji { id } => self.start_romaji(ui, id),
                 Effect::CancelRomaji => {
                     if self.romaji_request.take().is_some() {
