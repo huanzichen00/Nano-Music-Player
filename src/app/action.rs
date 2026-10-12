@@ -43,6 +43,7 @@ pub enum Action {
     ImportLyrics,
     RemoveLyrics,
     AutomaticLyrics,
+    JumpToLetter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +157,7 @@ impl Action {
             Self::RemoveLyrics => "Remove Lyrics",
             Self::AutomaticLyrics => "Use Automatic Lyrics",
             Self::TrackList => "Album track list",
+            Self::JumpToLetter => "Jump to letter",
         }
     }
 
@@ -185,6 +187,7 @@ impl Action {
         Self::SeekForward,
         Self::ImportFolder,
         Self::Search,
+        Self::JumpToLetter,
         Self::Settings,
         Self::ManageLyrics,
         Self::ImportLyrics,

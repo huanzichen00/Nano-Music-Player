@@ -21,7 +21,7 @@ Decisions: independent SQLite table keyed by audio path, with manual source path
 
 Acceptance: encoding support retained; LRC preference, TXT fallback, replace/remove/reset, restart and changed-audio rescans tested; canceled/invalid imports preserve association; synced highlight/scroll follows seek; plain text scrolls. Format/check/tests and commit.
 
-## Phase 3 — Library artwork and navigation (pending)
+## Phase 3 — Library artwork and navigation (verified)
 
 Decisions: sort view rows without moving stable track indexes used by queues/audio events. Case-folded ordering with original text and path tie-breakers; album tracks by track number then title/path. Representative artwork chosen deterministically among group members, decoded/cached for list thumbnails. Add configurable jump-prefix semantic action (plain F by default); next unmodified ASCII letter selects first matching row, consumes the sequence, times out/cancels, and does not intercept text input/modals or Command/Ctrl+F.
 
@@ -45,4 +45,5 @@ Acceptance: bundle ID verified, rule documented against official AeroSpace docs,
 - Manual has malformed cross-reference hints; Poppler recovered text and rendered relevant pages successfully.
 - Phase 1: fmt + cargo check + UI test pass. Added rendered pixel checks for portrait/landscape/square artwork and 0/25/100% progress, resize checks across both modes, default-lyrics assertion. Visually inspected lyrics overlay against manual page 18 and photograph 4.
 - Phase 2: fmt/check and 64 tests pass (42 core, 15 codecs, 6 association, 1 comprehensive UI). Worker-load regressions cover sidecar changes, deleted manual source, changed audio, removal tombstone and reset. UI regressions cover real remove/reset effects and seek highlight/scroll; wrapped rows use measured Slint heights. Inspected plain and synced lyrics screenshots.
+- Phase 3: fmt/check and 68 tests pass. Sorting uses lowercase text, original spelling and path tie-breakers; unknown album track numbers sort after known numbers. UI sequence tests cover scroll-to-match, no-match letter consuming, Escape, Command/Ctrl+F, text entry and Home guards. Representative thumbnail screenshots inspected. Original 112×112 firmware Settings icon used directly; generated Home assets retained.
 - No current blockers. Native Windows/Linux validation unavailable on this macOS host.

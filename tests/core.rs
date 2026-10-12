@@ -193,6 +193,8 @@ fn native_primary_modifier_and_other_modifiers_match_exactly() {
             ),
             if mask == 1 {
                 Dispatch::Action(Action::Search)
+            } else if mask == 0 || mask == 8 {
+                Dispatch::Action(Action::JumpToLetter)
             } else {
                 Dispatch::Ignored
             },
@@ -1410,6 +1412,7 @@ fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
     };
     legacy.bindings.retain(|b| {
         b.action != Action::Settings
+            && b.action != Action::JumpToLetter
             && !(b.action == Action::Home && b.modifiers.shift)
             && b.key != Key::Letter('y')
     });

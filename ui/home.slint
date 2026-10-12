@@ -42,10 +42,10 @@ export component HomeView inherits Rectangle {
         clicked => { root.activated(index); }
     }
     for item[index] in [
-        {label: "Clock", icon: @image-url("../assets/icons/clock.svg"), tint: #777},
-        {label: "Settings", icon: @image-url("../assets/icons/gear.svg"), tint: #aaa},
+        {label: "Clock", icon: @image-url("../assets/icons/clock.svg"), tint: #777, full: false},
+        {label: "Settings", icon: @image-url("../assets/original/settings.png"), tint: #aaa, full: true},
     ]: AppIcon {
-        visible: root.page == 1; s: root.s; x: (18px + index * 112px) * root.s; y: 24px * root.s;
+        visible: root.page == 1; s: root.s; full-artwork: item.full; x: (18px + index * 112px) * root.s; y: 24px * root.s;
         label: item.label; icon: item.icon; tint: item.tint; selected: root.selected == index;
         clicked => { root.activated(index); }
     }

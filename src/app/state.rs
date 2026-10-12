@@ -21,6 +21,7 @@ pub enum Target {
 pub struct Row {
     pub title: String,
     pub subtitle: String,
+    pub artwork_id: Option<usize>,
     pub target: Target,
 }
 
@@ -103,6 +104,7 @@ impl State {
         let row = |title: &str, target| Row {
             title: title.to_owned(),
             subtitle: String::new(),
+            artwork_id: None,
             target,
         };
         let to = |title: &str, screen| row(title, Target::Screen(screen));
@@ -111,11 +113,13 @@ impl State {
                 Row {
                     title: "Keyboard Shortcuts".into(),
                     subtitle: "Customize keys and navigation".into(),
+                    artwork_id: None,
                     target: Target::Screen(Screen::Shortcuts),
                 },
                 Row {
                     title: "Display Mode".into(),
                     subtitle: if self.device_mode { "Device" } else { "Screen" }.into(),
+                    artwork_id: None,
                     target: Target::Action(if self.device_mode {
                         Action::ScreenMode
                     } else {
@@ -133,6 +137,7 @@ impl State {
                         .tracks
                         .get(*id)
                         .map_or_else(String::new, |t| t.title.clone()),
+                    artwork_id: None,
                     target: Target::Action(Action::ImportLyrics),
                 },
                 row("Remove Lyrics", Target::Action(Action::RemoveLyrics)),
@@ -146,6 +151,7 @@ impl State {
                 .map(|action| Row {
                     title: action.title().into(),
                     subtitle: String::new(),
+                    artwork_id: None,
                     target: Target::Shortcut(*action),
                 })
                 .chain(std::iter::once(row(
@@ -174,10 +180,10 @@ impl State {
                         _ => t.genre.as_str(),
                     })
                     .collect();
-                names
+                let mut rows: Vec<Row> = names
                     .into_iter()
                     .map(|name| {
-                        to(
+                        let mut row = to(
                             name,
                             match group {
                                 Group::Artists => Screen::Artist(name.to_owned()),
@@ -187,46 +193,170 @@ impl State {
                                 }),
                                 _ => Screen::Songs(Filter::Genre(name.to_owned())),
                             },
-                        )
+                        );
+                        if matches!(group, Group::Artists | Group::Albums) {
+                            row.artwork_id = self.representative_artwork(group, name, None);
+                        }
+                        row
                     })
-                    .collect()
+                    .collect();
+                sort_rows(&mut rows);
+                rows
             }
-            Screen::Artist(artist) => self
-                .tracks
-                .iter()
-                .filter(|t| &t.artist == artist)
-                .map(|t| t.album.as_str())
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .map(|name| {
-                    to(
-                        name,
-                        Screen::Songs(Filter::Album {
-                            name: name.to_owned(),
-                            artist: Some(artist.clone()),
-                        }),
-                    )
-                })
-                .collect(),
-            Screen::Songs(_) | Screen::Search => self
-                .tracks
-                .iter()
-                .enumerate()
-                .filter(|(_, track)| match &self.navigation.current().screen {
-                    Screen::Search => track.matches(&self.query),
-                    Screen::Songs(Filter::Album { name, artist }) => {
-                        track.album == *name && artist.as_ref().is_none_or(|a| &track.artist == a)
-                    }
-                    Screen::Songs(Filter::Genre(genre)) => &track.genre == genre,
-                    _ => true,
-                })
-                .map(|(id, track)| Row {
-                    title: track.title.clone(),
-                    subtitle: track.artist.clone(),
-                    target: Target::Play(id),
-                })
-                .collect(),
+            Screen::Artist(artist) => {
+                let mut rows: Vec<Row> = self
+                    .tracks
+                    .iter()
+                    .filter(|t| &t.artist == artist)
+                    .map(|t| t.album.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .map(|name| {
+                        let mut row = to(
+                            name,
+                            Screen::Songs(Filter::Album {
+                                name: name.to_owned(),
+                                artist: Some(artist.clone()),
+                            }),
+                        );
+                        row.artwork_id =
+                            self.representative_artwork(&Group::Albums, name, Some(artist));
+                        row
+                    })
+                    .collect();
+                sort_rows(&mut rows);
+                rows
+            }
+            Screen::Songs(_) | Screen::Search => {
+                let is_album = matches!(
+                    self.navigation.current().screen,
+                    Screen::Songs(Filter::Album { .. })
+                );
+                let mut rows: Vec<Row> = self
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, track)| match &self.navigation.current().screen {
+                        Screen::Search => track.matches(&self.query),
+                        Screen::Songs(Filter::Album { name, artist }) => {
+                            track.album == *name
+                                && artist.as_ref().is_none_or(|a| &track.artist == a)
+                        }
+                        Screen::Songs(Filter::Genre(genre)) => &track.genre == genre,
+                        _ => true,
+                    })
+                    .map(|(id, track)| Row {
+                        title: track.title.clone(),
+                        subtitle: track.artist.clone(),
+                        artwork_id: None,
+                        target: Target::Play(id),
+                    })
+                    .collect();
+                if is_album {
+                    rows.sort_by(|a, b| {
+                        let id = |row: &Row| match row.target {
+                            Target::Play(id) => id,
+                            _ => unreachable!(),
+                        };
+                        let a_id = id(a);
+                        let b_id = id(b);
+                        let a_track = &self.tracks[a_id];
+                        let b_track = &self.tracks[b_id];
+                        (
+                            a_track.number == 0,
+                            a_track.number,
+                            a_track.title.to_lowercase(),
+                            &a_track.title,
+                            a_track.path.to_string_lossy(),
+                        )
+                            .cmp(&(
+                                b_track.number == 0,
+                                b_track.number,
+                                b_track.title.to_lowercase(),
+                                &b_track.title,
+                                b_track.path.to_string_lossy(),
+                            ))
+                    });
+                } else {
+                    rows.sort_by(|a, b| {
+                        let id = |row: &Row| match row.target {
+                            Target::Play(id) => id,
+                            _ => unreachable!(),
+                        };
+                        let a_track = &self.tracks[id(a)];
+                        let b_track = &self.tracks[id(b)];
+                        track_title_key(a_track).cmp(&track_title_key(b_track))
+                    });
+                }
+                rows
+            }
             _ => Vec::new(),
+        }
+    }
+
+    fn representative_artwork(
+        &self,
+        group: &Group,
+        name: &str,
+        artist: Option<&String>,
+    ) -> Option<usize> {
+        let mut candidates: Vec<(usize, &Track)> = self
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| match group {
+                Group::Artists => track.artist == name,
+                Group::Albums => track.album == name && artist.is_none_or(|a| &track.artist == a),
+                _ => false,
+            })
+            .collect();
+        candidates.sort_by(|(_, a), (_, b)| {
+            (
+                a.album.to_lowercase(),
+                a.album.as_str(),
+                a.title.to_lowercase(),
+                a.title.as_str(),
+                a.path.to_string_lossy(),
+            )
+                .cmp(&(
+                    b.album.to_lowercase(),
+                    b.album.as_str(),
+                    b.title.to_lowercase(),
+                    b.title.as_str(),
+                    b.path.to_string_lossy(),
+                ))
+        });
+        candidates
+            .iter()
+            .find(|(_, track)| !track.artwork.is_empty())
+            .map(|(id, _)| *id)
+    }
+
+    pub fn supports_letter_jump(&self) -> bool {
+        matches!(
+            self.navigation.current().screen,
+            Screen::Groups(Group::Artists | Group::Albums | Group::Genres | Group::Playlists)
+                | Screen::Artist(_)
+                | Screen::Songs(_)
+                | Screen::Search
+        )
+    }
+
+    pub fn jump_to_letter(&mut self, letter: char) -> bool {
+        if !letter.is_ascii_alphabetic() || !self.supports_letter_jump() {
+            return false;
+        }
+        let rows = self.rows();
+        if let Some(index) = rows.iter().position(|row| {
+            row.title
+                .chars()
+                .next()
+                .is_some_and(|c| c.eq_ignore_ascii_case(&letter))
+        }) {
+            self.navigation.select(index);
+            true
+        } else {
+            false
         }
     }
 
@@ -503,6 +633,11 @@ impl State {
                     return vec![Effect::Import];
                 }
             }
+            JumpToLetter => {
+                if self.supports_letter_jump() {
+                    self.notice = "Press A–Z to jump".into();
+                }
+            }
             Search => {
                 self.reference_open = false;
                 self.navigation.open(Screen::Search);
@@ -588,4 +723,18 @@ impl State {
         }
         Vec::new()
     }
+}
+
+fn track_title_key(track: &Track) -> (String, &str, String) {
+    (
+        track.title.to_lowercase(),
+        &track.title,
+        track.path.to_string_lossy().into_owned(),
+    )
+}
+
+fn sort_rows(rows: &mut [Row]) {
+    rows.sort_by(|a, b| {
+        (a.title.to_lowercase(), a.title.as_str()).cmp(&(b.title.to_lowercase(), b.title.as_str()))
+    });
 }

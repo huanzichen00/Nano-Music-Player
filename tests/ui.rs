@@ -533,5 +533,73 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         assert_eq!(is_filled(35.0), left_filled, "left at {progress}");
         assert_eq!(is_filled(195.0), right_filled, "right at {progress}");
     }
+    // The F prefix belongs to list navigation and consumes letters that otherwise control playback.
+    {
+        let mut controller = controller.borrow_mut();
+        let mut track = controller.state.tracks[1].clone();
+        track.path = directory.path().join("zebra.mp3");
+        track.title = "Zebra".into();
+        track.album = "Zebra Album".into();
+        track.artist = "Zebra Artist".into();
+        controller.state.merge_library(vec![track]);
+        controller
+            .state
+            .navigation
+            .open(nano_music_player::app::navigation::Screen::Songs(
+                nano_music_player::app::navigation::Filter::All,
+            ));
+        controller.execute(&ui, Action::FinishSearchEditing);
+    }
+    tap(&ui, "f");
+    tap(&ui, "z");
+    assert_eq!(ui.get_selected(), 20);
+    assert!(ui.get_list_scroll_y() < 0.0);
+    let shuffle = controller.borrow().state.shuffle;
+    tap(&ui, "f");
+    tap(&ui, "s"); // No title starts with S; must not shuffle.
+    assert_eq!(controller.borrow().state.shuffle, shuffle);
+    assert_eq!(ui.get_selected(), 20);
+    tap(&ui, "f");
+    tap(&ui, Key::Escape);
+    assert_eq!(ui.get_screen_title(), "Songs");
+    tap(&ui, "f");
+    primary(&ui, "f"); // Modified keys cancel the prefix and retain native search behavior.
+    assert!(ui.get_search_focused());
+    tap(&ui, "f");
+    tap(&ui, "z");
+    assert!(ui.get_search_text().ends_with("fz"));
+    tap(&ui, Key::Escape);
+    ui.invoke_command("home".into());
+    tap(&ui, "f");
+    tap(&ui, "l"); // F has no prefix effect on Home.
+    assert_eq!(ui.get_selected(), 1);
+    {
+        let mut controller = controller.borrow_mut();
+        controller
+            .state
+            .navigation
+            .open(nano_music_player::app::navigation::Screen::Groups(
+                nano_music_player::app::navigation::Group::Albums,
+            ));
+        controller.execute(&ui, Action::FinishSearchEditing);
+    }
+    assert!(ui.get_rows().row_data(0).unwrap().show_artwork);
+    assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
+    snapshot(&ui, "album-thumbnails");
+    tap(&ui, "f");
+    tap(&ui, "z");
+    assert_eq!(ui.get_selected(), 1);
+    {
+        let mut controller = controller.borrow_mut();
+        controller
+            .state
+            .navigation
+            .open(nano_music_player::app::navigation::Screen::Groups(
+                nano_music_player::app::navigation::Group::Artists,
+            ));
+        controller.execute(&ui, Action::FinishSearchEditing);
+    }
+    snapshot(&ui, "artist-thumbnails");
+    assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
     ui.hide().unwrap();
 }

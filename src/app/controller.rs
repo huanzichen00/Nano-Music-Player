@@ -14,7 +14,7 @@ use crate::{
     ui::{AppWindow, LibraryRow, ShortcutRow},
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
-use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
 
 pub struct Controller {
     pub state: State,
@@ -36,6 +36,8 @@ pub struct Controller {
     last_window_size: slint::LogicalSize,
     last_notice: String,
     notice_since: std::time::Instant,
+    letter_jump: Option<(std::time::Instant, Screen)>,
+    thumbnails: HashMap<usize, slint::Image>,
     shortcut_edit: Option<Action>,
     shortcut_capture: Option<bool>,
 }
@@ -75,6 +77,8 @@ impl Controller {
             last_window_size: slint::LogicalSize::new(0.0, 0.0),
             last_notice: String::new(),
             notice_since: std::time::Instant::now(),
+            letter_jump: None,
+            thumbnails: HashMap::new(),
             shortcut_edit: None,
             shortcut_capture: None,
         }
@@ -173,6 +177,33 @@ impl Controller {
             reference_open: self.state.reference_open,
             native_dialog: self.dialog_open,
         };
+        if text_input || self.dialog_open || self.state.reference_open {
+            self.letter_jump = None;
+        }
+        if self.letter_jump.as_ref().is_some_and(|(since, screen)| {
+            since.elapsed().as_secs_f32() >= 3.0
+                || *screen != self.state.navigation.current().screen
+        }) {
+            self.letter_jump = None;
+        }
+        if self.letter_jump.is_some() && press.repeat {
+            return true;
+        }
+        if self.letter_jump.take().is_some()
+            && !press.modifiers.primary
+            && !press.modifiers.secondary
+            && !press.modifiers.alt
+        {
+            self.state.notice.clear();
+            if let Key::Letter(letter) = press.key {
+                if !self.state.jump_to_letter(letter) {
+                    self.state.notice = format!("No entries for {}", letter.to_ascii_uppercase());
+                }
+                ui.set_keyboard_navigation(true);
+            }
+            self.sync(ui);
+            return true;
+        }
         match self.dispatcher.dispatch(&press, context) {
             Dispatch::Ignored => false,
             Dispatch::Consumed => true,
@@ -187,6 +218,14 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        self.letter_jump = if action == Action::JumpToLetter && self.state.supports_letter_jump() {
+            Some((
+                std::time::Instant::now(),
+                self.state.navigation.current().screen.clone(),
+            ))
+        } else {
+            None
+        };
         let effects = self.state.apply(action);
         self.sync(ui);
         self.effects(ui, effects);
@@ -307,6 +346,7 @@ impl Controller {
             match result {
                 Ok(tracks) => {
                     self.state.merge_library(tracks);
+                    self.thumbnails.clear();
                     self.rows_dirty = true;
                 }
                 Err(message) => self.state.notice = message,
@@ -329,6 +369,7 @@ impl Controller {
             match result {
                 Ok(Some(result)) => {
                     self.state.merge_library(result.tracks);
+                    self.thumbnails.clear();
                     self.rows_dirty = true;
                     self.last_track = None;
                     self.state.notice = format!(
@@ -479,6 +520,26 @@ impl Controller {
                     } else {
                         row.subtitle.into()
                     },
+                    artwork: row
+                        .artwork_id
+                        .map(|id| {
+                            self.thumbnails
+                                .entry(id)
+                                .or_insert_with(|| {
+                                    decode_artwork(
+                                        &self.state.tracks[id].artwork,
+                                        (36.0 * 3.0 * ui.window().scale_factor()).ceil() as u32,
+                                    )
+                                })
+                                .clone()
+                        })
+                        .unwrap_or_default(),
+                    show_artwork: matches!(
+                        screen,
+                        Screen::Groups(
+                            super::navigation::Group::Artists | super::navigation::Group::Albums
+                        ) | Screen::Artist(_)
+                    ),
                     chevron: !matches!(row.target, Target::Play(_)),
                 })
                 .collect::<Vec<_>>();
@@ -527,15 +588,10 @@ impl Controller {
             ui.set_track_artist(track.map_or("", |t| t.artist.as_str()).into());
             ui.set_track_album(track.map_or("", |t| t.album.as_str()).into());
             let artwork = track
-                .and_then(|t| image::load_from_memory(&t.artwork).ok())
-                .map(|image| {
-                    let image = image.thumbnail(480, 480).to_rgba8();
-                    slint::Image::from_rgba8(
-                        slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                            image.as_raw(),
-                            image.width(),
-                            image.height(),
-                        ),
+                .map(|t| {
+                    decode_artwork(
+                        &t.artwork,
+                        (240.0 * 3.0 * ui.window().scale_factor()).ceil() as u32,
                     )
                 })
                 .unwrap_or_default();
@@ -704,4 +760,20 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
 fn format_time(seconds: f64) -> String {
     let seconds = seconds.max(0.0) as u64;
     format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
+fn decode_artwork(bytes: &[u8], resolution: u32) -> slint::Image {
+    image::load_from_memory(bytes)
+        .ok()
+        .map(|image| {
+            let image = image.thumbnail(resolution, resolution).to_rgba8();
+            slint::Image::from_rgba8(
+                slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                    image.as_raw(),
+                    image.width(),
+                    image.height(),
+                ),
+            )
+        })
+        .unwrap_or_default()
 }

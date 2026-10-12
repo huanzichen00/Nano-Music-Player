@@ -110,9 +110,10 @@ pub struct Keymap {
 impl Default for Keymap {
     fn default() -> Self {
         use Action::{
-            Activate, Back, CycleRepeat, DeviceMode, Home, ImportFolder, NextTrack, NowPlaying,
-            PreviousTrack, ScreenMode, Search, SelectNext, SelectPrevious, ToggleLyrics,
-            ToggleMute, TogglePlay, ToggleShuffle, VolumeDown, VolumeUp, ZoomIn, ZoomOut,
+            Activate, Back, CycleRepeat, DeviceMode, Home, ImportFolder, JumpToLetter, NextTrack,
+            NowPlaying, PreviousTrack, ScreenMode, Search, SelectNext, SelectPrevious,
+            ToggleLyrics, ToggleMute, TogglePlay, ToggleShuffle, VolumeDown, VolumeUp, ZoomIn,
+            ZoomOut,
         };
         use Key::*;
         let plain = [
@@ -133,6 +134,7 @@ impl Default for Keymap {
             (Letter('r'), CycleRepeat),
             (Letter('n'), NowPlaying),
             (Letter('y'), ToggleLyrics),
+            (Letter('f'), JumpToLetter),
         ];
         let primary = [
             (Right, NextTrack),
@@ -149,14 +151,14 @@ impl Default for Keymap {
             (Character(','), Action::Settings),
         ];
         Self {
-            version: 3,
+            version: 4,
             bindings: plain
                 .into_iter()
                 .map(|(key, action)| Binding {
                     action,
                     key,
                     modifiers: Modifiers::default(),
-                    optional_shift: false,
+                    optional_shift: action == JumpToLetter,
                 })
                 .chain(primary.into_iter().map(|(key, action)| Binding {
                     optional_shift: matches!(key, Plus | Equals),
@@ -183,7 +185,7 @@ impl Default for Keymap {
 
 impl Keymap {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.version, 1..=3) {
+        if !matches!(self.version, 1..=4) {
             return Err(format!(
                 "Unsupported shortcut file version: {}",
                 self.version
@@ -229,7 +231,9 @@ impl Keymap {
                     .map_err(|e| format!("Invalid shortcuts.json: {e}"))?;
             map.validate()?;
             // Upgrade only exact shipped defaults. User-edited maps are preserved.
-            let mut v2 = Self::default();
+            let mut v3 = Self::default();
+            v3.bindings.retain(|b| b.action != Action::JumpToLetter);
+            let mut v2 = v3.clone();
             for binding in &mut v2.bindings {
                 if binding.key == Key::Letter('h') && !binding.modifiers.shift {
                     binding.action = Action::Back;
@@ -257,6 +261,9 @@ impl Keymap {
                 || (map.version == 2
                     && map.bindings.len() == v2.bindings.len()
                     && map.bindings.iter().all(|b| v2.bindings.contains(b)))
+                || (map.version == 3
+                    && map.bindings.len() == v3.bindings.len()
+                    && map.bindings.iter().all(|b| v3.bindings.contains(b)))
             {
                 map = Self::default();
                 map.save(path)?;
@@ -290,7 +297,7 @@ impl Keymap {
         replace: bool,
     ) -> Result<Self, String> {
         let mut map = self.clone();
-        map.version = 3;
+        map.version = 4;
         if replace {
             map.bindings.retain(|b| b.action != action);
         }

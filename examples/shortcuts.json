@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "bindings": [
     {
       "action": "select_previous",
@@ -360,6 +360,19 @@
         "shift": false
       },
       "optional_shift": false
+    },
+    {
+      "action": "jump_to_letter",
+      "key": {
+        "letter": "f"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": true
     }
   ]
 }
