@@ -15,7 +15,7 @@ Decisions: one 240×432 LCD coordinate system. Device shell 296×571.818 logical
 
 Acceptance: square, portrait, and landscape covers retain all edges; 0/25/100% fills start at the left; content stays proportional at multiple sizes and in both modes; lyrics appear without a button press; no overlapping controls. Run fmt, check, core/UI tests, inspect rendered screenshots, commit verified phase.
 
-## Phase 2 — Lyrics associations (pending)
+## Phase 2 — Lyrics associations (verified)
 
 Decisions: independent SQLite table keyed by audio path, with manual source path + cached parsed content or explicit removal tombstone. Manual content outranks sidecar and embedded content across rescans/restarts. Discover same-stem sidecars case-insensitively, LRC before TXT; refresh automatically on startup/import. File dialog work stays off the UI thread. Import/replace/remove/use-automatic commands target the selected song in a song list, otherwise the playing song. TXT is literal scrollable text; LRC uses existing timestamp/offset parser and playback position for highlighting, including backward seeks.
 
@@ -44,4 +44,5 @@ Acceptance: bundle ID verified, rule documented against official AeroSpace docs,
 - Checkpoint: `cargo test --all-targets` — 42 core + 15 format + 1 UI tests pass.
 - Manual has malformed cross-reference hints; Poppler recovered text and rendered relevant pages successfully.
 - Phase 1: fmt + cargo check + UI test pass. Added rendered pixel checks for portrait/landscape/square artwork and 0/25/100% progress, resize checks across both modes, default-lyrics assertion. Visually inspected lyrics overlay against manual page 18 and photograph 4.
+- Phase 2: fmt/check and 64 tests pass (42 core, 15 codecs, 6 association, 1 comprehensive UI). Worker-load regressions cover sidecar changes, deleted manual source, changed audio, removal tombstone and reset. UI regressions cover real remove/reset effects and seek highlight/scroll; wrapped rows use measured Slint heights. Inspected plain and synced lyrics screenshots.
 - No current blockers. Native Windows/Linux validation unavailable on this macOS host.

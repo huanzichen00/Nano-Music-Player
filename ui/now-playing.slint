@@ -74,20 +74,27 @@ export component NowPlayingView inherits Rectangle {
                 }
                 if root.repeat-mode == "One": Text { x: 25px * root.s; y: 12px * root.s; width: 10px * root.s; height: 12px * root.s; text: "1"; color: #94eeff; font-size: 8px * root.s; font-weight: 700; horizontal-alignment: center; }
             }
-            if root.lyrics-visible: Flickable {
+            if root.lyrics-visible: lyrics-scroll := Flickable {
                 y: 102px * root.s; height: parent.height - self.y;
-                content-height: max(self.height, root.lyric-lines.length * 32px * root.s);
+                content-height: max(self.height, words.preferred-height);
                 content-y <=> root.lyric-scroll-y;
                 // Taps dismiss the overlay; wheel and touch drags only scroll the lyrics.
-                TouchArea { width: art.width; height: max(138px * root.s, root.lyric-lines.length * 32px * root.s); mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
-                for line[index] in root.lyric-lines: Rectangle {
-                    y: index * 32px * root.s; width: art.width; height: 32px * root.s;
-                    background: root.active-lyric == index ? #ffffff12 : transparent;
-                    Text {
-                        x: 10px * root.s; width: parent.width - 20px * root.s; height: parent.height;
-                        text: line; color: root.active-lyric == index ? white : #eef0f5;
-                        font-weight: 600; font-size: 13px * root.s; wrap: word-wrap;
-                        horizontal-alignment: left; vertical-alignment: center;
+                TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
+                words := VerticalLayout {
+                    x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
+                    for line[index] in root.lyric-lines: Rectangle {
+                        min-height: max(32px * root.s, lyric-text.preferred-height + 10px * root.s);
+                        property <bool> active: root.active-lyric == index;
+                        changed active => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
+                        changed y => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
+                        background: self.active ? #ffffff18 : transparent;
+                        lyric-text := Text {
+                            x: 10px * root.s; y: 5px * root.s; width: parent.width - 20px * root.s;
+                            text: line; color: parent.active ? white : #eef0f5;
+                            font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
+                            horizontal-alignment: left;
+                        }
+                        TouchArea { mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
                     }
                 }
                 if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: "No lyrics available"; font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }

@@ -32,6 +32,10 @@ pub enum Effect {
     Resize,
     EditShortcut(Action),
     RestoreShortcuts,
+    EditLyrics {
+        id: usize,
+        command: crate::library::scanner::LyricsCommand,
+    },
 }
 
 pub struct State {
@@ -120,6 +124,22 @@ impl State {
                 },
                 row("Zoom In", Target::Action(Action::ZoomIn)),
                 row("Zoom Out", Target::Action(Action::ZoomOut)),
+                row("Lyrics for Track", Target::Action(Action::ManageLyrics)),
+            ],
+            Screen::Lyrics(id) => vec![
+                Row {
+                    title: "Import / Replace Lyrics…".into(),
+                    subtitle: self
+                        .tracks
+                        .get(*id)
+                        .map_or_else(String::new, |t| t.title.clone()),
+                    target: Target::Action(Action::ImportLyrics),
+                },
+                row("Remove Lyrics", Target::Action(Action::RemoveLyrics)),
+                row(
+                    "Use Automatic Lyrics",
+                    Target::Action(Action::AutomaticLyrics),
+                ),
             ],
             Screen::Shortcuts => Action::CUSTOMIZABLE
                 .iter()
@@ -235,6 +255,20 @@ impl State {
         }
         let max = self.selection_count().saturating_sub(1);
         self.navigation.select(self.navigation.selected().min(max));
+    }
+
+    pub fn lyrics_target(&self) -> Option<usize> {
+        match self.navigation.current().screen {
+            Screen::Lyrics(id) => Some(id),
+            Screen::Songs(_) | Screen::Search => self
+                .rows()
+                .get(self.navigation.selected())
+                .and_then(|row| match row.target {
+                    Target::Play(id) => Some(id),
+                    _ => None,
+                }),
+            _ => self.current,
+        }
     }
 
     pub fn effective_volume(&self) -> f32 {
@@ -512,6 +546,27 @@ impl State {
             }
             Shortcuts => self.navigation.open(Screen::Shortcuts),
             RestoreShortcuts => return vec![Effect::RestoreShortcuts],
+            ManageLyrics => {
+                if let Some(id) = self.lyrics_target() {
+                    self.navigation.open(Screen::Lyrics(id));
+                } else {
+                    self.notice = "Choose a song first".into();
+                }
+            }
+            ImportLyrics | RemoveLyrics | AutomaticLyrics => {
+                if let Some(id) = self.lyrics_target() {
+                    use crate::library::scanner::LyricsCommand;
+                    return vec![Effect::EditLyrics {
+                        id,
+                        command: match action {
+                            ImportLyrics => LyricsCommand::Import,
+                            RemoveLyrics => LyricsCommand::Remove,
+                            _ => LyricsCommand::Automatic,
+                        },
+                    }];
+                }
+                self.notice = "Choose a song first".into();
+            }
             TrackList => {
                 if let Some(track) = self.current.and_then(|id| self.tracks.get(id)) {
                     self.navigation.open(Screen::Songs(Filter::Album {

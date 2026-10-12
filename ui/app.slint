@@ -75,6 +75,7 @@ export component AppWindow inherits Window {
         Menu {
             title: "File";
             MenuItem { title: "Import Music Folder…"; activated => { root.command("import_folder"); } }
+            MenuItem { title: "Import / Replace Lyrics…"; activated => { root.command("import_lyrics"); } }
             MenuItem { title: "Search Library…"; activated => { root.command("search"); } }
             MenuItem { title: "Quit"; activated => { root.close(); } }
         }
@@ -84,7 +85,7 @@ export component AppWindow inherits Window {
             MenuItem { title: "Next Track"; activated => { root.command("next_track"); } }
             MenuItem { title: "Previous Track"; activated => { root.command("previous_track"); } }
             MenuItem { title: "Now Playing"; activated => { root.command("now_playing"); } }
-            MenuItem { title: "Lyrics"; activated => { root.command("toggle_lyrics"); } }
+            MenuItem { title: "Lyrics for Track…"; activated => { root.command("manage_lyrics"); } }
         }
         Menu {
             title: "View";
@@ -157,10 +158,10 @@ export component AppWindow inherits Window {
                 }
             }
             library := LibraryView {
-                visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6;
-                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6) && !root.reference-open && !root.shortcut-editor-open;
+                visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7;
+                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7) && !root.reference-open && !root.shortcut-editor-open;
                 y: 64px * root.s; height: 368px * root.s; s: root.s;
-                compact-title: root.screen == 5 || root.screen == 6; rows: root.rows; selected: root.selected; search: root.screen == 3;
+                compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 edited(text) => { root.query-changed(text); }

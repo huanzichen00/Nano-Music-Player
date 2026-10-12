@@ -27,6 +27,7 @@ pub enum Screen {
     NowPlaying,
     Settings,
     Shortcuts,
+    Lyrics(usize),
     Placeholder(String),
 }
 
@@ -47,6 +48,7 @@ impl Screen {
             Self::NowPlaying => "Now Playing",
             Self::Settings => "Settings",
             Self::Shortcuts => "Shortcuts",
+            Self::Lyrics(_) => "Lyrics for Track",
         }
     }
 }

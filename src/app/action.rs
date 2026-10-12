@@ -39,6 +39,10 @@ pub enum Action {
     Shortcuts,
     RestoreShortcuts,
     TrackList,
+    ManageLyrics,
+    ImportLyrics,
+    RemoveLyrics,
+    AutomaticLyrics,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +86,13 @@ impl Action {
             | Self::ZoomOut
             | Self::ShowShortcuts
             | Self::CloseShortcuts => Category::Application,
-            Self::Settings | Self::Shortcuts | Self::RestoreShortcuts => Category::Application,
+            Self::Settings
+            | Self::Shortcuts
+            | Self::RestoreShortcuts
+            | Self::ManageLyrics
+            | Self::ImportLyrics
+            | Self::RemoveLyrics
+            | Self::AutomaticLyrics => Category::Application,
             _ => Category::Navigation,
         }
     }
@@ -141,6 +151,10 @@ impl Action {
             Self::Settings => "Open Settings",
             Self::Shortcuts => "Customize shortcuts",
             Self::RestoreShortcuts => "Restore default shortcuts",
+            Self::ManageLyrics => "Lyrics for Track",
+            Self::ImportLyrics => "Import / Replace Lyrics…",
+            Self::RemoveLyrics => "Remove Lyrics",
+            Self::AutomaticLyrics => "Use Automatic Lyrics",
             Self::TrackList => "Album track list",
         }
     }
@@ -172,6 +186,10 @@ impl Action {
         Self::ImportFolder,
         Self::Search,
         Self::Settings,
+        Self::ManageLyrics,
+        Self::ImportLyrics,
+        Self::RemoveLyrics,
+        Self::AutomaticLyrics,
         Self::DeviceMode,
         Self::ScreenMode,
         Self::ZoomIn,

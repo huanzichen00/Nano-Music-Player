@@ -1,8 +1,15 @@
-use super::Track;
+use super::{Track, lyrics::Lyrics};
 use rusqlite::{Connection, params};
 use std::path::Path;
 
 pub struct Database(Connection);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LyricsAssociation {
+    Automatic,
+    Manual { source: String, lyrics: Lyrics },
+    Removed,
+}
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self, String> {
@@ -11,6 +18,8 @@ impl Database {
         }
         let connection = Connection::open(path).map_err(|e| e.to_string())?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS tracks (path TEXT PRIMARY KEY, modified INTEGER NOT NULL, metadata BLOB NOT NULL);")
+            .map_err(|e| e.to_string())?;
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS lyrics_override (audio_path TEXT PRIMARY KEY, source_path TEXT, lyrics BLOB, removed INTEGER NOT NULL DEFAULT 0);")
             .map_err(|e| e.to_string())?;
         Ok(Self(connection))
     }
@@ -56,4 +65,67 @@ impl Database {
             .map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    pub fn set_manual_lyrics(
+        &self,
+        audio: &Path,
+        source: &Path,
+        lyrics: &Lyrics,
+    ) -> Result<(), String> {
+        if lyrics.is_empty() {
+            return Err("lyrics file is empty or invalid".into());
+        }
+        let bytes = serde_json::to_vec(lyrics).map_err(|e| e.to_string())?;
+        self.0.execute("INSERT OR REPLACE INTO lyrics_override(audio_path, source_path, lyrics, removed) VALUES (?, ?, ?, 0)",
+            params![audio.to_string_lossy(), source.to_string_lossy(), bytes]).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn remove_lyrics(&self, audio: &Path) -> Result<(), String> {
+        self.0.execute("INSERT OR REPLACE INTO lyrics_override(audio_path, source_path, lyrics, removed) VALUES (?, NULL, NULL, 1)",
+            [audio.to_string_lossy()]).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn use_automatic_lyrics(&self, audio: &Path) -> Result<(), String> {
+        self.0
+            .execute(
+                "DELETE FROM lyrics_override WHERE audio_path = ?",
+                [audio.to_string_lossy()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn lyrics_association(&self, audio: &Path) -> Result<LyricsAssociation, String> {
+        let row: Option<(Option<String>, Option<Vec<u8>>, bool)> = self
+            .0
+            .query_row(
+                "SELECT source_path, lyrics, removed FROM lyrics_override WHERE audio_path = ?",
+                [audio.to_string_lossy()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? != 0)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        match row {
+            None => Ok(LyricsAssociation::Automatic),
+            Some((_, _, true)) => Ok(LyricsAssociation::Removed),
+            Some((source, Some(data), false)) => Ok(LyricsAssociation::Manual {
+                source: source.unwrap_or_default(),
+                lyrics: serde_json::from_slice(&data).map_err(|e| e.to_string())?,
+            }),
+            Some(_) => Ok(LyricsAssociation::Automatic),
+        }
+    }
+
+    pub fn apply_lyrics(&self, track: &mut Track) -> Result<(), String> {
+        match self.lyrics_association(&track.path)? {
+            LyricsAssociation::Automatic => {}
+            LyricsAssociation::Removed => track.lyrics = Lyrics::default(),
+            LyricsAssociation::Manual { lyrics, .. } => track.lyrics = lyrics,
+        }
+        Ok(())
+    }
 }
+
+use rusqlite::OptionalExtension;

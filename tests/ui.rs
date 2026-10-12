@@ -7,7 +7,7 @@ use nano_music_player::{
     ui::AppWindow,
 };
 use slint::{
-    ComponentHandle,
+    ComponentHandle, Model,
     platform::{Key, WindowEvent},
 };
 use std::{cell::RefCell, rc::Rc};
@@ -245,6 +245,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         ui.get_lyrics_visible(),
         "scrolling lyrics does not toggle artwork"
     );
+    snapshot(&ui, "lyrics-scrolled");
     click(&ui, 120.0, 200.0);
     assert!(
         !ui.get_lyrics_visible(),
@@ -399,6 +400,82 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert!(!ui.get_lyrics_visible());
     assert!(!ui.get_overlay_visible());
     snapshot(&ui, "cover-with-artwork");
+    // Per-track lyrics management operates on the chosen track, persists removal and restores sidecars.
+    let audio_path = directory.path().join("lyrics-track.mp3");
+    std::fs::copy("tests/fixtures/quiet.mp3", &audio_path).unwrap();
+    std::fs::write(
+        audio_path.with_extension("txt"),
+        "Original plain text\n\nAnother line",
+    )
+    .unwrap();
+    {
+        let mut controller = controller.borrow_mut();
+        controller.state.tracks[1].path = audio_path.clone();
+        let db = nano_music_player::library::database::Database::open(
+            &directory.path().join("library.sqlite3"),
+        )
+        .unwrap();
+        db.save(&controller.state.tracks[1], 0).unwrap();
+        controller.execute(&ui, Action::ManageLyrics);
+    }
+    assert_eq!(ui.get_screen(), 7);
+    assert_eq!(ui.get_rows().row_count(), 3);
+    snapshot(&ui, "manage-lyrics");
+    ui.invoke_command("remove_lyrics".into());
+    for _ in 0..100 {
+        controller.borrow_mut().poll(&ui);
+        if controller.borrow().state.tracks[1].lyrics.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(controller.borrow().state.tracks[1].lyrics.is_empty());
+    assert_eq!(
+        nano_music_player::library::database::Database::open(
+            &directory.path().join("library.sqlite3")
+        )
+        .unwrap()
+        .lyrics_association(&audio_path)
+        .unwrap(),
+        nano_music_player::library::database::LyricsAssociation::Removed
+    );
+    ui.invoke_command("automatic_lyrics".into());
+    for _ in 0..100 {
+        controller.borrow_mut().poll(&ui);
+        if !controller.borrow().state.tracks[1].lyrics.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(
+        controller.borrow().state.tracks[1].lyrics.lines(),
+        ["Original plain text", "", "Another line"]
+    );
+    controller.borrow_mut().execute(&ui, Action::NowPlaying);
+    assert!(ui.get_lyrics_visible());
+    assert!(!ui.get_timed_lyrics());
+    snapshot(&ui, "plain-lyrics");
+    // Seek synchronizes both highlight and scrolling back to the start.
+    {
+        let mut controller = controller.borrow_mut();
+        controller.state.tracks[1].lyrics = Lyrics::parse(
+            "[00:00]First\n[00:10]A longer second line which wraps across several lines in the small display\n[00:20]Third\n[00:30]Fourth\n[00:40]Fifth\n[00:50]Sixth",
+        );
+        controller.state.current = None;
+        controller.execute(&ui, Action::NowPlaying);
+        controller.state.start(1);
+        controller.state.position = 51.0;
+        controller.execute(&ui, Action::NowPlaying);
+    }
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    let _ = ui.window().take_snapshot().unwrap();
+    assert_eq!(ui.get_active_lyric(), 5);
+    assert!(ui.get_lyric_scroll_y() < 0.0);
+    ui.invoke_seek_changed(0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    assert_eq!(ui.get_active_lyric(), 0);
+    assert_eq!(ui.get_lyric_scroll_y(), 0.0);
+
     // Geometry regression: arbitrary user resizes converge to the same logical proportions.
     for mode in [Action::ScreenMode, Action::DeviceMode] {
         controller.borrow_mut().execute(&ui, mode);

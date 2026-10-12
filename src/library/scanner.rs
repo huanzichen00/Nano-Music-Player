@@ -62,11 +62,10 @@ pub fn import(database_path: PathBuf) -> Receiver<ImportEvent> {
                     }
                     use std::hash::{Hash, Hasher};
                     let mut stamp = std::collections::hash_map::DefaultHasher::new();
-                    for file in [
-                        path.to_path_buf(),
-                        path.with_extension("lrc"),
-                        path.with_extension("LRC"),
-                    ] {
+                    for file in std::iter::once(path.to_path_buf())
+                        .chain(super::lyrics::sidecar_candidates(path))
+                    {
+                        file.to_string_lossy().hash(&mut stamp);
                         if let Ok(metadata) = file.metadata() {
                             metadata.len().hash(&mut stamp);
                             metadata
@@ -77,7 +76,7 @@ pub fn import(database_path: PathBuf) -> Receiver<ImportEvent> {
                         }
                     }
                     let modified = stamp.finish() & i64::MAX as u64;
-                    let track = if let Some(track) = database.cached(path, modified) {
+                    let mut track = if let Some(track) = database.cached(path, modified) {
                         track
                     } else {
                         match read_track(path.to_path_buf()) {
@@ -91,6 +90,7 @@ pub fn import(database_path: PathBuf) -> Receiver<ImportEvent> {
                             }
                         }
                     };
+                    database.apply_lyrics(&mut track)?;
                     if let Some(existing) = tracks.iter_mut().find(|t| t.path == track.path) {
                         *existing = track;
                     } else {
@@ -109,7 +109,19 @@ pub fn import(database_path: PathBuf) -> Receiver<ImportEvent> {
 pub fn load(database_path: PathBuf) -> Receiver<Result<Vec<Track>, String>> {
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
-        let _ = sender.send(Database::open(&database_path).and_then(|db| db.load()));
+        let result = Database::open(&database_path).and_then(|db| {
+            let mut tracks = db.load()?;
+            for track in &mut tracks {
+                // Refresh automatic sidecars on startup. read_track falls back to the original
+                // audio tags when a sidecar has been removed; manual overrides remain authoritative.
+                let mut refreshed =
+                    read_track(track.path.clone()).unwrap_or_else(|_| track.clone());
+                db.apply_lyrics(&mut refreshed)?;
+                *track = refreshed;
+            }
+            Ok(tracks)
+        });
+        let _ = sender.send(result);
     });
     receiver
 }
@@ -156,4 +168,57 @@ pub fn read_track(path: PathBuf) -> Result<Track, String> {
         path,
         lyrics,
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum LyricsCommand {
+    Import,
+    Remove,
+    Automatic,
+}
+
+pub struct LyricsUpdate {
+    pub path: PathBuf,
+    pub lyrics: super::lyrics::Lyrics,
+}
+
+/// Dialogs, parsing and persistent association changes are performed on a worker.
+pub fn edit_lyrics(
+    database_path: PathBuf,
+    path: PathBuf,
+    command: LyricsCommand,
+    title: String,
+) -> Receiver<Result<Option<LyricsUpdate>, String>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let result = (|| {
+            let db = Database::open(&database_path)?;
+            let lyrics = match command {
+                LyricsCommand::Import => {
+                    let Some(source) = rfd::FileDialog::new()
+                        .set_title(&title)
+                        .add_filter("Lyrics", &["lrc", "txt"])
+                        .pick_file()
+                    else {
+                        return Ok(None);
+                    };
+                    let lyrics = super::lyrics::read_source(&source)?;
+                    db.set_manual_lyrics(&path, &source, &lyrics)?;
+                    lyrics
+                }
+                LyricsCommand::Remove => {
+                    db.remove_lyrics(&path)?;
+                    super::lyrics::Lyrics::default()
+                }
+                LyricsCommand::Automatic => {
+                    let lyrics = read_track(path.clone())?.lyrics;
+                    db.use_automatic_lyrics(&path)?;
+                    lyrics
+                }
+            };
+            Ok(Some(LyricsUpdate { path, lyrics }))
+        })();
+        let _ = sender.send(result);
+    });
+    receiver
 }

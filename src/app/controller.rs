@@ -24,6 +24,7 @@ pub struct Controller {
     settings: Settings,
     loading: Option<Receiver<Result<Vec<Track>, String>>>,
     importing: Option<Receiver<scanner::ImportEvent>>,
+    lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
     dialog_open: bool,
     last_screen: Option<Screen>,
     last_query: String,
@@ -62,6 +63,7 @@ impl Controller {
             settings,
             loading,
             importing: None,
+            lyrics_edit: None,
             dialog_open: false,
             last_screen: None,
             last_query: String::new(),
@@ -218,6 +220,20 @@ impl Controller {
                     self.sync_editor(ui);
                     ui.invoke_focus_screen();
                 }
+                Effect::EditLyrics { id, command } => {
+                    if self.dialog_open || self.lyrics_edit.is_some() {
+                        continue;
+                    }
+                    if let Some(track) = self.state.tracks.get(id) {
+                        self.dialog_open = true;
+                        self.lyrics_edit = Some(scanner::edit_lyrics(
+                            self.directory.join("library.sqlite3"),
+                            track.path.clone(),
+                            command,
+                            "Import Lyrics".into(),
+                        ));
+                    }
+                }
                 Effect::RestoreShortcuts => {
                     if self.commit_keymap(ui, Ok(Keymap::default())) {
                         self.state.notice = "Default shortcuts restored".into();
@@ -329,6 +345,37 @@ impl Controller {
                 Err(message) => self.state.notice = format!("Import failed: {message}"),
             }
         }
+        if let Some(result) = self
+            .lyrics_edit
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok())
+        {
+            self.lyrics_edit = None;
+            self.dialog_open = false;
+            match result {
+                Ok(Some(update)) => {
+                    if let Some((id, track)) = self
+                        .state
+                        .tracks
+                        .iter_mut()
+                        .enumerate()
+                        .find(|(_, track)| track.path == update.path)
+                    {
+                        track.lyrics = update.lyrics;
+                        if self.state.current == Some(id) {
+                            self.state.lyrics_visible = !track.lyrics.is_empty();
+                            self.state.overlay_visible = self.state.lyrics_visible;
+                            self.last_track = None;
+                        }
+                    }
+                    self.state.notice = "Lyrics updated".into();
+                }
+                Ok(None) => self.state.notice = "Import cancelled".into(),
+                Err(error) => self.state.notice = format!("Lyrics import failed: {error}"),
+            }
+            self.rows_dirty = true;
+            ui.invoke_focus_screen();
+        }
         while let Ok(event) = self.engine.events.try_recv() {
             match event {
                 AudioEvent::Progress {
@@ -367,6 +414,7 @@ impl Controller {
             Screen::Placeholder(_) => 4,
             Screen::Settings => 5,
             Screen::Shortcuts => 6,
+            Screen::Lyrics(_) => 7,
             _ => 1,
         });
         ui.set_screen_title(screen.title().into());
@@ -455,6 +503,7 @@ impl Controller {
                     | Screen::Search
                     | Screen::Settings
                     | Screen::Shortcuts
+                    | Screen::Lyrics(_)
             ) {
                 let row_y = self.state.navigation.selected() as f32 * 48.0 * scale;
                 let visible_height = if *screen == Screen::Search {
@@ -506,10 +555,10 @@ impl Controller {
         if self.state.lyrics_visible
             && (active != self.last_lyric || (scale - self.last_scale).abs() > 0.01)
         {
-            if let Some(index) = active {
-                // Keep one previous line visible in the compact lyric overlay.
-                ui.set_lyric_scroll_y(-(index.saturating_sub(1) as f32 * 32.0 * scale));
+            if active.is_none() {
+                ui.set_lyric_scroll_y(0.0);
             }
+            // Slint scrolls to the measured row position, including wrapped plain/LRC lines.
             self.last_lyric = active;
         }
         self.last_scale = scale;

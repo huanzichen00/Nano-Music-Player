@@ -7,13 +7,24 @@ pub struct Line {
     pub text: String,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Lyrics {
     pub timed: Vec<Line>,
     pub plain: Vec<String>,
 }
 
 impl Lyrics {
+    /// Preserve every line and character in a plain-text lyrics file.
+    pub fn plain_text(text: &str) -> Self {
+        let text = text.trim_start_matches('\u{feff}');
+        if text.trim().is_empty() {
+            return Self::default();
+        }
+        Self {
+            timed: Vec::new(),
+            plain: text.lines().map(str::to_owned).collect(),
+        }
+    }
     pub fn parse(text: &str) -> Self {
         let text = text.trim_start_matches('\u{feff}');
         // Reuse lrc's metadata handling and ordered timestamp collection. Normalize decimal
@@ -123,19 +134,97 @@ fn parse_time(tag: &str) -> Option<i64> {
 }
 
 pub fn sidecar(path: &Path) -> Option<Lyrics> {
-    let bytes = std::fs::read(path.with_extension("lrc"))
-        .or_else(|_| std::fs::read(path.with_extension("LRC")))
-        .ok()?;
-    let text = if bytes.starts_with(&[0xff, 0xfe]) {
+    let candidates = sidecar_candidates(path);
+    for candidate in candidates {
+        let Ok(bytes) = std::fs::read(&candidate) else {
+            continue;
+        };
+        let text = decode(&bytes);
+        let lyrics = if candidate
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+        {
+            Lyrics::plain_text(&text)
+        } else {
+            Lyrics::parse(&text)
+        };
+        if !lyrics.is_empty() {
+            return Some(lyrics);
+        }
+    }
+    None
+}
+
+pub fn sidecar_candidates(path: &Path) -> Vec<std::path::PathBuf> {
+    let Some(parent) = path.parent() else {
+        return Vec::new();
+    };
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    let mut lrc = Vec::new();
+    let mut txt = Vec::new();
+    for entry in entries.flatten() {
+        let candidate = entry.path();
+        let same_stem = candidate
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case(stem));
+        if !same_stem {
+            continue;
+        }
+        match candidate
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "lrc" => lrc.push(candidate),
+            "txt" => txt.push(candidate),
+            _ => {}
+        }
+    }
+    lrc.sort();
+    txt.sort();
+    lrc.extend(txt);
+    lrc
+}
+
+pub fn read_source(path: &Path) -> Result<Lyrics, String> {
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let text = decode(&bytes);
+    let lyrics = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("txt"))
+    {
+        Lyrics::plain_text(&text)
+    } else if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("lrc"))
+    {
+        Lyrics::parse(&text)
+    } else {
+        return Err("lyrics source must be an .lrc or .txt file".into());
+    };
+    if lyrics.is_empty() {
+        return Err("lyrics file is empty or invalid".into());
+    }
+    Ok(lyrics)
+}
+
+fn decode(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xff, 0xfe]) {
         encoding_rs::UTF_16LE.decode(&bytes).0.into_owned()
     } else if bytes.starts_with(&[0xfe, 0xff]) {
         encoding_rs::UTF_16BE.decode(&bytes).0.into_owned()
     } else {
-        String::from_utf8(bytes.clone())
-            .unwrap_or_else(|_| encoding_rs::GBK.decode(&bytes).0.into_owned())
-    };
-    let lyrics = Lyrics::parse(&text);
-    (!lyrics.is_empty()).then_some(lyrics)
+        String::from_utf8(bytes.to_vec())
+            .unwrap_or_else(|_| encoding_rs::GBK.decode(bytes).0.into_owned())
+    }
 }
 
 pub fn embedded_sylt(path: &Path) -> Option<Lyrics> {
