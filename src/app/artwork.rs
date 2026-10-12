@@ -4,8 +4,10 @@ use std::{
     thread,
 };
 
-const CACHE_ENTRIES: usize = 8;
+// Room for both a small preview and a finished cover for recent songs.
+const CACHE_ENTRIES: usize = 16;
 const CACHE_BYTES: u64 = 32 * 1024 * 1024;
+const PREVIEW_RESOLUTION: u32 = 96;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Key {
@@ -30,6 +32,7 @@ pub(super) struct ArtworkLoader {
     decoded: Receiver<Decoded>,
     cache: VecDeque<(Key, slint::Image)>,
     wanted: Option<Key>,
+    displayed_resolution: u32,
     generation: u64,
 }
 
@@ -38,13 +41,49 @@ impl Default for ArtworkLoader {
         let (requests, receiver) = mpsc::channel::<Request>();
         let (sender, decoded) = mpsc::channel();
         thread::spawn(move || {
-            while let Ok(request) = receiver.recv() {
+            let mut queued = None;
+            while let Some(request) = queued.take().or_else(|| receiver.recv().ok()) {
                 // Rapid Next/Previous presses only need the newest waiting cover.
                 let request = receiver.try_iter().last().unwrap_or(request);
-                let pixels = image::load_from_memory(&request.bytes).ok().map(|image| {
+                let mut original = None;
+                if request.key.resolution > PREVIEW_RESOLUTION {
+                    let preview =
+                        jpeg_thumbnail(&request.bytes, PREVIEW_RESOLUTION).or_else(|| {
+                            // PNG and other formats are decoded once, then reused for both sizes.
+                            original = image::load_from_memory(&request.bytes).ok();
+                            original.as_ref().map(|image| {
+                                image
+                                    .thumbnail(PREVIEW_RESOLUTION, PREVIEW_RESOLUTION)
+                                    .to_rgba8()
+                            })
+                        });
+                    if let Some(pixels) = preview
+                        && sender
+                            .send(Decoded {
+                                key: Key {
+                                    resolution: PREVIEW_RESOLUTION,
+                                    ..request.key
+                                },
+                                pixels: Some(pixels),
+                            })
+                            .is_err()
+                    {
+                        break;
+                    }
+                    // A new song takes priority over sharpening the previous song's preview.
+                    if let Some(request) = receiver.try_iter().last() {
+                        queued = Some(request);
+                        continue;
+                    }
+                }
+                let thumbnail = |image: image::DynamicImage| {
                     image
                         .thumbnail(request.key.resolution, request.key.resolution)
                         .to_rgba8()
+                };
+                let pixels = original.map(thumbnail).or_else(|| {
+                    jpeg_thumbnail(&request.bytes, request.key.resolution)
+                        .or_else(|| image::load_from_memory(&request.bytes).ok().map(thumbnail))
                 });
                 if sender
                     .send(Decoded {
@@ -62,6 +101,7 @@ impl Default for ArtworkLoader {
             decoded,
             cache: VecDeque::new(),
             wanted: None,
+            displayed_resolution: 0,
             generation: 0,
         }
     }
@@ -70,12 +110,29 @@ impl Default for ArtworkLoader {
 impl ArtworkLoader {
     pub fn cancel(&mut self) {
         self.wanted = None;
+        self.displayed_resolution = 0;
     }
 
     pub fn clear(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.cache.clear();
         self.wanted = None;
+        self.displayed_resolution = 0;
+    }
+
+    pub fn seed_preview(&mut self, track: usize, preview: Option<slint::Image>) {
+        let Some(image) = preview.filter(|image| image.size().width > 0) else {
+            return;
+        };
+        let size = image.size();
+        let key = Key {
+            generation: self.generation,
+            track,
+            resolution: size.width.max(size.height),
+        };
+        if !self.cache.iter().any(|(cached, _)| *cached == key) {
+            self.cache_image(key, image);
+        }
     }
 
     pub fn request(&mut self, track: usize, bytes: &[u8], resolution: u32) -> slint::Image {
@@ -85,19 +142,33 @@ impl ArtworkLoader {
             resolution: resolution.max(1),
         };
         let previous = self.wanted.replace(key);
-        if let Some(index) = self.cache.iter().position(|(cached, _)| *cached == key) {
+        let exact_cached = self.cache.iter().any(|(cached, _)| *cached == key);
+        let fallback = self
+            .cache
+            .iter()
+            .enumerate()
+            .filter(|(_, (cached, image))| {
+                cached.track == key.track
+                    && cached.generation == key.generation
+                    && image.size().width > 0
+            })
+            .max_by_key(|(_, (cached, _))| cached.resolution)
+            .map(|(index, _)| index);
+        let mut image = slint::Image::default();
+        self.displayed_resolution = 0;
+        if let Some(index) = fallback {
             let entry = self.cache.remove(index).unwrap();
-            let image = entry.1.clone();
+            self.displayed_resolution = entry.0.resolution;
+            image = entry.1.clone();
             self.cache.push_back(entry);
-            return image;
         }
-        if previous != Some(key) && !bytes.is_empty() {
+        if !exact_cached && previous != Some(key) && !bytes.is_empty() {
             let _ = self.requests.send(Request {
                 key,
                 bytes: bytes.to_vec(),
             });
         }
-        slint::Image::default()
+        image
     }
 
     pub fn poll(&mut self) -> Option<slint::Image> {
@@ -119,18 +190,30 @@ impl ArtworkLoader {
                     )
                 })
                 .unwrap_or_default();
-            if self.wanted == Some(decoded.key) {
+            let wanted = self.wanted.is_some_and(|wanted| {
+                wanted.track == decoded.key.track
+                    && wanted.generation == decoded.key.generation
+                    && (wanted == decoded.key
+                        || decoded.key.resolution >= self.displayed_resolution)
+            });
+            // A late preview must never downgrade a sharper cover, or clear it on decode failure.
+            if wanted && (image.size().width > 0 || self.displayed_resolution == 0) {
+                self.displayed_resolution = decoded.key.resolution;
                 current = Some(image.clone());
             }
-            if let Some(index) = self.cache.iter().position(|(key, _)| *key == decoded.key) {
-                self.cache.remove(index);
-            }
-            self.cache.push_back((decoded.key, image));
-            while self.cache.len() > CACHE_ENTRIES || self.cache_bytes() > CACHE_BYTES {
-                self.cache.pop_front();
-            }
+            self.cache_image(decoded.key, image);
         }
         current
+    }
+
+    fn cache_image(&mut self, key: Key, image: slint::Image) {
+        if let Some(index) = self.cache.iter().position(|(cached, _)| *cached == key) {
+            self.cache.remove(index);
+        }
+        self.cache.push_back((key, image));
+        while self.cache.len() > CACHE_ENTRIES || self.cache_bytes() > CACHE_BYTES {
+            self.cache.pop_front();
+        }
     }
 
     fn cache_bytes(&self) -> u64 {
@@ -142,6 +225,29 @@ impl ArtworkLoader {
             })
             .sum()
     }
+}
+
+fn jpeg_thumbnail(bytes: &[u8], resolution: u32) -> Option<image::RgbaImage> {
+    if !bytes.starts_with(&[0xff, 0xd8]) {
+        return None;
+    }
+    let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    let requested = u16::try_from(resolution).ok()?;
+    decoder.scale(requested, requested).ok()?;
+    let pixels = decoder.decode().ok()?;
+    let info = decoder.info()?;
+    let width = u32::from(info.width);
+    let height = u32::from(info.height);
+    let image = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_raw(width, height, pixels)?)
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            image::DynamicImage::ImageLuma8(image::GrayImage::from_raw(width, height, pixels)?)
+        }
+        _ => return None,
+    };
+    Some(image.thumbnail(resolution, resolution).to_rgba8())
 }
 
 #[cfg(test)]
@@ -158,6 +264,7 @@ mod tests {
                 decoded,
                 cache: VecDeque::new(),
                 wanted: None,
+                displayed_resolution: 0,
                 generation: 0,
             },
             receiver,
@@ -282,5 +389,86 @@ mod tests {
             thread::sleep(Duration::from_millis(1));
         };
         assert_eq!((image.size().width, image.size().height), (32, 16));
+    }
+
+    #[test]
+    fn jpeg_worker_sends_a_small_preview_before_the_finished_cover() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(1024, 512, image::Rgb([230, 40, 20]))
+            .write_to(&mut bytes, image::ImageFormat::Jpeg)
+            .unwrap();
+        let mut loader = ArtworkLoader::default();
+        loader.request(0, bytes.get_ref(), 512);
+        let preview = loader.decoded.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(preview.key.resolution, PREVIEW_RESOLUTION);
+        let pixels = preview.pixels.unwrap();
+        assert_eq!(pixels.dimensions(), (96, 48));
+        assert!(
+            pixels.get_pixel(0, 0)[0] > 200,
+            "preview preserves the cover's colors"
+        );
+        let finished = loader.decoded.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(finished.key.resolution, 512);
+        assert_eq!(finished.pixels.unwrap().dimensions(), (512, 256));
+    }
+
+    #[test]
+    fn cached_preview_is_immediate_and_upgraded_without_late_downgrades() {
+        let (mut loader, requests, results) = controlled_loader();
+        let preview = slint::Image::from_rgba8(slint::SharedPixelBuffer::new(96, 48));
+        loader.seed_preview(0, Some(preview));
+        assert_eq!(loader.request(0, &[1], 512).size().width, 96);
+        let key = requests.recv().unwrap().key;
+        results.send(result(key, 512)).unwrap();
+        assert_eq!(loader.poll().unwrap().size().width, 512);
+        results
+            .send(result(
+                Key {
+                    resolution: PREVIEW_RESOLUTION,
+                    ..key
+                },
+                96,
+            ))
+            .unwrap();
+        assert!(loader.poll().is_none());
+        assert_eq!(loader.request(0, &[1], 512).size().width, 512);
+        assert!(requests.try_recv().is_err());
+
+        loader.request(1, &[1], 512);
+        let other = requests.recv().unwrap().key;
+        results
+            .send(result(
+                Key {
+                    resolution: PREVIEW_RESOLUTION,
+                    ..key
+                },
+                96,
+            ))
+            .unwrap();
+        assert!(
+            loader.poll().is_none(),
+            "previous song's preview stays hidden"
+        );
+        results
+            .send(result(
+                Key {
+                    resolution: PREVIEW_RESOLUTION,
+                    ..other
+                },
+                96,
+            ))
+            .unwrap();
+        assert_eq!(loader.poll().unwrap().size().width, 96);
+        results
+            .send(Decoded {
+                key: other,
+                pixels: None,
+            })
+            .unwrap();
+        assert!(
+            loader.poll().is_none(),
+            "failed sharpening preserves the preview"
+        );
+        assert_eq!(loader.request(1, &[1], 512).size().width, 96);
     }
 }

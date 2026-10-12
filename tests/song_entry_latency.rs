@@ -3,6 +3,7 @@ use nano_music_player::{
     library::Track,
     ui::AppWindow,
 };
+use slint::ComponentHandle;
 use std::time::{Duration, Instant};
 
 fn initialize_platform() {
@@ -16,12 +17,26 @@ fn initialize_platform() {
 }
 
 fn wait_for_cover(controller: &mut Controller, ui: &AppWindow) {
+    let resolution = (240.0 * ui.get_display_scale() * ui.window().scale_factor()).ceil() as u32;
     let deadline = Instant::now() + Duration::from_secs(5);
-    while ui.get_artwork().size().width == 0 && Instant::now() < deadline {
+    while ui
+        .get_artwork()
+        .size()
+        .width
+        .max(ui.get_artwork().size().height)
+        < resolution
+        && Instant::now() < deadline
+    {
         std::thread::sleep(Duration::from_millis(5));
         controller.poll(ui);
     }
-    assert!(ui.get_artwork().size().width > 0);
+    assert_eq!(
+        ui.get_artwork()
+            .size()
+            .width
+            .max(ui.get_artwork().size().height),
+        resolution
+    );
 }
 
 #[test]
@@ -87,6 +102,48 @@ fn song_metadata_is_immediate_and_background_covers_follow_the_current_track() {
     controller.state.start(1);
     controller.execute(&ui, Action::NowPlaying);
     assert_eq!(ui.get_artwork().size(), second_cover);
+
+    // Album-list artwork is immediately reusable for another song with the same cover.
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_pixel(512, 512, image::Rgb([180, 40, 80]))
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let tracks = ["Zebra", "Aardvark"]
+        .into_iter()
+        .enumerate()
+        .map(|(id, title)| {
+            let mut track = controller.state.tracks[0].clone();
+            track.path = directory.path().join(format!("preview-{id}.mp3"));
+            track.title = title.into();
+            track.album = "Preview Album".into();
+            track.artwork = bytes.get_ref().clone();
+            track
+        })
+        .collect();
+    controller.state.merge_library(tracks);
+    controller
+        .state
+        .navigation
+        .open(nano_music_player::app::navigation::Screen::Groups(
+            nano_music_player::app::navigation::Group::Albums,
+        ));
+    controller.execute(&ui, Action::SelectPrevious);
+    controller.state.start(2);
+    controller.execute(&ui, Action::NowPlaying);
+    let preview_size = ui.get_artwork().size().width;
+    assert!(
+        preview_size > 0,
+        "list thumbnail should appear before polling"
+    );
+    assert!(
+        preview_size < second_cover.height,
+        "first cover should be a smaller preview"
+    );
+    wait_for_cover(&mut controller, &ui);
+    assert!(
+        ui.get_artwork().size().width > preview_size,
+        "preview is upgraded in place"
+    );
 }
 
 // Reads metadata only; no playback, scanning, or writes to the user's library.
@@ -115,7 +172,9 @@ fn profile_song_entry_with_library_covers() {
     controller.state.merge_library(tracks);
     let mut first = Vec::new();
     let mut repeat = Vec::new();
-    for timings in [&mut first, &mut repeat] {
+    let mut previews = Vec::new();
+    let mut sharpened = Vec::new();
+    for (pass, timings) in [&mut first, &mut repeat].into_iter().enumerate() {
         for id in 0..controller.state.tracks.len() {
             let started = Instant::now();
             // Discard the audio effect so profiling does not play music.
@@ -128,9 +187,21 @@ fn profile_song_entry_with_library_covers() {
                 controller.poll(&ui);
             }
             assert!(ui.get_artwork().size().width > 0);
+            if pass == 0 {
+                previews.push(started.elapsed().as_secs_f64() * 1_000.0);
+            }
+            wait_for_cover(&mut controller, &ui);
+            if pass == 0 {
+                sharpened.push(started.elapsed().as_secs_f64() * 1_000.0);
+            }
         }
     }
-    for (label, mut samples) in [("first entry", first), ("repeat entry", repeat)] {
+    for (label, mut samples) in [
+        ("first entry", first),
+        ("repeat entry", repeat),
+        ("first preview", previews),
+        ("finished cover", sharpened),
+    ] {
         samples.sort_by(f64::total_cmp);
         println!(
             "{label}: min={:.2} ms median={:.2} ms max={:.2} ms ({} covers)",
