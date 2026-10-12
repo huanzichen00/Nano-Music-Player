@@ -23,6 +23,10 @@ pub struct Video {
 }
 
 impl Video {
+    /// Display aspect already accounts for anamorphic pixels and rotation metadata.
+    pub fn is_landscape(&self) -> bool {
+        self.display_aspect.is_finite() && self.display_aspect > 1.0
+    }
     /// Bound software scaling and upload cost, preserving display aspect (SAR/rotation).
     pub fn render_size(&self) -> (u32, u32) {
         let aspect = if self.display_aspect.is_finite() && self.display_aspect > 0.0 {
@@ -265,6 +269,7 @@ mod tests {
         let bytes = br#"{"format":{"duration":"2.5"},"streams":[{"codec_type":"video","width":720,"height":576,"display_aspect_ratio":"16:9","codec_name":"h264","side_data_list":[{"rotation":90}]}]}"#;
         let video = metadata(Path::new("portrait.mp4"), bytes).unwrap();
         assert_eq!(video.render_size(), (360, 640));
+        assert!(!video.is_landscape());
         let cover = br#"{"format":{"duration":"2"},"streams":[{"codec_type":"video","width":32,"height":32,"disposition":{"attached_pic":1}}]}"#;
         assert!(metadata(Path::new("song.mp4"), cover).is_err());
     }

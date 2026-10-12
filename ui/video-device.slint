@@ -1,0 +1,45 @@
+// Physical geometry rotates 90 degrees counterclockwise; the Home button moves
+// to the right. LCD content relayouts upright in its new 432 x 240 coordinates.
+// The pretransformed vector shell also works in Slint's software renderer.
+// Bind content's x/y to zero, width/height to display-width/display-height and
+// its UI scale to scale; @children retains the caller's lexical parent geometry.
+export component VideoDeviceFrame inherits Rectangle {
+    in property <bool> landscape;
+    in property <bool> device-mode: true;
+    out property <float> scale: min(root.width / (root.base-width * 1px), root.height / (root.base-height * 1px));
+    private property <float> body-height: 296 * 76.5 / 39.6;
+    private property <float> base-width: root.device-mode ? (root.landscape ? root.body-height : 296) : (root.landscape ? 432 : 240);
+    private property <float> base-height: root.device-mode ? (root.landscape ? 296 : root.body-height) : (root.landscape ? 240 : 432);
+    out property <length> display-x: device.x + (root.device-mode ? (root.landscape ? 36px : 28px) * root.scale : 0px);
+    out property <length> display-y: device.y + (root.device-mode ? (root.landscape ? 28px : 36px) * root.scale : 0px);
+    out property <length> display-width: (root.landscape ? 432px : 240px) * root.scale;
+    out property <length> display-height: (root.landscape ? 240px : 432px) * root.scale;
+    callback home;
+    background: transparent;
+
+    device := Rectangle {
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        width: root.base-width * 1px * root.scale; height: root.base-height * 1px * root.scale;
+        background: transparent;
+        if root.device-mode: Image {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            source: root.landscape ? @image-url("video-shell.svg") : @image-url("icons/device-shell.svg");
+            image-fit: contain;
+        }
+        if root.device-mode: WindowMoveArea {}
+        if root.device-mode: Rectangle {
+            x: root.landscape ? (root.body-height - 92) * 1px * root.scale : (parent.width - self.width) / 2;
+            y: root.landscape ? (parent.height - self.height) / 2 : parent.height - 92px * root.scale;
+            width: 68px * root.scale; height: self.width; border-radius: self.width / 2;
+            background: home-touch.pressed ? #deddd5 : #eeede5;
+            border-width: 1px * root.scale; border-color: #b9bdc2;
+            Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 30px * root.scale; height: self.width; border-radius: self.width / 2; border-width: 1.5px * root.scale; border-color: #a7adb5; background: transparent; }
+            home-touch := TouchArea { mouse-cursor: pointer; clicked => { root.home(); } }
+        }
+    }
+    Rectangle {
+        x: root.display-x; y: root.display-y; width: root.display-width; height: root.display-height;
+        clip: true; background: black; border-width: 1px * root.scale; border-color: #101010;
+        @children
+    }
+}

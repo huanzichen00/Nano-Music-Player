@@ -12,8 +12,42 @@ The interface follows chapter 5, pages 27–28 of the supplied iPod nano seventh
 generation manual (`/Users/huanzichen/Downloads/Study/References/46034.pdf`): select
 from Videos; tap the image to show/hide Done, position and transport controls.
 Desktop volume is also visible. Frames fit the available display without cropping.
-Chapter selection, rentals, subtitles, video playlists and rotation of the entire
-device UI are outside this milestone.
+Landscape videos now have an isolated whole-device rotation layout, described below.
+Chapter selection, rentals, subtitles and video playlists are outside this milestone.
+
+## Whole-device landscape orientation
+
+The user requested that landscape playback turn the entire nano 90 degrees.
+`Video::is_landscape()` uses display aspect after sample-aspect and rotation metadata
+are applied. Portrait and square videos retain the upright body. The orientation
+stays landscape while pausing or reaching EOF on the video screen, and returns to
+portrait when leaving that screen.
+
+`ui/video-device.slint` supplies the complete device frame. Landscape places the
+physical Home button on the right, rotates the vector shell 90 degrees
+counterclockwise, and gives the LCD a **432×240** logical viewport. Video and controls
+relayout upright inside that viewport. Device Mode's whole content rectangle swaps
+from **296×571.82** to **571.82×296**; Screen Mode swaps from **240×432** to **432×240**.
+The shape remains proportional at every zoom. `ui/video-shell.svg` uses exactly the
+existing shell's vector geometry under a quarter-turn, including its gradients.
+It supports software rendering without relying on unsupported Slint transforms.
+
+At integration, bind the child's x/y to zero, width/height to the frame's
+`display-width`/`display-height`, and UI scale to its `scale` output. The frame emits
+the physical `home` callback and exposes display bounds for dialog positioning.
+The controller must swap the native window's content dimensions and Slint minimum/
+maximum bounds before resizing, keeping the menu outside the device. Use
+`orientation::window_base` for aspect maintenance and `orientation::saved_size`
+to persist canonical upright dimensions even when closing during landscape playback.
+Returning to the list must restore portrait at the current zoom, without changing
+music or display-mode preferences. **These shared-app hooks still await playlist
+ownership handoff; the normal app has not been changed.**
+
+The isolated headless preview checks landscape/portrait/Screen Mode geometry,
+return to portrait, and pointer activation of Home, Done and play/pause in the
+sideways body. Its PNGs were visually inspected. No normal app was rebuilt or opened.
+
+![Isolated landscape video device preview](previews/video-landscape.png)
 
 ## Runtime dependencies and formats
 
@@ -100,7 +134,9 @@ After playlist ownership is released:
    surfaces. Back/Done pauses video and returns to its list; Home preserves the
    owner's transport semantics. Selecting music switches ownership explicitly.
 6. Bind `VideoView` to its frame/status/controls and add the native File menu import
-   item. Keep the existing shortcut editor, music controls and settings functioning.
+   item. Wrap playback with `VideoDeviceFrame`, select landscape using displayed
+   video aspect, and swap the whole native window bounds while preserving zoom.
+   Keep the existing shortcut editor, music controls and settings functioning.
 7. Run full formatting/check/tests/strict lint and headless UI regressions; verify
    the native app with a generated clip only after playlist bundle delivery.
 
@@ -112,7 +148,7 @@ dependencies. It does not build or restart the normal app. `src/video/tests.rs`
 contains explicit ignored native tests so dependency-free default test runs remain
 usable. Run native checks with `cargo test video:: -- --include-ignored` once exported.
 
-Five module tests (including three explicit native tests) and the separate Slint
+Six module tests (including three explicit native tests) and the separate Slint
 preview render test pass. The preview's visible and hidden control states were
 inspected as PNGs without opening the normal app. Tests exercise original generated media, import/reload/deduplication, damaged file
 handling, actual RGB frames and alpha, pause, paused seek, volume commands, stale

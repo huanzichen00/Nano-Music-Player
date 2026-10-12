@@ -2,6 +2,7 @@
 pub mod engine;
 pub mod library;
 mod mpv;
+pub mod orientation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {
