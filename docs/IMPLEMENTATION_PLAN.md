@@ -27,7 +27,7 @@ Decisions: sort view rows without moving stable track indexes used by queues/aud
 
 Acceptance: mixed case/ties deterministic, album order preserved, artist/album thumbnails and missing-art fallback visible; F+A–Z scrolls selection into view; text editing, customized bindings and playback shortcuts remain safe. Format/check/tests, visual inspection, commit.
 
-## Phase 4 — Internationalization (pending)
+## Phase 4 — Internationalization (verified)
 
 Decisions: persisted enum English/Simplified Chinese/Japanese; Settings language screen. Central translation catalog for interface strings, action labels, menus, notices, dialogs and editor; leave metadata, lyrics and keys unchanged. Default English, migrate existing settings with serde defaults.
 
@@ -46,4 +46,5 @@ Acceptance: bundle ID verified, rule documented against official AeroSpace docs,
 - Phase 1: fmt + cargo check + UI test pass. Added rendered pixel checks for portrait/landscape/square artwork and 0/25/100% progress, resize checks across both modes, default-lyrics assertion. Visually inspected lyrics overlay against manual page 18 and photograph 4.
 - Phase 2: fmt/check and 64 tests pass (42 core, 15 codecs, 6 association, 1 comprehensive UI). Worker-load regressions cover sidecar changes, deleted manual source, changed audio, removal tombstone and reset. UI regressions cover real remove/reset effects and seek highlight/scroll; wrapped rows use measured Slint heights. Inspected plain and synced lyrics screenshots.
 - Phase 3: fmt/check and 68 tests pass. Sorting uses lowercase text, original spelling and path tie-breakers; unknown album track numbers sort after known numbers. UI sequence tests cover scroll-to-match, no-match letter consuming, Escape, Command/Ctrl+F, text entry and Home guards. Representative thumbnail screenshots inspected. Original 112×112 firmware Settings icon used directly; generated Home assets retained.
+- Phase 4: fmt/check and 72 tests pass (3 catalog, 43 core, 15 format, 4 ordering, 6 association, 1 comprehensive UI). Catalog coverage checks static UI keys and customizable action titles. Settings-driven changes, old-config English defaults and persisted languages tested. Metadata deliberately named Music/Settings/Lyrics remains unchanged. Inspected Chinese/Japanese Home, Settings and language-selection screenshots; native menus receive the same translated bindings.
 - No current blockers. Native Windows/Linux validation unavailable on this macOS host.

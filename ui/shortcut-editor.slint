@@ -1,3 +1,4 @@
+import { I18n } from "i18n.slint";
 component EditorButton inherits Rectangle {
     in property <float> s;
     in property <string> label;
@@ -6,7 +7,7 @@ component EditorButton inherits Rectangle {
     height: 34px * root.s;
     border-radius: 5px * root.s; border-width: 1px * root.s; border-color: root.primary ? #255e99 : #9ba3ab;
     background: touch.pressed ? #8795a4 : (root.primary ? @linear-gradient(180deg, #619ed7, #2b6caf) : @linear-gradient(180deg, #fff, #d7dce2));
-    Text { text: root.label; font-size: 12px * root.s; font-weight: 600; color: root.primary ? white : #263441; horizontal-alignment: center; vertical-alignment: center; }
+    Text { text: I18n.tr(root.label); font-size: 12px * root.s; font-weight: 600; color: root.primary ? white : #263441; horizontal-alignment: center; vertical-alignment: center; }
     touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
@@ -38,7 +39,7 @@ export component ShortcutEditor inherits Rectangle {
             EditorButton { y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Remove keys"; clicked => { root.command("clear"); } }
             EditorButton { x: (parent.width + 8px * root.s) / 2; y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Default keys"; clicked => { root.command("restore"); } }
         }
-        if root.recording: Text { x: 14px * root.s; y: 180px * root.s; width: parent.width - 28px * root.s; height: 66px * root.s; text: "Letters, arrows, function keys\nand modifier combinations.\nChanges save automatically."; font-size: 11px * root.s; color: #647181; horizontal-alignment: center; vertical-alignment: center; }
+        if root.recording: Text { x: 14px * root.s; y: 180px * root.s; width: parent.width - 28px * root.s; height: 66px * root.s; text: I18n.tr("Letters, arrows, function keys\nand modifier combinations.\nChanges save automatically."); font-size: 11px * root.s; color: #647181; horizontal-alignment: center; vertical-alignment: center; }
         EditorButton { x: 12px * root.s; y: 265px * root.s; width: parent.width - 24px * root.s; s: root.s; label: root.recording ? "Cancel recording" : "Done"; clicked => { root.command(root.recording ? "cancel" : "done"); } }
     }
 }

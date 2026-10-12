@@ -1,4 +1,5 @@
 import { IconButton, NanoSlider } from "components.slint";
+import { I18n } from "i18n.slint";
 
 export component NowPlayingView inherits Rectangle {
     in property <float> s;
@@ -35,8 +36,8 @@ export component NowPlayingView inherits Rectangle {
         background: @linear-gradient(180deg, #454650, #292b34 50%, #181a23);
         Rectangle { x: 0px; y: 0px; width: parent.width; height: 1px * root.s; background: #ffffff15; }
         Text { x: 10px * root.s; y: 3px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.artist : "iPod nano"; color: #e7e8ee; horizontal-alignment: center; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
-        Text { x: 8px * root.s; y: 18px * root.s; width: parent.width - 16px * root.s; height: 19px * root.s; text: root.has-track ? root.title : "No song selected"; color: white; horizontal-alignment: center; font-size: 15px * root.s; font-weight: 700; overflow: elide; }
-        Text { x: 10px * root.s; y: 37px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.album : "Choose a song from Music"; color: #e7e8ee; horizontal-alignment: center; font-size: 11px * root.s; font-weight: 600; overflow: elide; }
+        Text { x: 8px * root.s; y: 18px * root.s; width: parent.width - 16px * root.s; height: 19px * root.s; text: root.has-track ? root.title : I18n.tr("No song selected"); color: white; horizontal-alignment: center; font-size: 15px * root.s; font-weight: 700; overflow: elide; }
+        Text { x: 10px * root.s; y: 37px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.album : I18n.tr("Choose a song from Music"); color: #e7e8ee; horizontal-alignment: center; font-size: 11px * root.s; font-weight: 600; overflow: elide; }
     }
     art := Rectangle {
         y: 56px * root.s; width: root.width; height: root.height - 56px * root.s - 110px * root.s; clip: true;
@@ -97,7 +98,7 @@ export component NowPlayingView inherits Rectangle {
                         TouchArea { mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
                     }
                 }
-                if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: "No lyrics available"; font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
+                if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: I18n.tr("No lyrics available"); font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
                 animate content-y { duration: 180ms; easing: ease-out; }
             }
         }

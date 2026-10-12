@@ -2,6 +2,8 @@ import { HomeView } from "home.slint";
 import { LibraryView, LibraryRow } from "library.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { ShortcutEditor } from "shortcut-editor.slint";
+import { I18n } from "i18n.slint";
+export { I18n }
 export { LibraryRow }
 export struct ShortcutRow { category: string, title: string, keys: string }
 
@@ -73,30 +75,30 @@ export component AppWindow inherits Window {
     // Menu commands share the Rust reducer; no menu accelerators bypass keyboard context guards.
     MenuBar {
         Menu {
-            title: "File";
-            MenuItem { title: "Import Music Folder…"; activated => { root.command("import_folder"); } }
-            MenuItem { title: "Import / Replace Lyrics…"; activated => { root.command("import_lyrics"); } }
-            MenuItem { title: "Search Library…"; activated => { root.command("search"); } }
-            MenuItem { title: "Quit"; activated => { root.close(); } }
+            title: I18n.tr("File");
+            MenuItem { title: I18n.tr("Import Music Folder…"); activated => { root.command("import_folder"); } }
+            MenuItem { title: I18n.tr("Import / Replace Lyrics…"); activated => { root.command("import_lyrics"); } }
+            MenuItem { title: I18n.tr("Search Library…"); activated => { root.command("search"); } }
+            MenuItem { title: I18n.tr("Quit"); activated => { root.close(); } }
         }
         Menu {
-            title: "Playback";
-            MenuItem { title: "Play / Pause"; activated => { root.command("toggle_play"); } }
-            MenuItem { title: "Next Track"; activated => { root.command("next_track"); } }
-            MenuItem { title: "Previous Track"; activated => { root.command("previous_track"); } }
-            MenuItem { title: "Now Playing"; activated => { root.command("now_playing"); } }
-            MenuItem { title: "Lyrics for Track…"; activated => { root.command("manage_lyrics"); } }
+            title: I18n.tr("Playback");
+            MenuItem { title: I18n.tr("Play / Pause"); activated => { root.command("toggle_play"); } }
+            MenuItem { title: I18n.tr("Next Track"); activated => { root.command("next_track"); } }
+            MenuItem { title: I18n.tr("Previous Track"); activated => { root.command("previous_track"); } }
+            MenuItem { title: I18n.tr("Now Playing"); activated => { root.command("now_playing"); } }
+            MenuItem { title: I18n.tr("Lyrics for Track…"); activated => { root.command("manage_lyrics"); } }
         }
         Menu {
-            title: "View";
-            MenuItem { title: "Settings…"; activated => { root.command("settings"); } }
-            MenuItem { title: "Device Mode"; activated => { root.command("device_mode"); } }
-            MenuItem { title: "Screen Mode"; activated => { root.command("screen_mode"); } }
-            MenuItem { title: "Zoom In"; activated => { root.command("zoom_in"); } }
-            MenuItem { title: "Zoom Out"; activated => { root.command("zoom_out"); } }
-            MenuItem { title: "Home"; activated => { root.command("home"); } }
+            title: I18n.tr("View");
+            MenuItem { title: I18n.tr("Settings…"); activated => { root.command("settings"); } }
+            MenuItem { title: I18n.tr("Device Mode"); activated => { root.command("device_mode"); } }
+            MenuItem { title: I18n.tr("Screen Mode"); activated => { root.command("screen_mode"); } }
+            MenuItem { title: I18n.tr("Zoom In"); activated => { root.command("zoom_in"); } }
+            MenuItem { title: I18n.tr("Zoom Out"); activated => { root.command("zoom_out"); } }
+            MenuItem { title: I18n.tr("Home"); activated => { root.command("home"); } }
         }
-        Menu { title: "Help"; MenuItem { title: "Keyboard Shortcuts…"; activated => { root.command("show_shortcuts"); } } }
+        Menu { title: I18n.tr("Help"); MenuItem { title: I18n.tr("Keyboard Shortcuts…"); activated => { root.command("show_shortcuts"); } } }
     }
     forward-focus: keyboard;
     keyboard := FocusScope {
@@ -158,15 +160,15 @@ export component AppWindow inherits Window {
                 }
             }
             library := LibraryView {
-                visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7;
-                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7) && !root.reference-open && !root.shortcut-editor-open;
+                visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
+                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open;
                 y: 64px * root.s; height: 368px * root.s; s: root.s;
-                compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7; rows: root.rows; selected: root.selected; search: root.screen == 3;
+                compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 edited(text) => { root.query-changed(text); }
             }
-            if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\nThis app is not available yet.\nPress Shift + H to return Home."; font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
+            if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
             now-playing := NowPlayingView {
                 visible: root.screen == 2; y: 26px * root.s; height: 406px * root.s; s: root.s;
                 selected: root.selected; selection-visible: root.keyboard-navigation; playing: root.playing; has-track: root.has-track;
@@ -199,9 +201,9 @@ export component AppWindow inherits Window {
             Rectangle {
                 x: 12px; y: 16px; width: parent.width - 24px; height: parent.height - 32px;
                 background: #f4f5f6; border-radius: 6px; border-width: 1px; border-color: #899098;
-                Text { x: 16px; y: 10px; height: 24px; text: "Keyboard Shortcuts"; font-size: 18px; font-weight: 700; color: #222; }
+                Text { x: 16px; y: 10px; height: 24px; text: I18n.tr("Keyboard Shortcuts"); font-size: 18px; font-weight: 700; color: #222; }
                 Text { x: parent.width - 38px; y: 10px; width: 26px; height: 24px; text: "×"; font-size: 22px; color: #555; horizontal-alignment: center; TouchArea { mouse-cursor: pointer; clicked => { root.command("close_shortcuts"); } } }
-                Text { x: 16px; y: 40px; width: parent.width - 32px; height: 64px; text: "Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nDefaults: H/J/K/L = back/down/up/open.\nY: lyrics. Shift + H: Home."; font-size: 11px; color: #666; }
+                Text { x: 16px; y: 40px; width: parent.width - 32px; height: 64px; text: I18n.tr("Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nDefaults: H/J/K/L = back/down/up/open.\nY: lyrics. Shift + H: Home."); font-size: 11px; color: #666; }
                 Flickable {
                     x: 12px; y: 112px; width: parent.width - 24px; height: parent.height - 126px;
                     content-height: root.shortcuts.length * 46px;

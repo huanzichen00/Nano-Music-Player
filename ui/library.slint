@@ -1,3 +1,4 @@
+import { I18n } from "i18n.slint";
 export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwork: image, show-artwork: bool }
 
 export component LibraryView inherits Rectangle {
@@ -58,7 +59,7 @@ export component LibraryView inherits Rectangle {
         }
         if root.rows.length == 0: Text {
             width: root.width; height: 160px * root.s;
-            text: root.search ? "No matching songs" : "No music yet\nFile → Import Music Folder";
+            text: root.search ? I18n.tr("No matching songs") : I18n.tr("No music yet\nFile → Import Music Folder");
             font-size: 13px * root.s; color: #888; horizontal-alignment: center; vertical-alignment: center;
         }
     }

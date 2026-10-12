@@ -1,6 +1,7 @@
 pub mod action;
 pub mod config;
 pub mod controller;
+pub mod i18n;
 pub mod navigation;
 pub mod state;
 

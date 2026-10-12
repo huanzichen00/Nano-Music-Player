@@ -1,0 +1,5 @@
+export global I18n {
+    in property <int> language: 0;
+    pure callback translate(int, string) -> string;
+    public pure function tr(key: string) -> string { return self.translate(self.language, key); }
+}

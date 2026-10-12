@@ -22,13 +22,11 @@ pub enum ImportEvent {
 }
 
 /// Folder selection, filesystem traversal and metadata reads all happen off the UI thread.
-pub fn import(database_path: PathBuf) -> Receiver<ImportEvent> {
+pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let result = (|| {
-            let folders = rfd::FileDialog::new()
-                .set_title("Import music folders")
-                .pick_folders();
+            let folders = rfd::FileDialog::new().set_title(&title).pick_folders();
             let _ = sender.send(ImportEvent::SelectionClosed);
             let Some(folders) = folders else {
                 return Ok(None);

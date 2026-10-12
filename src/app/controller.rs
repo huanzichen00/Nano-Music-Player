@@ -1,7 +1,8 @@
 use super::{
     action::{Action, Category},
     config::Settings,
-    navigation::Screen,
+    i18n::{self, Language, translate},
+    navigation::{Filter, Group, Screen},
     state::{Effect, State, Target},
 };
 use crate::{
@@ -11,7 +12,7 @@ use crate::{
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
     library::{Track, scanner},
-    ui::{AppWindow, LibraryRow, ShortcutRow},
+    ui::{AppWindow, I18n, LibraryRow, ShortcutRow},
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
@@ -49,6 +50,7 @@ impl Controller {
             state.notice = message;
             Settings::default()
         });
+        state.language = settings.language;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
         let keymap =
@@ -114,13 +116,17 @@ impl Controller {
                 .filter(|b| b.action.category() == category)
             {
                 reference.push(ShortcutRow {
-                    category: category.title().into(),
-                    title: binding.action.title().into(),
+                    category: self.text(category.title()),
+                    title: self.text(binding.action.title()),
                     keys: binding.label(cfg!(target_os = "macos")).into(),
                 });
             }
         }
         ui.set_shortcuts(ModelRc::new(VecModel::from(reference)));
+    }
+
+    fn text(&self, key: &str) -> slint::SharedString {
+        translate(self.state.language, key).into()
     }
 
     pub fn dispatch(
@@ -242,10 +248,19 @@ impl Controller {
                 }
                 Effect::Import => {
                     self.dialog_open = true;
-                    self.importing = Some(scanner::import(self.directory.join("library.sqlite3")));
+                    self.importing = Some(scanner::import(
+                        self.directory.join("library.sqlite3"),
+                        translate(self.state.language, "Import Music Folder…"),
+                    ));
                 }
                 Effect::FocusSearch => ui.invoke_focus_search(),
                 Effect::FocusScreen => ui.invoke_focus_screen(),
+                Effect::LanguageChanged => {
+                    self.rows_dirty = true;
+                    self.refresh_shortcuts(ui);
+                    self.sync(ui);
+                    self.save_settings(ui);
+                }
                 Effect::Resize => {
                     self.rows_dirty = true;
                     self.resize(ui);
@@ -255,7 +270,7 @@ impl Controller {
                 Effect::EditShortcut(action) => {
                     self.shortcut_edit = Some(action);
                     self.shortcut_capture = None;
-                    ui.set_shortcut_message("Choose how to edit this action.".into());
+                    ui.set_shortcut_message(self.text("Choose how to edit this action."));
                     self.sync_editor(ui);
                     ui.invoke_focus_screen();
                 }
@@ -269,7 +284,7 @@ impl Controller {
                             self.directory.join("library.sqlite3"),
                             track.path.clone(),
                             command,
-                            "Import Lyrics".into(),
+                            translate(self.state.language, "Import Lyrics"),
                         ));
                     }
                 }
@@ -325,6 +340,7 @@ impl Controller {
     pub fn save_settings(&mut self, ui: &AppWindow) {
         let size = ui.window().size().to_logical(ui.window().scale_factor());
         self.settings = Settings {
+            language: self.state.language,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
             window_width: Some(size.width),
@@ -446,7 +462,10 @@ impl Controller {
     }
 
     fn sync(&mut self, ui: &AppWindow) {
-        let screen = &self.state.navigation.current().screen;
+        ui.global::<I18n>()
+            .set_language(self.state.language.index() as i32);
+        let current_screen = self.state.navigation.current().screen.clone();
+        let screen = &current_screen;
         let screen_changed = self.last_screen.as_ref() != Some(screen);
         ui.set_screen(match screen {
             Screen::Home => 0,
@@ -456,9 +475,15 @@ impl Controller {
             Screen::Settings => 5,
             Screen::Shortcuts => 6,
             Screen::Lyrics(_) => 7,
+            Screen::Languages => 8,
             _ => 1,
         });
-        ui.set_screen_title(screen.title().into());
+        ui.set_screen_title(match screen {
+            Screen::Artist(_) | Screen::Songs(Filter::Album { .. } | Filter::Genre(_)) => {
+                screen.title().into()
+            }
+            _ => self.text(screen.title()),
+        });
         ui.set_device_mode(self.state.device_mode);
         ui.set_selected(self.state.navigation.selected() as i32);
         ui.set_home_page(self.state.home_page as i32);
@@ -475,7 +500,7 @@ impl Controller {
         }
         ui.set_notice(
             if self.notice_since.elapsed().as_secs() < 3 || self.state.importing {
-                self.state.notice.clone().into()
+                i18n::notice(self.state.language, &self.state.notice).into()
             } else {
                 "".into()
             },
@@ -486,12 +511,10 @@ impl Controller {
         ui.set_track_count(if self.state.queue.order.is_empty() {
             "".into()
         } else {
-            format!(
-                "{} of {}",
-                self.state.queue.position + 1,
-                self.state.queue.order.len()
-            )
-            .into()
+            translate(self.state.language, "{0} of {1}")
+                .replace("{0}", &(self.state.queue.position + 1).to_string())
+                .replace("{1}", &self.state.queue.order.len().to_string())
+                .into()
         });
         let duration = self.state.duration();
         ui.set_progress(if duration > 0.0 {
@@ -509,16 +532,32 @@ impl Controller {
             .into(),
         );
         if screen_changed || self.rows_dirty || self.last_query != self.state.query {
+            let metadata_rows = matches!(
+                screen,
+                Screen::Groups(Group::Artists | Group::Albums | Group::Genres)
+                    | Screen::Artist(_)
+                    | Screen::Songs(_)
+                    | Screen::Search
+            );
             let rows = self
                 .state
                 .rows()
                 .into_iter()
                 .map(|row| LibraryRow {
-                    title: row.title.into(),
-                    subtitle: if let Target::Shortcut(action) = row.target {
-                        self.dispatcher.keymap.labels(action).into()
+                    title: if metadata_rows {
+                        row.title.into()
                     } else {
-                        row.subtitle.into()
+                        self.text(&row.title)
+                    },
+                    subtitle: if let Target::Shortcut(action) = row.target {
+                        self.text(&self.dispatcher.keymap.labels(action))
+                    } else {
+                        if metadata_rows || matches!(screen, Screen::Lyrics(_) | Screen::Languages)
+                        {
+                            row.subtitle.into()
+                        } else {
+                            self.text(&row.subtitle)
+                        }
                     },
                     artwork: row
                         .artwork_id
@@ -540,7 +579,7 @@ impl Controller {
                             super::navigation::Group::Artists | super::navigation::Group::Albums
                         ) | Screen::Artist(_)
                     ),
-                    chevron: !matches!(row.target, Target::Play(_)),
+                    chevron: !matches!(row.target, Target::Play(_) | Target::Language(_)),
                 })
                 .collect::<Vec<_>>();
             ui.set_rows(ModelRc::new(VecModel::from(rows)));
@@ -565,6 +604,7 @@ impl Controller {
                     | Screen::Settings
                     | Screen::Shortcuts
                     | Screen::Lyrics(_)
+                    | Screen::Languages
             ) {
                 let row_y = self.state.navigation.selected() as f32 * 48.0 * scale;
                 let visible_height = if *screen == Screen::Search {
@@ -624,8 +664,8 @@ impl Controller {
         ui.set_shortcut_editor_open(self.shortcut_edit.is_some());
         ui.set_shortcut_recording(self.shortcut_capture.is_some());
         if let Some(action) = self.shortcut_edit {
-            ui.set_shortcut_title(action.title().into());
-            ui.set_shortcut_keys(self.dispatcher.keymap.labels(action).into());
+            ui.set_shortcut_title(self.text(action.title()));
+            ui.set_shortcut_keys(self.text(&self.dispatcher.keymap.labels(action)));
         }
     }
 
@@ -638,12 +678,12 @@ impl Controller {
                 self.dispatcher.keymap = map;
                 self.rows_dirty = true;
                 self.refresh_shortcuts(ui);
-                ui.set_shortcut_message("Saved. Your shortcuts are active.".into());
+                ui.set_shortcut_message(self.text("Saved. Your shortcuts are active."));
                 self.sync(ui);
                 true
             }
             Err(message) => {
-                ui.set_shortcut_message(message.into());
+                ui.set_shortcut_message(i18n::notice(self.state.language, &message).into());
                 false
             }
         }
@@ -652,7 +692,7 @@ impl Controller {
     pub fn shortcut_command(&mut self, ui: &AppWindow, command: &str) {
         if command == "cancel" {
             if self.shortcut_capture.take().is_some() {
-                ui.set_shortcut_message("Recording cancelled.".into());
+                ui.set_shortcut_message(self.text("Recording cancelled."));
             } else {
                 self.shortcut_edit = None;
             }
@@ -660,7 +700,7 @@ impl Controller {
             match command {
                 "replace" | "add" => {
                     self.shortcut_capture = Some(command == "replace");
-                    ui.set_shortcut_message("Press a key combination. Escape cancels.".into());
+                    ui.set_shortcut_message(self.text("Press a key combination. Escape cancels."));
                 }
                 "clear" => {
                     self.commit_keymap(ui, self.dispatcher.keymap.edit(action, None, true));
@@ -681,6 +721,16 @@ impl Controller {
 }
 
 pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
+    ui.global::<I18n>().on_translate(|language, key| {
+        translate(
+            Language::ALL
+                .get(language as usize)
+                .copied()
+                .unwrap_or_default(),
+            &key,
+        )
+        .into()
+    });
     let weak = ui.as_weak();
     let state = controller.clone();
     ui.on_shortcut_command(move |command| {

@@ -1,5 +1,6 @@
 use super::{
     action::Action,
+    i18n::Language,
     navigation::{Filter, Group, Navigation, Screen},
 };
 use crate::{
@@ -15,6 +16,7 @@ pub enum Target {
     Play(usize),
     Action(Action),
     Shortcut(Action),
+    Language(Language),
 }
 
 #[derive(Clone)]
@@ -33,6 +35,7 @@ pub enum Effect {
     Resize,
     EditShortcut(Action),
     RestoreShortcuts,
+    LanguageChanged,
     EditLyrics {
         id: usize,
         command: crate::library::scanner::LyricsCommand,
@@ -40,6 +43,7 @@ pub enum Effect {
 }
 
 pub struct State {
+    pub language: Language,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
     pub queue: Queue,
@@ -65,6 +69,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            language: Language::English,
             navigation: Navigation::default(),
             tracks: Vec::new(),
             queue: Queue::default(),
@@ -129,7 +134,26 @@ impl State {
                 row("Zoom In", Target::Action(Action::ZoomIn)),
                 row("Zoom Out", Target::Action(Action::ZoomOut)),
                 row("Lyrics for Track", Target::Action(Action::ManageLyrics)),
+                Row {
+                    title: "Language".into(),
+                    subtitle: self.language.label().into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::Languages),
+                },
             ],
+            Screen::Languages => Language::ALL
+                .into_iter()
+                .map(|language| Row {
+                    title: language.label().into(),
+                    subtitle: if self.language == language {
+                        "✓".into()
+                    } else {
+                        String::new()
+                    },
+                    artwork_id: None,
+                    target: Target::Language(language),
+                })
+                .collect(),
             Screen::Lyrics(id) => vec![
                 Row {
                     title: "Import / Replace Lyrics…".into(),
@@ -528,7 +552,17 @@ impl State {
                     _ => {
                         if let Some(row) = self.rows().get(selected) {
                             match row.target.clone() {
-                                Target::Screen(screen) => self.navigation.open(screen),
+                                Target::Screen(screen) => {
+                                    let languages = screen == Screen::Languages;
+                                    self.navigation.open(screen);
+                                    if languages {
+                                        self.navigation.select(self.language.index());
+                                    }
+                                }
+                                Target::Language(language) => {
+                                    self.language = language;
+                                    return vec![Effect::LanguageChanged];
+                                }
                                 Target::Action(action) => return self.apply(action),
                                 Target::Shortcut(action) => {
                                     return vec![Effect::EditShortcut(action)];

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 #[derive(Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
+    pub language: super::i18n::Language,
     pub zoom: f32,
     pub device_mode: bool,
     pub window_width: Option<f32>,
@@ -13,6 +14,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            language: super::i18n::Language::English,
             zoom: 1.25,
             device_mode: true,
             window_width: None,

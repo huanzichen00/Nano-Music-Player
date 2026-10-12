@@ -1285,6 +1285,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     assert!(default.device_mode);
     assert_eq!(default.window_width, None);
     let saved = Settings {
+        language: nano_music_player::app::i18n::Language::English,
         zoom: 2.0,
         device_mode: false,
         window_width: Some(750.0),
@@ -1464,4 +1465,22 @@ fn settings_and_album_track_list_are_real_navigation_screens() {
     );
     state.apply(Action::Back);
     assert_eq!(state.navigation.current().screen, Screen::NowPlaying);
+}
+
+#[test]
+fn old_settings_default_to_english_and_language_survives_restart() {
+    use nano_music_player::app::{config::Settings, i18n::Language};
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.json");
+    std::fs::write(&path, r#"{"zoom":1.5,"device_mode":false}"#).unwrap();
+    let mut settings = Settings::load(&path).unwrap();
+    assert_eq!(settings.language, Language::English);
+    for language in Language::ALL {
+        settings.language = language;
+        settings.save(&path).unwrap();
+        let loaded = Settings::load(&path).unwrap();
+        assert_eq!(loaded.language, language);
+        assert_eq!(loaded.zoom, 1.5);
+        assert!(!loaded.device_mode);
+    }
 }

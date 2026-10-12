@@ -601,5 +601,54 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     }
     snapshot(&ui, "artist-thumbnails");
     assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
+
+    // Language changes through Settings persist while catalog-like metadata remains literal.
+    use nano_music_player::app::{config::Settings, i18n::Language, navigation::Screen};
+    let original_lyrics = controller.borrow().state.tracks[1].lyrics.clone();
+    {
+        let mut controller = controller.borrow_mut();
+        controller.state.tracks[1].title = "Music".into();
+        controller.state.tracks[1].artist = "Settings".into();
+        controller.state.tracks[1].album = "Lyrics".into();
+        controller.state.current = None;
+        controller.execute(&ui, Action::NowPlaying);
+        controller.state.start(1);
+        controller.execute(&ui, Action::NowPlaying);
+    }
+    for (language, title, settings_title) in [
+        (Language::SimplifiedChinese, "语言", "设置"),
+        (Language::Japanese, "言語", "設定"),
+        (Language::English, "Language", "Settings"),
+    ] {
+        ui.invoke_command("settings".into());
+        ui.invoke_item_clicked(5);
+        assert_eq!(
+            controller.borrow().state.navigation.current().screen,
+            Screen::Languages
+        );
+        ui.invoke_item_clicked(language.index() as i32);
+        assert_eq!(ui.get_screen_title(), title);
+        assert_eq!(
+            ui.get_rows().row_data(language.index()).unwrap().subtitle,
+            "✓"
+        );
+        assert_eq!(
+            Settings::load(&directory.path().join("settings.json"))
+                .unwrap()
+                .language,
+            language
+        );
+        snapshot(&ui, &format!("languages-{}", language.code()));
+        ui.invoke_command("settings".into());
+        assert_eq!(ui.get_screen_title(), settings_title);
+        snapshot(&ui, &format!("settings-{}", language.code()));
+        ui.invoke_command("now_playing".into());
+        assert_eq!(ui.get_track_title(), "Music");
+        assert_eq!(ui.get_track_artist(), "Settings");
+        assert_eq!(ui.get_track_album(), "Lyrics");
+        assert_eq!(controller.borrow().state.tracks[1].lyrics, original_lyrics);
+        ui.invoke_command("home".into());
+        snapshot(&ui, &format!("home-{}", language.code()));
+    }
     ui.hide().unwrap();
 }
