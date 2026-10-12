@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: original phases and romaji complete; playlist UI verified with backend queued. Music Genius entry verified; Albums latency optimization is active in the coordinated optimization chat. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
+Status: original phases, romaji, Music Genius entry and Albums optimization verified; playlist UI verified with backend queued. User-requested font selection is the next active phase. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
 
 ## Inspection and design basis
 
@@ -58,6 +58,8 @@ User requested a playlist creation interface after the romaji/Genius milestone. 
 Acceptance: name editing suppresses playback shortcuts, candidate callbacks carry path identities, review preserves supplied order, reordering retains focused identity, Remove/Create emit the intended callbacks, unsaved status stays honest, labels translate while metadata/name remain literal, and empty/unconnected UI does not claim the existing music library is empty. Full formatting, compilation, 93 tests, strict Clippy and whitespace checks pass; rendered English/Japanese screens reviewed. Library selection and saving remain scheduled work.
 
 ## Verification log and blockers
+
+- Albums entry: coordinated optimization commit `1f9cde4` publishes ready 96-pixel covers with loaded/imported tracks, then sharpens visible rows off-thread. On the read-only 42-track/six-album debug fixture, cold entry changed from 8,465 ms to 0.13–0.41 ms; first software-rendered frame takes 44.60–45.63 ms. Preparation is background startup/import work, distinct from entry latency. Full combined tests pass (102, three ignored manual profiles); strict Clippy and formatting pass. Synthetic direct-merge UI fixtures wait for workers before cover screenshots. See `LIBRARY_PERFORMANCE.md` for exact limits and measurements.
 
 - Music Genius entry: the comprehensive rendered UI test and 44 core tests pass. Pointer/keyboard activation preserves the Music parent, playback and queue; no-song entry blocks Create/Enter and prompts for a song. Original Songs/Albums row positions are preserved. Formatting/whitespace checks pass. Full strict checks will run after the concurrent thumbnail worker is integrated.
 - Latest playlist/romaji debug bundle was built and launched with the normal configuration; native playback confirms all 42 tracks. At the user's subsequent explicit request, backed up `~/.aerospace.toml`, added the targeted `org.nano.music-player` rule, validated/reloaded AeroSpace 0.21.2, and confirmed window 86512 has `floating` layout. The earlier no-automatic-config-change policy is superseded by this user-authorized edit; the player itself still does not modify that configuration.

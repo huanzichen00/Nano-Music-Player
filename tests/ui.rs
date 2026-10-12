@@ -85,6 +85,25 @@ fn snapshot(ui: &AppWindow, name: &str) {
     .unwrap();
 }
 
+fn wait_for_library_artwork(ui: &AppWindow, controller: &RefCell<Controller>, row: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        controller.borrow_mut().poll(ui);
+        if ui
+            .get_rows()
+            .row_data(row)
+            .is_some_and(|row| row.artwork.size().width > 0)
+        {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "library artwork did not arrive"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
@@ -616,6 +635,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         controller.execute(&ui, Action::FinishSearchEditing);
     }
     assert!(ui.get_rows().row_data(0).unwrap().show_artwork);
+    wait_for_library_artwork(&ui, &controller, 0);
     assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
     snapshot(&ui, "album-thumbnails");
     tap(&ui, "f");
@@ -631,6 +651,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
             ));
         controller.execute(&ui, Action::FinishSearchEditing);
     }
+    wait_for_library_artwork(&ui, &controller, 0);
     snapshot(&ui, "artist-thumbnails");
     assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
 
@@ -658,11 +679,17 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     }
     assert!((ui.get_list_row_height() - 58.0 * ui.get_display_scale()).abs() < 0.01);
     assert!((ui.get_list_viewport_height() - 406.0 * ui.get_display_scale()).abs() < 0.01);
+    for row in 0..7 {
+        wait_for_library_artwork(&ui, &controller, row);
+    }
     snapshot(&ui, "larger-album-thumbnails");
     tap(&ui, "f");
     tap(&ui, "z");
     assert_eq!(ui.get_selected(), 9);
     assert!((ui.get_list_scroll_y() - (406.0 - 10.0 * 58.0) * ui.get_display_scale()).abs() < 0.01);
+    for row in 3..10 {
+        wait_for_library_artwork(&ui, &controller, row);
+    }
     snapshot(&ui, "larger-album-jump");
 
     // Language changes through Settings persist while catalog-like metadata remains literal.
