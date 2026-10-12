@@ -219,7 +219,7 @@ impl State {
                     2
                 }
             }
-            Screen::NowPlaying => 8,
+            Screen::NowPlaying => 7,
             _ => self.rows().len(),
         }
     }
@@ -266,6 +266,8 @@ impl State {
         self.paused = false;
         self.position = 0.0;
         self.notice.clear();
+        self.lyrics_visible = !track.lyrics.is_empty();
+        self.overlay_visible = self.lyrics_visible;
         vec![Effect::Audio(AudioCommand::Load {
             id,
             path: track.path.clone(),
@@ -355,9 +357,8 @@ impl State {
                                 ToggleMute,
                                 ToggleShuffle,
                                 CycleRepeat,
-                                ToggleLyrics,
                                 TrackList,
-                            ][selected.min(7)],
+                            ][selected.min(6)],
                         );
                     }
                     _ => {

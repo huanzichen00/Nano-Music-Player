@@ -39,9 +39,9 @@ export component NowPlayingView inherits Rectangle {
         Text { x: 10px * root.s; y: 37px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.album : "Choose a song from Music"; color: #e7e8ee; horizontal-alignment: center; font-size: 11px * root.s; font-weight: 600; overflow: elide; }
     }
     art := Rectangle {
-        y: 56px * root.s; width: root.width; height: 240px * root.s; clip: true;
+        y: 56px * root.s; width: root.width; height: root.height - 56px * root.s - 110px * root.s; clip: true;
         background: @linear-gradient(180deg, #30333d, #161820);
-        if root.artwork.width > 0: Image { source: root.artwork; image-fit: cover; }
+        if root.artwork.width > 0: Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.artwork; image-fit: contain; }
         if root.artwork.width == 0: Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 116px * root.s; height: 128px * root.s;
@@ -50,7 +50,7 @@ export component NowPlayingView inherits Rectangle {
         TouchArea { mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
         if root.overlay-visible || (root.selection-visible && root.selected >= 4): Rectangle {
             background: root.lyrics-visible ? #151b2e88 : transparent;
-            // Playback position sits over the cover, above the four secondary controls.
+            // Playback position sits over the cover, above the secondary controls.
             Rectangle {
                 x: 0px; y: 0px; width: parent.width; height: 60px * root.s; background: @linear-gradient(180deg, #d7daed88, #8a92b655);
                 Text { x: 9px * root.s; y: 7px * root.s; width: 54px * root.s; height: 18px * root.s; text: root.elapsed; font-size: 12px * root.s; font-weight: 700; color: white; }
@@ -59,15 +59,14 @@ export component NowPlayingView inherits Rectangle {
                 NanoSlider { x: 11px * root.s; y: 28px * root.s; width: parent.width - 22px * root.s; s: root.s; handle-size: 13px * root.s; value: root.progress; enabled: root.has-track; changed(value) => { root.seek-changed(value); } }
             }
             Rectangle {
-                y: 60px * root.s; height: 42px * root.s;
+                x: 0px; y: 60px * root.s; width: parent.width; height: 42px * root.s;
                 background: @linear-gradient(180deg, #171d3655, #171d3622);
                 for control[index] in [
                     {icon: @image-url("../assets/icons/repeat.svg"), action: 5, active: root.repeat-mode != "Off"},
-                    {icon: @image-url("../assets/icons/lyrics.svg"), action: 6, active: root.lyrics-visible},
                     {icon: @image-url("../assets/icons/shuffle.svg"), action: 4, active: root.shuffle},
-                    {icon: @image-url("../assets/icons/track-list.svg"), action: 7, active: false},
+                    {icon: @image-url("../assets/icons/track-list.svg"), action: 6, active: false},
                 ]: IconButton {
-                    x: index * 60px * root.s; width: 60px * root.s; height: parent.height;
+                    x: index * parent.width / 3; width: parent.width / 3; height: parent.height;
                     s: root.s; flat: true; icon-size: 27px * root.s;
                     selected: root.selection-visible && root.selected == control.action;
                     active: control.active; icon: control.icon;
@@ -97,7 +96,7 @@ export component NowPlayingView inherits Rectangle {
         }
     }
     Rectangle {
-        y: 296px * root.s; height: root.height - self.y;
+        y: art.y + art.height; height: root.height - self.y;
         background: @linear-gradient(180deg, #444650 0%, #262936 48%, #131620 51%, #080b13 100%);
         Rectangle { x: 0px; y: 0px; width: parent.width; height: 1px * root.s; background: #d3d9f466; }
         for separator in 2: Rectangle { x: (separator + 1) * 80px * root.s; y: 7px * root.s; width: 1px * root.s; height: 61px * root.s; background: @linear-gradient(180deg, #ffffff22, #ffffff08); }

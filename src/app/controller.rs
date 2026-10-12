@@ -230,7 +230,7 @@ impl Controller {
 
     fn base_size(&self) -> (f32, f32) {
         if self.state.device_mode {
-            (296.0, 600.0)
+            (296.0, 296.0 * 76.5 / 39.6)
         } else {
             (240.0, 432.0)
         }

@@ -35,7 +35,11 @@ fn display_point(ui: &AppWindow, x: f32, y: f32) -> slint::LogicalPosition {
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     let scale = ui.get_display_scale();
     let content_height = ui.get_content_height();
-    let body_height = if ui.get_device_mode() { 600.0 } else { 432.0 };
+    let body_height = if ui.get_device_mode() {
+        296.0 * 76.5 / 39.6
+    } else {
+        432.0
+    };
     let top = size.height - content_height + (content_height - body_height * scale) / 2.0;
     slint::LogicalPosition::new(
         (size.width - 240.0 * scale) / 2.0 + x * scale,
@@ -227,8 +231,10 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert_eq!(ui.get_screen(), 2);
     assert_eq!(ui.get_track_title(), "Test Song 01");
     snapshot(&ui, "now-playing");
-    click(&ui, 120.0, 200.0);
-    assert!(ui.get_lyrics_visible());
+    assert!(
+        ui.get_lyrics_visible(),
+        "lyrics display at track start by default"
+    );
     controller.borrow_mut().state.position = 11.0;
     controller.borrow_mut().execute(&ui, Action::NowPlaying);
     assert_eq!(ui.get_active_lyric(), 1);
@@ -279,7 +285,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     controller.borrow_mut().poll(&ui);
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     assert!(
-        (size.width / 296.0 - ui.get_content_height() / 600.0).abs() < 0.01,
+        (size.width / 296.0 - ui.get_content_height() / (296.0 * 76.5 / 39.6)).abs() < 0.01,
         "mouse resizing keeps a tight device aspect ratio"
     );
     // Settings is reachable through its Home icon and the platform shortcut.
@@ -385,16 +391,70 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert!(ui.get_artwork().size().width > 0);
     assert!(ui.get_lyrics_visible());
     snapshot(&ui, "lyrics-with-artwork");
-    click(&ui, 211.0, 160.0); // Album track list.
+    click(&ui, 200.0, 160.0); // Album track list.
     assert_eq!(ui.get_screen_title(), "Test Album");
     tap(&ui, "h");
     assert_eq!(ui.get_screen_title(), "Now Playing");
-    click(&ui, 90.0, 160.0); // Lyrics toolbar button.
+    click(&ui, 120.0, 270.0); // Cover tap hides secondary controls and lyrics.
     assert!(!ui.get_lyrics_visible());
-    assert!(ui.get_overlay_visible());
-    snapshot(&ui, "cover-controls");
-    click(&ui, 120.0, 240.0);
     assert!(!ui.get_overlay_visible());
     snapshot(&ui, "cover-with-artwork");
+    // Geometry regression: arbitrary user resizes converge to the same logical proportions.
+    for mode in [Action::ScreenMode, Action::DeviceMode] {
+        controller.borrow_mut().execute(&ui, mode);
+        for (width, height) in [(300.0, 900.0), (650.0, 500.0), (240.0, 432.0)] {
+            ui.window().set_size(slint::LogicalSize::new(width, height));
+            controller.borrow_mut().poll(&ui);
+            let size = ui.window().size().to_logical(ui.window().scale_factor());
+            let ratio = if mode == Action::ScreenMode {
+                240.0 / 432.0
+            } else {
+                39.6 / 76.5
+            };
+            assert!((size.width / ui.get_content_height() - ratio).abs() < 0.002);
+        }
+    }
+    controller.borrow_mut().execute(&ui, Action::ScreenMode);
+    ui.set_keyboard_navigation(false);
+    ui.set_overlay_visible(false);
+    ui.set_lyrics_visible(false);
+    // Contain must leave letterboxing, rather than crop portrait/landscape edges.
+    for (width, height, name) in [
+        (100, 200, "portrait-cover"),
+        (200, 100, "landscape-cover"),
+        (100, 100, "square-cover"),
+    ] {
+        let pixels = vec![219u8, 52, 111, 255].repeat((width * height) as usize);
+        ui.set_artwork(slint::Image::from_rgba8(slint::SharedPixelBuffer::<
+            slint::Rgba8Pixel,
+        >::clone_from_slice(
+            &pixels, width, height
+        )));
+        snapshot(&ui, name);
+        let image = ui.window().take_snapshot().unwrap();
+        let sample = |x, y| {
+            let p = display_point(&ui, x, y);
+            let offset = (p.y.round() as usize * image.width() as usize + p.x.round() as usize) * 4;
+            image.as_bytes()[offset..offset + 3].to_vec()
+        };
+        assert_eq!(sample(120.0, 202.0), [219, 52, 111]);
+        assert_eq!(sample(25.0, 202.0) == [219, 52, 111], width >= height);
+        assert_eq!(sample(120.0, 100.0) == [219, 52, 111], height >= width);
+    }
+    // Progress is anchored at x=0: an early position fills the left, never the center.
+    ui.set_overlay_visible(true);
+    for (progress, left_filled, right_filled) in
+        [(0.0, false, false), (0.25, true, false), (1.0, true, true)]
+    {
+        ui.set_progress(progress);
+        let image = ui.window().take_snapshot().unwrap();
+        let is_filled = |x| {
+            let p = display_point(&ui, x, 121.0);
+            let offset = (p.y.round() as usize * image.width() as usize + p.x.round() as usize) * 4;
+            image.as_bytes()[offset] > 150
+        };
+        assert_eq!(is_filled(35.0), left_filled, "left at {progress}");
+        assert_eq!(is_filled(195.0), right_filled, "right at {progress}");
+    }
     ui.hide().unwrap();
 }

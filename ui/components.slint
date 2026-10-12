@@ -10,10 +10,11 @@ export component NanoSlider inherits Rectangle {
     height: 22px * s;
     background: transparent;
     Rectangle {
+        x: 0px; width: root.width;
         y: (parent.height - self.height) / 2; height: 5px * root.s;
         border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #080808;
         background: @linear-gradient(180deg, #101010, #666);
-        Rectangle { width: parent.width * clamp(root.value, 0, 1); border-radius: parent.border-radius; background: @linear-gradient(180deg, #f1f6fc, #b8d4e4); }
+        Rectangle { x: 0px; y: 0px; height: parent.height; width: parent.width * clamp(root.value, 0, 1); border-radius: parent.border-radius; background: @linear-gradient(180deg, #f1f6fc, #b8d4e4); }
     }
     handle := Rectangle {
         width: root.handle-size; height: self.width;

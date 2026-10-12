@@ -9,9 +9,9 @@ Status: in progress. Existing work preserved in checkpoint `9d4fced` (58 tests p
 - Retain the user's generated Home icons and the four photographic references, especially the fourth lyrics overlay. The manual's pages 18–19 place position/secondary controls over artwork, transport and volume below; page 18 shows alphabetical indexing; pages 20–21 describe podcast resume and episode navigation.
 - Current defects: artwork uses cropping `cover`; implicit Slint centering moves slider fill; lyrics appear only after a toggle; plain sidecars and persistent manual associations are absent; group sorting is case-sensitive and song order depends on load order. Aspect correction exists but needs shared geometry and resize regression coverage.
 
-## Phase 1 — UI geometry (pending)
+## Phase 1 — UI geometry (verified)
 
-Decisions: one 240×432 LCD coordinate system. Device shell 296×600 (ratio 0.4933, matching hardware 39.6×76.5 within the existing stylized bezel; refine to exact hardware ratio during phase). Derive cover region from metadata/footer space, contain the full image, explicitly anchor slider track/fill. Display available lyrics at track start; remove the redundant lyrics control and redistribute repeat/shuffle/album controls. Preserve cover-tap interaction and customizable legacy toggle commands.
+Decisions: one 240×432 LCD coordinate system. Device shell 296×571.818 logical units, derived from the exact hardware 39.6:76.5 ratio. Derive cover region from metadata/footer space, contain the full image, explicitly anchor slider track/fill. Display available lyrics at track start; remove the redundant lyrics control and redistribute repeat/shuffle/album controls. Preserve cover-tap interaction and customizable legacy toggle commands.
 
 Acceptance: square, portrait, and landscape covers retain all edges; 0/25/100% fills start at the left; content stays proportional at multiple sizes and in both modes; lyrics appear without a button press; no overlapping controls. Run fmt, check, core/UI tests, inspect rendered screenshots, commit verified phase.
 
@@ -43,4 +43,5 @@ Acceptance: bundle ID verified, rule documented against official AeroSpace docs,
 
 - Checkpoint: `cargo test --all-targets` — 42 core + 15 format + 1 UI tests pass.
 - Manual has malformed cross-reference hints; Poppler recovered text and rendered relevant pages successfully.
+- Phase 1: fmt + cargo check + UI test pass. Added rendered pixel checks for portrait/landscape/square artwork and 0/25/100% progress, resize checks across both modes, default-lyrics assertion. Visually inspected lyrics overlay against manual page 18 and photograph 4.
 - No current blockers. Native Windows/Linux validation unavailable on this macOS host.

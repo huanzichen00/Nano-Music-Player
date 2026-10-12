@@ -7,11 +7,11 @@ export struct ShortcutRow { category: string, title: string, keys: string }
 
 export component AppWindow inherits Window {
     title: "iPod nano";
-    preferred-width: 370px; preferred-height: 750px;
+    preferred-width: 370px; preferred-height: 296px * 76.5 / 39.6 * 1.25;
     min-width: (device-mode ? 296px : 240px) * 0.75;
-    min-height: (device-mode ? 600px : 432px) * 0.75;
+    min-height: (device-mode ? (296px * 76.5 / 39.6) : 432px) * 0.75;
     max-width: (device-mode ? 296px : 240px) * 3;
-    max-height: (device-mode ? 600px : 432px) * 3;
+    max-height: (device-mode ? (296px * 76.5 / 39.6) : 432px) * 3;
     no-frame: device-mode;
     resize-border-width: device-mode ? 5px : 0px;
     background: device-mode ? #419ab8 : #fff;
@@ -58,7 +58,7 @@ export component AppWindow inherits Window {
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
     out property <length> content-height: keyboard.height;
-    private property <float> s: min(keyboard.width / ((device-mode ? 296 : 240) * 1px), keyboard.height / ((device-mode ? 600 : 432) * 1px));
+    private property <float> s: min(keyboard.width / ((device-mode ? 296 : 240) * 1px), keyboard.height / ((device-mode ? 296 * 76.5 / 39.6 : 432) * 1px));
     callback key-event(KeyEvent, bool) -> bool;
     callback command(string);
     callback shortcut-command(string);
@@ -103,7 +103,7 @@ export component AppWindow inherits Window {
         capture-key-pressed(event) => { root.key-event(event, library.search-focused) ? accept : reject }
         if root.device-mode: Rectangle {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
-            width: 296px * root.s; height: 600px * root.s;
+            width: 296px * root.s; height: (296px * 76.5 / 39.6) * root.s;
             border-radius: 15px * root.s; border-width: 1px * root.s; border-color: #357185;
             background: @linear-gradient(90deg, #28627c 0%, #6ac0d8 2%, #3a9eba 5%, #409bb7 93%, #7ac6d9 98%, #2c718c 100%);
             Rectangle {
@@ -114,7 +114,7 @@ export component AppWindow inherits Window {
             // Native dragging from the narrow bezel, without touching display gestures.
             WindowMoveArea {}
             Rectangle {
-                x: (parent.width - self.width) / 2; y: 500px * root.s;
+                x: (parent.width - self.width) / 2; y: parent.height - 92px * root.s;
                 width: 68px * root.s; height: self.width; border-radius: self.width / 2;
                 background: home-touch.pressed ? #deddd5 : #eeede5;
                 border-width: 1px * root.s; border-color: #b9bdc2;
@@ -124,7 +124,7 @@ export component AppWindow inherits Window {
         }
         display := Rectangle {
             x: (parent.width - self.width) / 2;
-            y: root.device-mode ? (parent.height - 600px * root.s) / 2 + 36px * root.s : (parent.height - self.height) / 2;
+            y: root.device-mode ? (parent.height - (296px * 76.5 / 39.6) * root.s) / 2 + 36px * root.s : (parent.height - self.height) / 2;
             width: 240px * root.s; height: 432px * root.s; clip: true; background: #fff;
             border-width: 1px * root.s; border-color: #101010;
             HomeView {
