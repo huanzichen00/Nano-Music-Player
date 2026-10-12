@@ -221,6 +221,17 @@ impl State {
                         if matches!(group, Group::Artists | Group::Albums) {
                             row.artwork_id = self.representative_artwork(group, name, None);
                         }
+                        if *group == Group::Albums {
+                            row.subtitle = self
+                                .tracks
+                                .iter()
+                                .filter(|track| track.album == name)
+                                .map(|track| track.artist.as_str())
+                                .collect::<BTreeSet<_>>()
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                        }
                         row
                     })
                     .collect();
@@ -245,6 +256,7 @@ impl State {
                         );
                         row.artwork_id =
                             self.representative_artwork(&Group::Albums, name, Some(artist));
+                        row.subtitle.clone_from(artist);
                         row
                     })
                     .collect();

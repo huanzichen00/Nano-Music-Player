@@ -389,6 +389,12 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         ui.invoke_command("toggle_overlay".into());
     }
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    // Now Playing artwork may be decoded by the independent background worker.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while ui.get_artwork().size().width == 0 && std::time::Instant::now() < deadline {
+        controller.borrow_mut().poll(&ui);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
     assert!(ui.get_artwork().size().width > 0);
     assert!(ui.get_lyrics_visible());
     snapshot(&ui, "lyrics-with-artwork");
@@ -624,12 +630,13 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
             ));
         controller.execute(&ui, Action::FinishSearchEditing);
     }
-    assert!((ui.get_list_row_height() - 64.0 * ui.get_display_scale()).abs() < 0.01);
+    assert!((ui.get_list_row_height() - 58.0 * ui.get_display_scale()).abs() < 0.01);
+    assert!((ui.get_list_viewport_height() - 406.0 * ui.get_display_scale()).abs() < 0.01);
     snapshot(&ui, "larger-album-thumbnails");
     tap(&ui, "f");
     tap(&ui, "z");
     assert_eq!(ui.get_selected(), 9);
-    assert!((ui.get_list_scroll_y() - (368.0 - 10.0 * 64.0) * ui.get_display_scale()).abs() < 0.01);
+    assert!((ui.get_list_scroll_y() - (406.0 - 10.0 * 58.0) * ui.get_display_scale()).abs() < 0.01);
     snapshot(&ui, "larger-album-jump");
 
     // Language changes through Settings persist while catalog-like metadata remains literal.

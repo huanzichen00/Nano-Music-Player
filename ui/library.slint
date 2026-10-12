@@ -4,8 +4,9 @@ export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwo
 // Shared with the controller for thumbnail decoding and selection scrolling.
 export global ListMetrics {
     out property <float> text-row-height: 48;
-    out property <float> artwork-row-height: 64;
-    out property <float> artwork-padding: 4;
+    // PDF page 10: 82-pixel rows / 340-pixel LCD width × 240 logical units.
+    out property <float> artwork-row-height: 58;
+    out property <float> artwork-padding: 1;
 }
 
 export component LibraryView inherits Rectangle {
@@ -51,17 +52,17 @@ export component LibraryView inherits Rectangle {
                 Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row.artwork.width > 0 ? row.artwork : @image-url("../assets/icons/music.svg"); image-fit: contain; }
             }
             Text {
-                x: row.show-artwork ? root.row-height + 4px * root.s : 12px * root.s;
+                x: row.show-artwork ? root.row-height + 6px * root.s : 12px * root.s;
                 y: row.subtitle == "" ? 0px : (parent.height - 40px * root.s) / 2;
                 width: parent.width - self.x - 25px * root.s; height: row.subtitle == "" ? parent.height : 23px * root.s;
                 text: row.title; color: root.selected == index ? white : #111;
                 font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
             if row.subtitle != "": Text {
-                x: row.show-artwork ? root.row-height + 4px * root.s : 12px * root.s;
+                x: row.show-artwork ? root.row-height + 6px * root.s : 12px * root.s;
                 y: (parent.height - 40px * root.s) / 2 + 23px * root.s;
                 width: parent.width - self.x - 25px * root.s; height: 17px * root.s;
-                text: row.subtitle; color: root.selected == index ? #e1efff : #929292; font-size: 11px * root.s; overflow: elide;
+                text: row.subtitle; color: root.selected == index ? #e1efff : #929292; font-size: (row.show-artwork ? 13px : 11px) * root.s; overflow: elide;
             }
             if row.chevron: Image {
                 x: parent.width - 18px * root.s; y: (parent.height - self.height) / 2; width: 7px * root.s; height: 12px * root.s;

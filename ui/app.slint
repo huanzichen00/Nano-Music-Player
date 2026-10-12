@@ -58,6 +58,8 @@ export component AppWindow inherits Window {
     in-out property <string> search-text;
     in-out property <length> list-scroll-y;
     out property <float> list-row-height: library.row-height / 1px;
+    out property <float> list-viewport-height: library.height / 1px;
+    private property <bool> artwork-list: root.screen == 1 && root.rows.length > 0 && root.rows[0].show-artwork;
     in-out property <length> lyric-scroll-y;
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
@@ -141,8 +143,11 @@ export component AppWindow inherits Window {
             Rectangle {
                 x: 0px; y: 0px; height: 26px * root.s;
                 background: root.screen == 0 || root.screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
-                Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
-                if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: #eee; }
+                if !root.artwork-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
+                if root.artwork-list: Text { x: 20px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
+                if root.artwork-list: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
+                if root.artwork-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; mouse-cursor: pointer; clicked => { root.command("back"); keyboard.focus(); } }
+                if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.screen == 0 || root.screen == 2 ? #eee : #2a73be; }
                 Rectangle {
                     x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
                     border-color: #888; border-width: 1px * root.s; background: transparent;
@@ -150,7 +155,7 @@ export component AppWindow inherits Window {
                 }
             }
             Rectangle {
-                visible: root.screen != 0 && root.screen != 2;
+                visible: root.screen != 0 && root.screen != 2 && !root.artwork-list;
                 y: 26px * root.s; height: 38px * root.s;
                 background: @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: #969ca1;
                 Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; overflow: elide; }
@@ -164,7 +169,7 @@ export component AppWindow inherits Window {
             library := LibraryView {
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open;
-                y: 64px * root.s; height: 368px * root.s; s: root.s;
+                y: (root.artwork-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
