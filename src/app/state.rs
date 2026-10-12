@@ -43,6 +43,7 @@ pub enum Effect {
     RestoreShortcuts,
     LanguageChanged,
     FontChanged,
+    WindowPreferencesChanged,
     RomajiVisibilityChanged,
     ConfigureDeepSeek,
     GeniusPreview,
@@ -62,6 +63,7 @@ pub enum Effect {
 pub struct State {
     pub language: Language,
     pub font: Font,
+    pub always_on_top: bool,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
     pub queue: Queue,
@@ -92,6 +94,7 @@ impl Default for State {
         Self {
             language: Language::English,
             font: Font::Classic,
+            always_on_top: true,
             navigation: Navigation::default(),
             tracks: Vec::new(),
             queue: Queue::default(),
@@ -177,6 +180,12 @@ impl State {
                     subtitle: self.font.label().into(),
                     artwork_id: None,
                     target: Target::Screen(Screen::Fonts),
+                },
+                Row {
+                    title: "Always on Top".into(),
+                    subtitle: if self.always_on_top { "On" } else { "Off" }.into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::ToggleAlwaysOnTop),
                 },
             ],
             Screen::Fonts => Font::ALL
@@ -726,6 +735,10 @@ impl State {
             DeviceMode | ScreenMode => {
                 self.device_mode = action == DeviceMode;
                 return vec![Effect::Resize];
+            }
+            ToggleAlwaysOnTop => {
+                self.always_on_top = !self.always_on_top;
+                return vec![Effect::WindowPreferencesChanged];
             }
             ZoomIn | ZoomOut => {
                 self.zoom =

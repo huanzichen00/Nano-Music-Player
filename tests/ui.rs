@@ -1119,5 +1119,92 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         font_pixels[1], font_pixels[2],
         "bundled fonts must render distinct glyphs"
     );
+
+    // The persisted native window level is independent of playback and display mode.
+    assert!(ui.get_keep_on_top());
+    ui.invoke_command("settings".into());
+    for expected in [false, true] {
+        let size = ui.window().size();
+        ui.invoke_item_clicked(9);
+        assert_eq!(ui.get_keep_on_top(), expected);
+        assert_eq!(ui.window().size(), size);
+        assert_eq!(
+            Settings::load(&directory.path().join("settings.json"))
+                .unwrap()
+                .always_on_top,
+            expected
+        );
+        assert_eq!(
+            Controller::new(directory.path().to_path_buf())
+                .state
+                .always_on_top,
+            expected
+        );
+        for mode in [Action::ScreenMode, Action::DeviceMode] {
+            controller.borrow_mut().execute(&ui, mode);
+            assert_eq!(ui.get_keep_on_top(), expected);
+        }
+    }
+
+    // Real transparent corners, rather than a rounded shell over an opaque window.
+    ui.invoke_command("home".into());
+    ui.set_notice("".into());
+    for zoom in [0.75, 1.25, 2.0] {
+        controller.borrow_mut().state.zoom = zoom;
+        controller.borrow_mut().execute(&ui, Action::DeviceMode);
+        snapshot(&ui, &format!("rounded-device-{zoom}"));
+        let rendered = ui.window().take_snapshot().unwrap();
+        let size = ui.window().size().to_logical(ui.window().scale_factor());
+        let scale = ui.get_display_scale();
+        let width = 296.0 * scale;
+        let height = 296.0 * 76.5 / 39.6 * scale;
+        let left = (size.width - width) / 2.0;
+        let top = size.height - ui.get_content_height() + (ui.get_content_height() - height) / 2.0;
+        let alpha = |x: f32, y: f32| {
+            let x = (x * ui.window().scale_factor()).round() as usize;
+            let y = (y * ui.window().scale_factor()).round() as usize;
+            rendered.as_bytes()[(y * rendered.width() as usize + x) * 4 + 3]
+        };
+        for (x_sign, y_sign) in [(false, false), (true, false), (false, true), (true, true)] {
+            let point = |inset: f32| {
+                (
+                    left + if x_sign {
+                        width - inset * scale
+                    } else {
+                        inset * scale
+                    },
+                    top + if y_sign {
+                        height - inset * scale
+                    } else {
+                        inset * scale
+                    },
+                )
+            };
+            let (x, y) = point(1.0);
+            assert_eq!(
+                alpha(x, y),
+                0,
+                "exterior corner must be transparent at {zoom}"
+            );
+            let (x, y) = point(20.0);
+            assert_eq!(
+                alpha(x, y),
+                255,
+                "shell inside the curve must remain opaque"
+            );
+        }
+        assert_eq!(alpha(left + width / 2.0, top + scale * 2.0), 255);
+        controller.borrow_mut().execute(&ui, Action::ScreenMode);
+        let rendered = ui.window().take_snapshot().unwrap();
+        assert!(
+            rendered
+                .as_bytes()
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255),
+            "Screen Mode remains opaque after switching from Device Mode"
+        );
+    }
     ui.hide().unwrap();
 }

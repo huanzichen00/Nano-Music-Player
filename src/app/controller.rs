@@ -62,6 +62,7 @@ impl Controller {
         });
         state.language = settings.language;
         state.font = settings.font;
+        state.always_on_top = settings.always_on_top;
         state.romaji_visible = settings.romaji_visible;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
@@ -294,7 +295,7 @@ impl Controller {
                     self.sync(ui);
                     self.save_settings(ui);
                 }
-                Effect::FontChanged => {
+                Effect::FontChanged | Effect::WindowPreferencesChanged => {
                     self.rows_dirty = true;
                     self.sync(ui);
                     self.save_settings(ui);
@@ -426,6 +427,7 @@ impl Controller {
         self.settings = Settings {
             language: self.state.language,
             font: self.state.font,
+            always_on_top: self.state.always_on_top,
             romaji_visible: self.state.romaji_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
@@ -585,6 +587,7 @@ impl Controller {
         });
         ui.set_device_mode(self.state.device_mode);
         ui.set_ui_font_family(self.state.font.family().into());
+        ui.set_keep_on_top(self.state.always_on_top);
         ui.set_selected(self.state.navigation.selected() as i32);
         ui.set_home_page(self.state.home_page as i32);
         ui.set_clock_text(chrono::Local::now().format("%-I:%M %p").to_string().into());

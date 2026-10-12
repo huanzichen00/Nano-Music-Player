@@ -112,6 +112,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("Genius Preview…", "Genius 预览…", "Genius プレビュー…"),
     ("Genius", "Genius", "Genius"),
     ("Font", "字体", "フォント"),
+    ("Always on Top", "始终置顶", "常に最前面"),
     ("Classic", "经典", "クラシック"),
     ("Maple Mono", "Maple Mono", "Maple Mono"),
     ("JetBrains Mono", "JetBrains Mono", "JetBrains Mono"),

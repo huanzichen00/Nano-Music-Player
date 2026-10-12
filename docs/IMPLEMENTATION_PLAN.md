@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: original phases, romaji, Music Genius entry and Albums optimization verified; playlist UI verified with backend queued. User-requested font selection is the next active phase. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
+Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; playlist UI verified with backend queued. Always-on-top and rounded Device Mode edges are being verified before a combined build and launch. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
 
 ## Inspection and design basis
 
@@ -63,10 +63,17 @@ User requested Maple Mono and JetBrains Mono in Settings after noticing the lyri
 
 Acceptance: switch via keyboard/pointer, persist/reopen selection, old settings migrate and invalid font values reject, different bundled fonts actually change rendered Latin glyphs without altering lyric text, wrapping/highlight/scroll and compact controls stay readable. Verify Classic/Maple/JetBrains lyric screenshots with s/e/a/o/n and Japanese/Chinese examples. Run formatting, compilation, tests and strict lint; commit, build and launch the combined app.
 
+## Phase 9 — Window preferences and rounded silhouette (verified; native delivery pending)
+
+User requested always above other windows by default and rounded Device Mode edges. Use Slint's native `always-on-top` property (Winit window level), persisted as a bool defaulting to true for old settings. Add a Settings toggle and checked View menu item through the central semantic action; allow customization without assigning a conflicting default key. Use a transparent Device Mode window background and an SVG shell with the existing 15-unit outer/10-unit inner curves. Slint software rendering ignores corner radii on its linear-gradient rectangles, so the SVG retains the metal/bezel gradients and guarantees a rounded silhouette in both renderers. Derive its 296×571.818 viewBox from the shared hardware ratio; retain opaque Screen Mode. No arbitrary shell resizing or global window-manager changes.
+
+Acceptance: default/new/old config pins the window, off/on persists across controller restart, settings and native menu remain consistent, pinning changes neither playback nor geometry, and mode switching retains the choice. Render all four device corners at multiple sizes to verify transparent exterior with opaque shell edges and unchanged artwork/control scaling. Native verification checks the rebuilt window floats above other application windows on macOS. Run formatting/compilation/relevant tests/strict lint, commit and package the combined build.
+
 ## Verification log and blockers
 
-- Fonts: full combined tests pass (103, three ignored manual profiles), formatting/compilation/strict Clippy/whitespace checks pass. Settings switching, persisted restart, old-config defaults, unchanged metadata/lyrics and distinct rendered lyric glyph regions verified. Inspected Classic/Maple/JetBrains previews with Latin s/e/a/o/n and CJK; licenses bundled. Native Windows/Linux validation remains unverified.
+- Window polish: all 104 automated tests pass (three manual profiles ignored). Default/migrated pinning, persisted off/on/controller restart, unchanged playback/geometry and mode switching verified. Pixel tests check transparent outer corners and opaque shell interior at 0.75×/1.25×/2×; Screen Mode is fully opaque. Inspected the rendered rounded-device preview. Combined native packaging/launch is the remaining delivery check.
 
+- Fonts: full combined tests pass (103, three ignored manual profiles), formatting/compilation/strict Clippy/whitespace checks pass. Settings switching, persisted restart, old-config defaults, unchanged metadata/lyrics and distinct rendered lyric glyph regions verified. Inspected Classic/Maple/JetBrains previews with Latin s/e/a/o/n and CJK; licenses bundled. Native Windows/Linux validation remains unverified.
 
 - Albums entry: coordinated optimization commit `1f9cde4` publishes ready 96-pixel covers with loaded/imported tracks, then sharpens visible rows off-thread. On the read-only 42-track/six-album debug fixture, cold entry changed from 8,465 ms to 0.13–0.41 ms; first software-rendered frame takes 44.60–45.63 ms. Preparation is background startup/import work, distinct from entry latency. Full combined tests pass (102, three ignored manual profiles); strict Clippy and formatting pass. Synthetic direct-merge UI fixtures wait for workers before cover screenshots. See `LIBRARY_PERFORMANCE.md` for exact limits and measurements.
 

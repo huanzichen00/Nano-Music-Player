@@ -26,6 +26,7 @@ pub enum Action {
     Search,
     DeviceMode,
     ScreenMode,
+    ToggleAlwaysOnTop,
     ZoomIn,
     ZoomOut,
     ShowShortcuts,
@@ -89,6 +90,7 @@ impl Action {
             | Self::Search
             | Self::DeviceMode
             | Self::ScreenMode
+            | Self::ToggleAlwaysOnTop
             | Self::ZoomIn
             | Self::ZoomOut
             | Self::ShowShortcuts
@@ -150,6 +152,7 @@ impl Action {
             Self::Search => "Search library",
             Self::DeviceMode => "Device Mode",
             Self::ScreenMode => "Screen Mode",
+            Self::ToggleAlwaysOnTop => "Always on Top",
             Self::ZoomIn => "Zoom in",
             Self::ZoomOut => "Zoom out",
             Self::ShowShortcuts => "Keyboard shortcuts",
@@ -215,6 +218,7 @@ impl Action {
         Self::ConfigureDeepSeek,
         Self::DeviceMode,
         Self::ScreenMode,
+        Self::ToggleAlwaysOnTop,
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ShowShortcuts,

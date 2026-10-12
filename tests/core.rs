@@ -1291,6 +1291,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     let saved = Settings {
         language: nano_music_player::app::i18n::Language::English,
         font: nano_music_player::app::typography::Font::Classic,
+        always_on_top: true,
         romaji_visible: false,
         zoom: 2.0,
         device_mode: false,
@@ -1556,4 +1557,46 @@ fn font_choices_migrate_persist_and_keep_settings_navigation() {
     assert_eq!(state.navigation.selected(), Font::JetBrainsMono.index());
     fs::write(&path, r#"{"font":"missing_font"}"#).unwrap();
     assert!(Settings::load(&path).is_err());
+}
+
+#[test]
+fn always_on_top_defaults_migrates_and_toggles_without_changing_playback() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.json");
+    assert!(Settings::load(&path).unwrap().always_on_top);
+    fs::write(&path, r#"{"device_mode":false}"#).unwrap();
+    let mut settings = Settings::load(&path).unwrap();
+    assert!(
+        settings.always_on_top,
+        "old settings inherit the pinned default"
+    );
+    let mut state = music_state();
+    state.start(1);
+    state.status = PlaybackStatus::Paused;
+    state.position = 23.5;
+    state.navigation.open(Screen::Settings);
+    let row = state
+        .rows()
+        .iter()
+        .position(|row| matches!(row.target, Target::Action(Action::ToggleAlwaysOnTop)))
+        .unwrap();
+    state.navigation.select(row);
+    let queue = state.queue.current();
+    let mode = state.device_mode;
+    for expected in [false, true] {
+        assert!(matches!(
+            state.apply(Action::Activate).as_slice(),
+            [Effect::WindowPreferencesChanged]
+        ));
+        assert_eq!(state.always_on_top, expected);
+        assert_eq!(state.current, Some(1));
+        assert_eq!(state.status, PlaybackStatus::Paused);
+        assert_eq!(state.position, 23.5);
+        assert_eq!(state.queue.current(), queue);
+        assert_eq!(state.device_mode, mode);
+        assert_eq!(state.navigation.selected(), row);
+        settings.always_on_top = expected;
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).unwrap().always_on_top, expected);
+    }
 }

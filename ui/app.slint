@@ -27,7 +27,9 @@ export component AppWindow inherits Window {
     max-height: (device-mode ? (296px * 76.5 / 39.6) : 432px) * 3;
     no-frame: device-mode;
     resize-border-width: device-mode ? 5px : 0px;
-    background: device-mode ? #419ab8 : #fff;
+    background: device-mode ? transparent : #fff;
+    always-on-top: root.keep-on-top;
+    in property <bool> keep-on-top: true;
     default-font-family: root.ui-font-family;
     in property <string> ui-font-family: "Helvetica Neue";
     in property <bool> device-mode: true;
@@ -171,6 +173,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Settings…"); activated => { root.command("settings"); } }
             MenuItem { title: I18n.tr("Device Mode"); activated => { root.command("device_mode"); } }
             MenuItem { title: I18n.tr("Screen Mode"); activated => { root.command("screen_mode"); } }
+            MenuItem { title: I18n.tr("Always on Top"); checked: root.keep-on-top; activated => { root.command("toggle_always_on_top"); } }
             MenuItem { title: I18n.tr("Zoom In"); activated => { root.command("zoom_in"); } }
             MenuItem { title: I18n.tr("Zoom Out"); activated => { root.command("zoom_out"); } }
             MenuItem { title: I18n.tr("Home"); activated => { root.command("home"); } }
@@ -213,13 +216,8 @@ export component AppWindow inherits Window {
         if root.device-mode: Rectangle {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 296px * root.s; height: (296px * 76.5 / 39.6) * root.s;
-            border-radius: 15px * root.s; border-width: 1px * root.s; border-color: #357185;
-            background: @linear-gradient(90deg, #28627c 0%, #6ac0d8 2%, #3a9eba 5%, #409bb7 93%, #7ac6d9 98%, #2c718c 100%);
-            Rectangle {
-                x: 14px * root.s; y: 14px * root.s; width: parent.width - 28px * root.s; height: parent.height - 28px * root.s;
-                border-radius: 10px * root.s; border-width: 1px * root.s; border-color: #fff;
-                background: @linear-gradient(180deg, #f8f7f1, #eae9e1);
-            }
+            // SVG keeps gradient curves consistent in native and software renderers.
+            Image { source: @image-url("icons/device-shell.svg"); width: parent.width; height: parent.height; image-fit: contain; }
             // Native dragging from the narrow bezel, without touching display gestures.
             WindowMoveArea {}
             Rectangle {
