@@ -51,6 +51,12 @@ Credentials: a separate atomically written `deepseek.json` with Unix mode 0600, 
 
 Acceptance: local HTTP tests cover API request shape, error statuses, truncated/malformed/oversized replies and redacted errors; generation tests cover repeated LRC lines, blanks, English, unchanged timestamps, invalid IDs, cancellation and later-batch failure without partial results. Restart/controller coverage checks cached display, persistent visibility, blank-key saves, invalid model rejection, cancelling the settings editor and annotation removal without changing source lyrics. Native Windows/Linux validation and live provider reading accuracy remain unverified. A real DeepSeek request requires the user's own key; no credential was supplied in this chat.
 
+## Phase 7 — Manual playlist creation UI (verified; backend queued)
+
+User requested a playlist creation interface after the romaji/Genius milestone. Added a declarative name/song-selection and ordered review interface, with reordering/removal callbacks and explicit unsaved state. Keep actual library-model population and ordered-path persistence queued as a separate backend phase; the live unconnected editor communicates that selection is coming next. Do not show saved success before persistence is implemented. The exact model/callback contract and rendered example previews are in `GENIUS_ROMAJI_UI.md`. This phase only changes UI, its narrow translation keys, tests and documentation.
+
+Acceptance: name editing suppresses playback shortcuts, candidate callbacks carry path identities, review preserves supplied order, reordering retains focused identity, Remove/Create emit the intended callbacks, unsaved status stays honest, labels translate while metadata/name remain literal, and empty/unconnected UI does not claim the existing music library is empty. Full formatting, compilation, 93 tests, strict Clippy and whitespace checks pass; rendered English/Japanese screens reviewed. Library selection and saving remain scheduled work.
+
 ## Verification log and blockers
 
 - Checkpoint: `cargo test --all-targets` — 42 core + 15 format + 1 UI tests pass.

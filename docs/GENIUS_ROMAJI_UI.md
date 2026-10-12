@@ -1,6 +1,6 @@
 # Genius preview and romaji UI
 
-Status: phases 1–2 verified; phase 3 queued. UI ownership is limited to Slint, UI assets, `tests/ui.rs`, and UI documentation/previews. The parallel chat owns Rust actions, translation catalog, configuration, network requests, caching, and persistence.
+Status: all three UI phases verified. Manual playlist library-selection and persistence adapters are queued. UI ownership is limited to Slint, UI assets, `tests/ui.rs`, and UI documentation/previews, with narrow playlist translation additions agreed after the romaji backend commit. The parallel chat owns Rust actions, configuration, network requests, caching, and persistence.
 
 ## Phase 1 — Genius interface preview (verified)
 
@@ -23,9 +23,19 @@ AppWindow's dialog inputs: `deepseek-settings-open`, `deepseek-key-configured`, 
 
 Genius is an interface demonstration only. The future engine, analysis, ordered playlist persistence, and actual Play/Save are deferred as described in `GENIUS_PLAYLIST_RESEARCH.md`.
 
-## Phase 3 — Manual playlist creation interface (queued)
+## Phase 3 — Manual playlist creation interface (verified; backend queued)
 
-The user requested this next UI phase while romaji/Genius integration is underway. Provide a playlist name, library-song selection, an ordered draft preview, and Create/Cancel actions. Keep manual selection separate from Genius example data. Establish an explicit callback/model contract before playlist persistence is connected; do not claim saved playlists until the backend supports them.
+The user requested this next UI phase while romaji/Genius integration was underway. Added File → New Playlist, name entry, candidate checkboxes, selected-song count, an ordered review with Move Up/Move Down/Remove, Create/Cancel, and keyboard isolation. Arrow keys browse rows, Space emits selection, Enter leaves name editing or opens review, and Escape returns to selection/closes. Interface labels are English/Chinese/Japanese; names and metadata remain literal.
+
+The library adapter is intentionally queued separately from the romaji-first backend scope. The live app's unconnected editor says song selection is coming next, with Review/Create disabled until candidate/draft models are supplied. Create reports an unsaved draft, never a saved success. Rendered previews use supplied example models and simulated callback results; they are interface demonstrations rather than evidence of playlist persistence.
+
+### Playlist handoff contract
+
+`PlaylistCandidate`: `id: string` (audio path identity), `title: string`, `artist: string`, `selected: bool`. AppWindow inputs: `playlist-candidates`, `playlist-draft` (ordered), `playlist-persisted`. Two-way fields: `playlist-editor-open`, `playlist-name`, `playlist-message` (canonical UI key or literal message). Output: `playlist-reviewing`. Functions: `open-playlist-editor()`, `playlist-action(string, string)`. Callback: `playlist-command(command, id)` with `new`, `toggle`, `up`, `down`, `remove`, `create`, `cancel`.
+
+The future adapter freezes a lightweight library snapshot at `new`, sorts candidates case-insensitively/deterministically, maintains selected path order, updates checkbox/draft models after each command, validates trimmed names and live local paths, and persists ordered paths only after an explicit Create. Set `playlist-persisted` and a saved message only after storage succeeds. Do not persist transient row indices. Preserve playback while editing, and retain the draft if saving fails. This adapter and playlist storage remain queued; Genius example rows never enter the manual candidate model.
+
+Verification: `cargo check`, full 93 tests (one manual benchmark ignored), formatting, strict Clippy, and whitespace checks pass. Inspected English picker/review and Japanese review, fixed compact-button text sizing and translated-header spacing, and checked immediate status translation. UI tests cover name input (including R), callback path identities, ordered supplied rows, focus after reordering, Remove/Create, unsaved status, all three languages, Escape and empty/unconnected state. Previews: `docs/previews/playlist-selection.png`, `playlist-review.png`. Backend adapter and live-library persistence are not claimed as implemented.
 
 ## Shortcut refinement
 

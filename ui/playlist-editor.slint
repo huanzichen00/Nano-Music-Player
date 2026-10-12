@@ -1,0 +1,97 @@
+import { NanoActionButton } from "components.slint";
+import { I18n } from "i18n.slint";
+
+export struct PlaylistCandidate { id: string, title: string, artist: string, selected: bool }
+
+export component PlaylistEditor inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> open;
+    in property <[PlaylistCandidate]> candidates;
+    in property <[PlaylistCandidate]> draft;
+    in property <string> message;
+    in property <bool> persisted;
+    in-out property <string> name;
+    out property <bool> name-focused: name-input.has-focus;
+    out property <bool> reviewing: review;
+    private property <bool> review;
+    private property <int> selected-row;
+    callback command(string, string);
+    public function focus-name() { name-input.focus(); }
+    public function reset-view() { root.review = false; root.selected-row = 0; candidate-scroll.content-y = 0px; draft-scroll.content-y = 0px; }
+    public function review-draft() { if root.name != "" && root.draft.length > 0 { root.review = true; root.selected-row = 0; } }
+    public function back-to-selection() { root.review = false; root.selected-row = 0; }
+    public function move-selection(delta: int) {
+        root.selected-row = clamp(root.selected-row + delta, 0, max(0, (root.review ? root.draft.length : root.candidates.length) - 1));
+    }
+    public function toggle-selection() {
+        if !root.review && root.selected-row < root.candidates.length { root.command("toggle", root.candidates[root.selected-row].id); }
+    }
+    changed selected-row => {
+        if root.review {
+            draft-scroll.content-y = min(0px, clamp(draft-scroll.content-y, -root.selected-row * 48px * root.s, draft-scroll.height - (root.selected-row + 1) * 48px * root.s));
+        } else {
+            candidate-scroll.content-y = min(0px, clamp(candidate-scroll.content-y, -root.selected-row * 48px * root.s, candidate-scroll.height - (root.selected-row + 1) * 48px * root.s));
+        }
+    }
+    visible: root.open; background: #f4f5f6;
+    TouchArea {}
+    Rectangle {
+        x: 0px; y: 0px; width: root.width; height: 32px * root.s;
+        background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
+        Text { x: 68px * root.s; width: parent.width - 78px * root.s; text: I18n.tr(root.review ? "Review Playlist" : "New Playlist"); color: #252a30; font-size: 14px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+        Text { x: 6px * root.s; width: 56px * root.s; text: I18n.tr("Cancel"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; TouchArea { mouse-cursor: pointer; clicked => { root.command("cancel", ""); } } }
+    }
+    Rectangle {
+        visible: !root.review;
+        x: 0px; y: 32px * root.s; width: root.width; height: 101px * root.s;
+        Text { x: 10px * root.s; y: 9px * root.s; width: parent.width - 20px * root.s; height: 18px * root.s; text: I18n.tr("Playlist Name"); color: #647181; font-size: 11px * root.s; }
+        Rectangle {
+            x: 10px * root.s; y: 33px * root.s; width: parent.width - 20px * root.s; height: 32px * root.s;
+            background: white; border-color: name-input.has-focus ? #4b96da : #b6bbc0; border-width: 1px * root.s; border-radius: 4px * root.s;
+            if root.name == "": Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr("Enter a playlist name"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
+            name-input := TextInput { enabled: root.open && !root.review; x: 8px * root.s; width: parent.width - 16px * root.s; text <=> root.name; font-size: 12px * root.s; color: #263441; single-line: true; vertical-alignment: center; }
+        }
+        Text { x: 10px * root.s; y: 75px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr("Choose Songs") + " · " + root.draft.length; font-size: 11px * root.s; color: #49637c; vertical-alignment: center; }
+    }
+    if root.review: Rectangle {
+        x: 0px; y: 32px * root.s; width: root.width; height: 65px * root.s;
+        Text { x: 10px * root.s; y: 8px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s; text: root.name; color: #263441; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
+        Text { x: 10px * root.s; y: 35px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr(root.persisted ? "Playlist saved" : "Draft only · not saved"); color: #49637c; font-size: 10px * root.s; vertical-alignment: center; }
+    }
+    candidate-scroll := Flickable {
+        visible: !root.review; x: 0px; y: 133px * root.s; width: root.width; height: root.height - self.y - 55px * root.s;
+        content-height: max(self.height, root.candidates.length * 48px * root.s);
+        for song[index] in root.candidates: Rectangle {
+            x: 0px; y: index * 48px * root.s; width: root.width; height: 48px * root.s;
+            background: root.selected-row == index && !root.name-focused ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
+            Rectangle { x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
+            Rectangle { x: 10px * root.s; y: 15px * root.s; width: 18px * root.s; height: self.width; border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #93a4b5; background: song.selected ? #3183cc : #f5f8fb; Text { text: song.selected ? "✓" : ""; color: white; font-size: 13px * root.s; horizontal-alignment: center; vertical-alignment: center; } }
+            Text { x: 38px * root.s; y: 5px * root.s; width: parent.width - 48px * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.selected-row == index && !root.name-focused ? white : #263441; overflow: elide; }
+            Text { x: 38px * root.s; y: 28px * root.s; width: parent.width - 48px * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.selected-row == index && !root.name-focused ? #e1efff : #929292; overflow: elide; }
+            TouchArea { mouse-cursor: pointer; clicked => { root.selected-row = index; root.command("toggle", song.id); } }
+        }
+        if root.candidates.length == 0: Text { x: 16px * root.s; width: root.width - 32px * root.s; height: 170px * root.s; text: I18n.tr("Song selection is coming next."); color: #788390; font-size: 12px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
+    }
+    draft-scroll := Flickable {
+        visible: root.review; x: 0px; y: 97px * root.s; width: root.width; height: root.height - self.y - 112px * root.s;
+        content-height: max(self.height, root.draft.length * 48px * root.s);
+        for song[index] in root.draft: Rectangle {
+            x: 0px; y: index * 48px * root.s; width: root.width; height: 48px * root.s;
+            background: root.selected-row == index ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
+            Rectangle { x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
+            Text { x: 9px * root.s; width: 20px * root.s; text: index + 1; font-size: 11px * root.s; color: root.selected-row == index ? #e1efff : #93a0ae; vertical-alignment: center; }
+            Text { x: 34px * root.s; y: 5px * root.s; width: parent.width - 44px * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.selected-row == index ? white : #263441; overflow: elide; }
+            Text { x: 34px * root.s; y: 28px * root.s; width: parent.width - 44px * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.selected-row == index ? #e1efff : #929292; overflow: elide; }
+            TouchArea { mouse-cursor: pointer; clicked => { root.selected-row = index; } }
+        }
+    }
+    if root.review: Rectangle {
+        x: 0px; y: root.height - 105px * root.s; width: root.width; height: 36px * root.s;
+        NanoActionButton { x: 10px * root.s; width: 64px * root.s; s: root.s; text-size: 10px * root.s; label: "Move Up"; enabled: root.selected-row > 0 && !root.persisted; clicked => { root.command("up", root.draft[root.selected-row].id); root.selected-row -= 1; } }
+        NanoActionButton { x: 82px * root.s; width: 64px * root.s; s: root.s; text-size: 10px * root.s; label: "Move Down"; enabled: root.selected-row + 1 < root.draft.length && !root.persisted; clicked => { root.command("down", root.draft[root.selected-row].id); root.selected-row += 1; } }
+        NanoActionButton { x: 154px * root.s; width: 76px * root.s; s: root.s; label: "Remove"; enabled: root.selected-row < root.draft.length && !root.persisted; clicked => { root.command("remove", root.draft[root.selected-row].id); root.selected-row = max(0, min(root.selected-row, root.draft.length - 1)); } }
+    }
+    Text { x: 10px * root.s; y: root.height - 64px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr(root.message); color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
+    NanoActionButton { x: 10px * root.s; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; label: root.review ? "Back" : "Cancel"; clicked => { if root.review { root.back-to-selection(); } else { root.command("cancel", ""); } } }
+    NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; label: root.review ? "Create" : "Review"; enabled: root.name != "" && root.draft.length > 0 && !root.persisted; clicked => { if root.review { root.command("create", ""); } else { root.review-draft(); } } }
+}

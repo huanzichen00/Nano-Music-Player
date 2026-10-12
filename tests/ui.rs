@@ -866,5 +866,124 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         slint::SharedString::from(""),
     ])));
     snapshot(&ui, "romaji-empty-entries");
+
+    // Playlist UI uses supplied path identities and order, with no fake saving/backend.
+    use nano_music_player::ui::{I18n, PlaylistCandidate};
+    let playlist_events = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
+    let recorded = playlist_events.clone();
+    ui.on_playlist_command(move |name, id| {
+        recorded
+            .borrow_mut()
+            .push((name.to_string(), id.to_string()));
+    });
+    let song = |id: &str, title: &str| PlaylistCandidate {
+        id: id.into(),
+        title: title.into(),
+        artist: "Demo Artist".into(),
+        selected: true,
+    };
+    let first = song("/example/first.mp3", "夜の散歩");
+    let second = song("/example/second.mp3", "Quiet Streets");
+    let third = song("/example/third.mp3", "Morning Air");
+    ui.set_playlist_candidates(slint::ModelRc::new(slint::VecModel::from(vec![
+        first.clone(),
+        second.clone(),
+        third.clone(),
+    ])));
+    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(Vec::<
+        PlaylistCandidate,
+    >::new())));
+    let romaji_before = controller.borrow().state.romaji_visible;
+    let repeat_before = controller.borrow().state.repeat;
+    ui.invoke_open_playlist_editor();
+    assert!(ui.get_playlist_editor_open());
+    for letter in "Evening Mix".chars() {
+        tap(&ui, letter.to_string());
+    }
+    assert_eq!(ui.get_playlist_name(), "Evening Mix");
+    tap(&ui, "r");
+    assert_eq!(ui.get_playlist_name(), "Evening Mixr");
+    tap(&ui, Key::Backspace);
+    assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
+    assert_eq!(controller.borrow().state.repeat, repeat_before);
+    tap(&ui, Key::Return); // Leave name editing for song selection.
+    tap(&ui, Key::DownArrow);
+    tap(&ui, " ");
+    assert_eq!(
+        playlist_events.borrow().last().unwrap(),
+        &("toggle".into(), second.id.to_string())
+    );
+    // Simulate the future adapter returning the selected rows in selection order.
+    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
+        second.clone(),
+        first.clone(),
+        third.clone(),
+    ])));
+    snapshot(&ui, "playlist-select-preview");
+    tap(&ui, Key::Return);
+    assert!(ui.get_playlist_reviewing());
+    snapshot(&ui, "playlist-review-preview");
+    tap(&ui, Key::DownArrow);
+    click(&ui, 42.0, 343.0); // Move Up on the selected second row.
+    assert_eq!(
+        playlist_events.borrow().last().unwrap(),
+        &("up".into(), first.id.to_string())
+    );
+    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
+        first.clone(),
+        second.clone(),
+        third.clone(),
+    ])));
+    click(&ui, 114.0, 343.0); // The moved item remains selected.
+    assert_eq!(
+        playlist_events.borrow().last().unwrap(),
+        &("down".into(), first.id.to_string())
+    );
+    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
+        second.clone(),
+        first.clone(),
+        third.clone(),
+    ])));
+    click(&ui, 191.0, 343.0);
+    assert_eq!(
+        playlist_events.borrow().last().unwrap(),
+        &("remove".into(), first.id.to_string())
+    );
+    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
+        second.clone(),
+        third.clone(),
+    ])));
+    click(&ui, 178.0, 409.0);
+    assert_eq!(playlist_events.borrow().last().unwrap().0, "create");
+    assert!(!ui.get_playlist_persisted());
+    assert_eq!(ui.get_playlist_message(), "Draft ready · saving comes next");
+    for language in [
+        Language::SimplifiedChinese,
+        Language::Japanese,
+        Language::English,
+    ] {
+        ui.global::<I18n>().set_language(language.index() as i32);
+        assert_eq!(ui.get_playlist_name(), "Evening Mix");
+        snapshot(&ui, &format!("playlist-review-{}", language.code()));
+    }
+    tap(&ui, "r");
+    assert_eq!(
+        controller.borrow().state.romaji_visible,
+        romaji_before,
+        "playlist modal does not inherit the song-interface R shortcut"
+    );
+    tap(&ui, Key::Escape);
+    assert!(!ui.get_playlist_reviewing());
+    tap(&ui, Key::Escape);
+    assert!(!ui.get_playlist_editor_open());
+    ui.set_playlist_candidates(slint::ModelRc::new(slint::VecModel::from(Vec::<
+        PlaylistCandidate,
+    >::new())));
+    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(Vec::<
+        PlaylistCandidate,
+    >::new())));
+    ui.invoke_open_playlist_editor();
+    snapshot(&ui, "playlist-unconnected");
+    ui.invoke_playlist_action("cancel".into(), "".into());
     ui.hide().unwrap();
 }
