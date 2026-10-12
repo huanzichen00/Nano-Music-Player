@@ -218,9 +218,9 @@ pub fn read_source(path: &Path) -> Result<Lyrics, String> {
 
 fn decode(bytes: &[u8]) -> String {
     if bytes.starts_with(&[0xff, 0xfe]) {
-        encoding_rs::UTF_16LE.decode(&bytes).0.into_owned()
+        encoding_rs::UTF_16LE.decode(bytes).0.into_owned()
     } else if bytes.starts_with(&[0xfe, 0xff]) {
-        encoding_rs::UTF_16BE.decode(&bytes).0.into_owned()
+        encoding_rs::UTF_16BE.decode(bytes).0.into_owned()
     } else {
         String::from_utf8(bytes.to_vec())
             .unwrap_or_else(|_| encoding_rs::GBK.decode(bytes).0.into_owned())

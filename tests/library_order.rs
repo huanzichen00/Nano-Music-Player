@@ -21,8 +21,10 @@ fn track(title: &str, artist: &str, album: &str, number: u32, path: &str, artwor
     }
 }
 fn state(tracks: Vec<Track>, screen: Screen) -> State {
-    let mut s = State::default();
-    s.tracks = tracks;
+    let mut s = State {
+        tracks,
+        ..State::default()
+    };
     s.navigation.open(screen);
     s
 }

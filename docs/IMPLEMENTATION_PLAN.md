@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: in progress. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
+Status: complete. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
 
 ## Inspection and design basis
 
@@ -35,7 +35,7 @@ Decisions: persisted enum English/Simplified Chinese/Japanese; Settings language
 
 Acceptance: language changes immediately, persists across restart, all three catalogs have complete keys, metadata remains verbatim; menus/Home/settings/lyrics/empty states readable. Format/check/tests, screenshots, commit.
 
-## Phase 5 — macOS, future architecture, delivery (pending)
+## Phase 5 — macOS, future architecture, delivery (verified)
 
 Decisions: keep stable `org.nano.music-player` bundle identifier; document targeted AeroSpace `on-window-detected` floating rule, never edit global config. Evaluate video backend/rendering/AV sync and podcast RSS/download/resume architecture without implementation. Update user docs and example configuration; build bundle and launch with the existing normal library.
 
@@ -49,5 +49,7 @@ Acceptance: bundle ID verified, rule documented against official AeroSpace docs,
 - Phase 2: fmt/check and 64 tests pass (42 core, 15 codecs, 6 association, 1 comprehensive UI). Worker-load regressions cover sidecar changes, deleted manual source, changed audio, removal tombstone and reset. UI regressions cover real remove/reset effects and seek highlight/scroll; wrapped rows use measured Slint heights. Inspected plain and synced lyrics screenshots.
 - Phase 3: fmt/check and 68 tests pass. Sorting uses lowercase text, original spelling and path tie-breakers; unknown album track numbers sort after known numbers. UI sequence tests cover scroll-to-match, no-match letter consuming, Escape, Command/Ctrl+F, text entry and Home guards. Representative thumbnail screenshots inspected. Original 112×112 firmware Settings icon used directly; generated Home assets retained.
 - Phase 4: fmt/check and 72 tests pass (3 catalog, 43 core, 15 format, 4 ordering, 6 association, 1 comprehensive UI). Catalog coverage checks static UI keys and customizable action titles. Settings-driven changes, old-config English defaults and persisted languages tested. Metadata deliberately named Music/Settings/Lyrics remains unchanged. Inspected Chinese/Japanese Home, Settings and language-selection screenshots; native menus receive the same translated bindings.
-- Album-list refinement: fmt/check and comprehensive UI test pass; inspected larger-cover screenshots. The initial ten-album regression verified shared row geometry. Corrected page-10 density passes the comprehensive UI regression: seven cover rows fit the LCD and F+Z scrolls to the final album. Inspected Albums and Artists renderings alongside the extracted manual screenshot. Rebuild/native verification pending.
-- No current blockers. Native Windows/Linux validation unavailable on this macOS host.
+- Album-list refinement: fmt/check and comprehensive UI test pass; inspected larger-cover screenshots. The initial ten-album regression verified shared row geometry. Corrected page-10 density passes the comprehensive UI regression: seven cover rows fit the LCD and F+Z scrolls to the final album. Inspected Albums and Artists renderings alongside the extracted manual screenshot. Packaged and relaunched the combined app after verification.
+- Phase 5: cargo fmt --all -- --check, cargo check, cargo test --all-targets, cargo clippy --all-targets -- -D warnings and git diff --check pass. The shared tree includes a separately coordinated playback-artwork performance change, with 78 passing tests and one ignored manual benchmark. Kept commits/file ownership separate.
+- Packaged a local debug app with stable bundle ID org.nano.music-player and relaunched it using the normal configuration directory. Existing library has 42 tracks. Native Home/playback/lyrics and macOS menus inspected; corrected album-list proportions verified in rendered UI tests against the extracted page-10 screenshot. The user is actively interacting with the launched app, so further navigation was left to them.
+- AeroSpace rule verified against the official current guide and documented; global user configuration was not modified. Video/podcast architecture is documented only. No current blockers; native Windows/Linux build/runtime validation remains unavailable on this macOS host.

@@ -407,15 +407,15 @@ pub fn notice(language: Language, text: &str) -> String {
             );
         }
     }
-    if let Some(rest) = text.strip_prefix("Conflicting shortcut: ") {
-        if let Some((keys, action)) = rest.split_once(" is already assigned to ") {
-            return translate(
-                language,
-                "Conflicting shortcut: {0} is already assigned to {1}",
-            )
-            .replace("{0}", keys)
-            .replace("{1}", &translate(language, action));
-        }
+    if let Some(rest) = text.strip_prefix("Conflicting shortcut: ")
+        && let Some((keys, action)) = rest.split_once(" is already assigned to ")
+    {
+        return translate(
+            language,
+            "Conflicting shortcut: {0} is already assigned to {1}",
+        )
+        .replace("{0}", keys)
+        .replace("{1}", &translate(language, action));
     }
     if let Some(rest) = text.strip_prefix("No entries for ") {
         return format!("{} {}", translate(language, "No entries for"), rest);
