@@ -9,7 +9,7 @@ use crate::{
         PlaybackStatus,
         engine::{AudioEvent, Engine},
     },
-    input::{Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
+    input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
     library::{Track, scanner},
     ui::{AppWindow, LibraryRow, ShortcutRow},
 };
@@ -35,6 +35,8 @@ pub struct Controller {
     last_window_size: slint::LogicalSize,
     last_notice: String,
     notice_since: std::time::Instant,
+    shortcut_edit: Option<Action>,
+    shortcut_capture: Option<bool>,
 }
 
 impl Controller {
@@ -71,6 +73,8 @@ impl Controller {
             last_window_size: slint::LogicalSize::new(0.0, 0.0),
             last_notice: String::new(),
             notice_since: std::time::Instant::now(),
+            shortcut_edit: None,
+            shortcut_capture: None,
         }
     }
 
@@ -85,6 +89,11 @@ impl Controller {
             self.state.zoom = scale.clamp(0.75, 3.0);
         }
         self.resize(ui);
+        self.refresh_shortcuts(ui);
+        self.sync(ui);
+    }
+
+    fn refresh_shortcuts(&self, ui: &AppWindow) {
         let mut reference = Vec::new();
         for category in [
             Category::Playback,
@@ -106,7 +115,6 @@ impl Controller {
             }
         }
         ui.set_shortcuts(ModelRc::new(VecModel::from(reference)));
-        self.sync(ui);
     }
 
     pub fn dispatch(
@@ -115,7 +123,36 @@ impl Controller {
         event: slint::language::KeyEvent,
         text_input: bool,
     ) -> bool {
-        let Some(key) = Key::from_slint(event.text.as_str()) else {
+        let key = Key::from_slint(event.text.as_str());
+        if let Some(action) = self.shortcut_edit {
+            if event.repeat {
+                return true;
+            }
+            if key == Some(Key::Escape) {
+                self.shortcut_command(ui, "cancel");
+            } else if let (Some(replace), Some(key)) = (self.shortcut_capture, key.clone()) {
+                let binding = Binding {
+                    action,
+                    key,
+                    optional_shift: false,
+                    modifiers: Modifiers {
+                        primary: event.modifiers.control,
+                        secondary: event.modifiers.meta,
+                        alt: event.modifiers.alt,
+                        shift: event.modifiers.shift,
+                    },
+                };
+                let result = self.dispatcher.keymap.edit(action, Some(binding), replace);
+                if self.commit_keymap(ui, result) {
+                    self.shortcut_capture = None;
+                }
+            } else if self.shortcut_capture.is_none() && key == Some(Key::Enter) {
+                self.shortcut_command(ui, "replace");
+            }
+            self.sync_editor(ui);
+            return true;
+        }
+        let Some(key) = key else {
             return false;
         };
         let press = KeyPress {
@@ -138,6 +175,9 @@ impl Controller {
             Dispatch::Ignored => false,
             Dispatch::Consumed => true,
             Dispatch::Action(action) => {
+                if action.category() == Category::Navigation {
+                    ui.set_keyboard_navigation(true);
+                }
                 self.execute(ui, action);
                 true
             }
@@ -166,9 +206,23 @@ impl Controller {
                 Effect::FocusSearch => ui.invoke_focus_search(),
                 Effect::FocusScreen => ui.invoke_focus_screen(),
                 Effect::Resize => {
+                    self.rows_dirty = true;
                     self.resize(ui);
                     self.sync(ui);
                     self.save_settings(ui);
+                }
+                Effect::EditShortcut(action) => {
+                    self.shortcut_edit = Some(action);
+                    self.shortcut_capture = None;
+                    ui.set_shortcut_message("Choose how to edit this action.".into());
+                    self.sync_editor(ui);
+                    ui.invoke_focus_screen();
+                }
+                Effect::RestoreShortcuts => {
+                    if self.commit_keymap(ui, Ok(Keymap::default())) {
+                        self.state.notice = "Default shortcuts restored".into();
+                        self.sync(ui);
+                    }
                 }
             }
         }
@@ -176,7 +230,7 @@ impl Controller {
 
     fn base_size(&self) -> (f32, f32) {
         if self.state.device_mode {
-            (256.0, 488.0)
+            (296.0, 600.0)
         } else {
             (240.0, 432.0)
         }
@@ -311,6 +365,8 @@ impl Controller {
             Screen::NowPlaying => 2,
             Screen::Search => 3,
             Screen::Placeholder(_) => 4,
+            Screen::Settings => 5,
+            Screen::Shortcuts => 6,
             _ => 1,
         });
         ui.set_screen_title(screen.title().into());
@@ -337,6 +393,17 @@ impl Controller {
         );
         ui.set_reference_open(self.state.reference_open);
         ui.set_lyrics_visible(self.state.lyrics_visible);
+        ui.set_overlay_visible(self.state.overlay_visible);
+        ui.set_track_count(if self.state.queue.order.is_empty() {
+            "".into()
+        } else {
+            format!(
+                "{} of {}",
+                self.state.queue.position + 1,
+                self.state.queue.order.len()
+            )
+            .into()
+        });
         let duration = self.state.duration();
         ui.set_progress(if duration > 0.0 {
             (self.state.position / duration).clamp(0.0, 1.0) as f32
@@ -344,6 +411,7 @@ impl Controller {
             0.0
         });
         ui.set_elapsed(format_time(self.state.position).into());
+        ui.set_duration(format_time(duration).into());
         ui.set_remaining(
             format!(
                 "−{}",
@@ -358,7 +426,11 @@ impl Controller {
                 .into_iter()
                 .map(|row| LibraryRow {
                     title: row.title.into(),
-                    subtitle: row.subtitle.into(),
+                    subtitle: if let Target::Shortcut(action) = row.target {
+                        self.dispatcher.keymap.labels(action).into()
+                    } else {
+                        row.subtitle.into()
+                    },
                     chevron: !matches!(row.target, Target::Play(_)),
                 })
                 .collect::<Vec<_>>();
@@ -381,12 +453,14 @@ impl Controller {
                     | Screen::Artist(_)
                     | Screen::Songs(_)
                     | Screen::Search
+                    | Screen::Settings
+                    | Screen::Shortcuts
             ) {
                 let row_y = self.state.navigation.selected() as f32 * 48.0 * scale;
                 let visible_height = if *screen == Screen::Search {
-                    330.0
+                    324.0
                 } else {
-                    374.0
+                    368.0
                 } * scale;
                 let scroll = ui.get_list_scroll_y();
                 if row_y + scroll < 0.0 {
@@ -433,15 +507,82 @@ impl Controller {
             && (active != self.last_lyric || (scale - self.last_scale).abs() > 0.01)
         {
             if let Some(index) = active {
-                ui.set_lyric_scroll_y(-(index as f32 * 54.0 * scale).max(0.0));
+                // Keep one previous line visible in the compact lyric overlay.
+                ui.set_lyric_scroll_y(-(index.saturating_sub(1) as f32 * 32.0 * scale));
             }
             self.last_lyric = active;
         }
         self.last_scale = scale;
     }
+
+    fn sync_editor(&self, ui: &AppWindow) {
+        ui.set_shortcut_editor_open(self.shortcut_edit.is_some());
+        ui.set_shortcut_recording(self.shortcut_capture.is_some());
+        if let Some(action) = self.shortcut_edit {
+            ui.set_shortcut_title(action.title().into());
+            ui.set_shortcut_keys(self.dispatcher.keymap.labels(action).into());
+        }
+    }
+
+    fn commit_keymap(&mut self, ui: &AppWindow, map: Result<Keymap, String>) -> bool {
+        match map.and_then(|map| {
+            map.save(&self.directory.join("shortcuts.json"))?;
+            Ok(map)
+        }) {
+            Ok(map) => {
+                self.dispatcher.keymap = map;
+                self.rows_dirty = true;
+                self.refresh_shortcuts(ui);
+                ui.set_shortcut_message("Saved. Your shortcuts are active.".into());
+                self.sync(ui);
+                true
+            }
+            Err(message) => {
+                ui.set_shortcut_message(message.into());
+                false
+            }
+        }
+    }
+
+    pub fn shortcut_command(&mut self, ui: &AppWindow, command: &str) {
+        if command == "cancel" {
+            if self.shortcut_capture.take().is_some() {
+                ui.set_shortcut_message("Recording cancelled.".into());
+            } else {
+                self.shortcut_edit = None;
+            }
+        } else if let Some(action) = self.shortcut_edit {
+            match command {
+                "replace" | "add" => {
+                    self.shortcut_capture = Some(command == "replace");
+                    ui.set_shortcut_message("Press a key combination. Escape cancels.".into());
+                }
+                "clear" => {
+                    self.commit_keymap(ui, self.dispatcher.keymap.edit(action, None, true));
+                }
+                "restore" => {
+                    self.commit_keymap(ui, self.dispatcher.keymap.restore_action(action));
+                }
+                "done" => {
+                    self.shortcut_edit = None;
+                    self.shortcut_capture = None;
+                }
+                _ => {}
+            }
+        }
+        self.sync_editor(ui);
+        ui.invoke_focus_screen();
+    }
 }
 
 pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_shortcut_command(move |command| {
+        if let Some(ui) = weak.upgrade() {
+            state.borrow_mut().shortcut_command(&ui, &command);
+        }
+    });
     let weak = ui.as_weak();
     let state = controller.clone();
     ui.on_key_event(move |event, editing| {
@@ -452,6 +593,7 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     let state = controller.clone();
     ui.on_command(move |name| {
         if let (Some(ui), Some(action)) = (weak.upgrade(), Action::parse(&name)) {
+            ui.set_keyboard_navigation(false);
             state.borrow_mut().execute(&ui, action);
         }
     });
@@ -461,6 +603,7 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
         if let Some(ui) = weak.upgrade() {
             let mut state = state.borrow_mut();
             if index >= 0 && (index as usize) < state.state.selection_count() {
+                ui.set_keyboard_navigation(false);
                 state.state.navigation.select(index as usize);
                 state.execute(&ui, Action::Activate);
             }

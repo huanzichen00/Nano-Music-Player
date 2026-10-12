@@ -87,7 +87,7 @@ fn all_default_shortcuts_resolve_to_their_semantic_actions() {
         (Key::Enter, Action::Activate),
         (Key::Escape, Action::Back),
         (Key::Backspace, Action::Back),
-        (Key::Letter('h'), Action::Home),
+        (Key::Letter('h'), Action::Left),
         (Key::Left, Action::Left),
         (Key::Right, Action::Right),
         (Key::Space, Action::TogglePlay),
@@ -95,7 +95,8 @@ fn all_default_shortcuts_resolve_to_their_semantic_actions() {
         (Key::Letter('s'), Action::ToggleShuffle),
         (Key::Letter('r'), Action::CycleRepeat),
         (Key::Letter('n'), Action::NowPlaying),
-        (Key::Letter('l'), Action::ToggleLyrics),
+        (Key::Letter('l'), Action::Right),
+        (Key::Letter('y'), Action::ToggleLyrics),
     ];
     let modified = [
         (Key::Right, Action::NextTrack),
@@ -156,7 +157,7 @@ fn slint_key_text_is_normalized_without_accepting_unknown_or_multiple_characters
     ] {
         assert_eq!(Key::from_slint(text), Some(expected));
     }
-    for text in ["", "Enter", "ab", "é", "你", "?"] {
+    for text in ["", "Enter", "ab", "é", "你"] {
         assert_eq!(Key::from_slint(text), None, "{text:?}");
     }
 }
@@ -237,7 +238,11 @@ fn native_primary_modifier_and_other_modifiers_match_exactly() {
 fn held_keys_repeat_movement_volume_and_seek_but_consume_toggle_and_activation_repeats() {
     for binding in Keymap::default().bindings {
         let expected = if binding.action.repeatable() {
-            Dispatch::Action(binding.action)
+            Dispatch::Action(match binding.action {
+                Action::NavigateLeft => Action::Left,
+                Action::NavigateRight => Action::Right,
+                action => action,
+            })
         } else {
             Dispatch::Consumed
         };
@@ -594,7 +599,7 @@ fn invalid_shortcut_configuration_is_reported_without_overwriting_it() {
     let path = directory.path().join("shortcuts.json");
     for text in [
         "not json",
-        r#"{"version":2,"bindings":[]}"#,
+        r#"{"version":99,"bindings":[]}"#,
         r#"{"version":1,"bindings":[],"typo":true}"#,
         r#"{"version":1,"bindings":[{"action":"toggle_play","key":{"letter":"P"}}]}"#,
         r#"{"version":1,"bindings":[{"action":"toggle_play","key":{"digit":"x"}}]}"#,
@@ -1320,4 +1325,140 @@ fn invalid_settings_reject_unknown_fields_zoom_and_window_dimensions() {
         fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(Settings::load(&path).is_ok());
     }
+}
+
+#[test]
+fn yazi_letters_keep_navigation_meaning_across_every_surface() {
+    for surface in [
+        Surface::Home,
+        Surface::Library,
+        Surface::NowPlaying,
+        Surface::NowPlayingVolume,
+        Surface::Placeholder,
+    ] {
+        for (key, action) in [
+            ('h', Action::Back),
+            ('j', Action::SelectNext),
+            ('k', Action::SelectPrevious),
+            ('l', Action::Activate),
+        ] {
+            if surface == Surface::Placeholder && key == 'l' {
+                assert_eq!(
+                    dispatch(Key::Letter(key), Modifiers::default(), false, surface),
+                    Dispatch::Consumed
+                );
+                continue;
+            }
+            assert_eq!(
+                dispatch(Key::Letter(key), Modifiers::default(), false, surface),
+                Dispatch::Action(if surface == Surface::Home {
+                    match key {
+                        'h' => Action::Left,
+                        'l' => Action::Right,
+                        _ => action,
+                    }
+                } else {
+                    action
+                })
+            );
+        }
+    }
+}
+
+#[test]
+fn shortcut_edits_validate_before_saving_and_restore_actions_without_stealing_keys() {
+    let map = Keymap::default();
+    let binding = Binding {
+        action: Action::ToggleMute,
+        key: Key::Function(8),
+        modifiers: Modifiers::default(),
+        optional_shift: false,
+    };
+    let edited = map.edit(Action::ToggleMute, Some(binding), true).unwrap();
+    assert_eq!(edited.labels(Action::ToggleMute), "F8");
+    assert_eq!(map.labels(Action::ToggleMute), "M");
+    let stolen = Binding {
+        action: Action::TogglePlay,
+        key: Key::Letter('m'),
+        modifiers: Modifiers::default(),
+        optional_shift: false,
+    };
+    let changed = edited.edit(Action::TogglePlay, Some(stolen), true).unwrap();
+    assert!(changed.restore_action(Action::ToggleMute).is_err());
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shortcuts.json");
+    edited.save(&path).unwrap();
+    assert_eq!(
+        Keymap::load_or_create(&path).unwrap().bindings,
+        edited.bindings
+    );
+    assert!(!path.with_extension("json.tmp").exists());
+    let mut invalid = edited.clone();
+    invalid.bindings.push(invalid.bindings[0].clone());
+    assert!(invalid.save(&path).is_err());
+    assert_eq!(
+        Keymap::load_or_create(&path).unwrap().bindings,
+        edited.bindings
+    );
+}
+
+#[test]
+fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
+    let mut legacy = Keymap {
+        version: 1,
+        ..Keymap::default()
+    };
+    legacy.bindings.retain(|b| {
+        b.action != Action::Settings
+            && !(b.action == Action::Home && b.modifiers.shift)
+            && b.key != Key::Letter('y')
+    });
+    for binding in &mut legacy.bindings {
+        if binding.key == Key::Letter('h') {
+            binding.action = Action::Home;
+        }
+        if binding.key == Key::Letter('l') {
+            binding.action = Action::ToggleLyrics;
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("shortcuts.json");
+    legacy.save(&path).unwrap();
+    assert_eq!(
+        Keymap::load_or_create(&path).unwrap().bindings,
+        Keymap::default().bindings
+    );
+    legacy.bindings.pop();
+    legacy.save(&path).unwrap();
+    assert_eq!(
+        Keymap::load_or_create(&path).unwrap().bindings,
+        legacy.bindings
+    );
+}
+
+#[test]
+fn settings_and_album_track_list_are_real_navigation_screens() {
+    let mut state = music_state();
+    state.home_page = 1;
+    state.navigation.select(1);
+    state.apply(Action::Activate);
+    assert_eq!(state.navigation.current().screen, Screen::Settings);
+    state.apply(Action::Activate);
+    assert_eq!(state.navigation.current().screen, Screen::Shortcuts);
+    assert!(matches!(
+        state.apply(Action::Activate).as_slice(),
+        [Effect::EditShortcut(Action::SelectPrevious)]
+    ));
+    state.apply(Action::Back);
+    assert_eq!(state.navigation.current().screen, Screen::Settings);
+    state.start(0);
+    state.apply(Action::NowPlaying);
+    state.apply(Action::TrackList);
+    assert_eq!(
+        state.rows().len(),
+        1,
+        "same-named albums remain scoped to their artist"
+    );
+    state.apply(Action::Back);
+    assert_eq!(state.navigation.current().screen, Screen::NowPlaying);
 }

@@ -16,6 +16,14 @@ pub enum Key {
     Plus,
     Equals,
     Minus,
+    Tab,
+    Delete,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Function(u8),
+    Character(char),
     Letter(char),
     Digit(char),
 }
@@ -78,6 +86,14 @@ impl Binding {
             Key::Plus => "+".to_owned(),
             Key::Equals => "=".to_owned(),
             Key::Minus => "−".to_owned(),
+            Key::Tab => "Tab".into(),
+            Key::Delete => "Delete".into(),
+            Key::Home => "Home".into(),
+            Key::End => "End".into(),
+            Key::PageUp => "Page Up".into(),
+            Key::PageDown => "Page Down".into(),
+            Key::Function(n) => format!("F{n}"),
+            Key::Character(c) => c.to_string(),
             Key::Letter(c) | Key::Digit(c) => c.to_uppercase().to_string(),
         });
         parts.join(" + ")
@@ -107,7 +123,8 @@ impl Default for Keymap {
             (Enter, Activate),
             (Escape, Back),
             (Backspace, Back),
-            (Letter('h'), Home),
+            (Letter('h'), Action::NavigateLeft),
+            (Letter('l'), Action::NavigateRight),
             (Left, Action::Left),
             (Right, Action::Right),
             (Space, TogglePlay),
@@ -115,7 +132,7 @@ impl Default for Keymap {
             (Letter('s'), ToggleShuffle),
             (Letter('r'), CycleRepeat),
             (Letter('n'), NowPlaying),
-            (Letter('l'), ToggleLyrics),
+            (Letter('y'), ToggleLyrics),
         ];
         let primary = [
             (Right, NextTrack),
@@ -129,9 +146,10 @@ impl Default for Keymap {
             (Plus, ZoomIn),
             (Equals, ZoomIn),
             (Minus, ZoomOut),
+            (Character(','), Action::Settings),
         ];
         Self {
-            version: 1,
+            version: 3,
             bindings: plain
                 .into_iter()
                 .map(|(key, action)| Binding {
@@ -149,6 +167,15 @@ impl Default for Keymap {
                         ..Modifiers::default()
                     },
                 }))
+                .chain(std::iter::once(Binding {
+                    action: Home,
+                    key: Letter('h'),
+                    modifiers: Modifiers {
+                        shift: true,
+                        ..Modifiers::default()
+                    },
+                    optional_shift: false,
+                }))
                 .collect(),
         }
     }
@@ -156,7 +183,7 @@ impl Default for Keymap {
 
 impl Keymap {
     pub fn validate(&self) -> Result<(), String> {
-        if self.version != 1 {
+        if !matches!(self.version, 1..=3) {
             return Err(format!(
                 "Unsupported shortcut file version: {}",
                 self.version
@@ -165,8 +192,10 @@ impl Keymap {
         for (i, binding) in self.bindings.iter().enumerate() {
             if matches!(binding.key, Key::Letter(c) if !c.is_ascii_lowercase())
                 || matches!(binding.key, Key::Digit(c) if !c.is_ascii_digit())
+                || matches!(binding.key, Key::Function(n) if !(1..=24).contains(&n))
+                || matches!(binding.key, Key::Character(c) if !c.is_ascii_punctuation() || matches!(c, '+' | '=' | '-'))
             {
-                return Err("Use lowercase ASCII letters or digits for key bindings".to_owned());
+                return Err("Use lowercase ASCII letters, digits, punctuation or F1–F24".to_owned());
             }
             if self.bindings[..i].iter().any(|other| {
                 other.key == binding.key
@@ -178,8 +207,15 @@ impl Keymap {
                         || other.modifiers.shift == binding.modifiers.shift)
             }) {
                 return Err(format!(
-                    "Conflicting shortcut: {}",
-                    binding.label(cfg!(target_os = "macos"))
+                    "Conflicting shortcut: {} is already assigned to {}",
+                    binding.label(cfg!(target_os = "macos")),
+                    self.bindings[..i]
+                        .iter()
+                        .find(|other| other.matches(&binding.key, binding.modifiers)
+                            || binding.matches(&other.key, other.modifiers))
+                        .unwrap()
+                        .action
+                        .title()
                 ));
             }
         }
@@ -188,22 +224,106 @@ impl Keymap {
 
     pub fn load_or_create(path: &Path) -> Result<Self, String> {
         if path.exists() {
-            let map: Self =
+            let mut map: Self =
                 serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
                     .map_err(|e| format!("Invalid shortcuts.json: {e}"))?;
             map.validate()?;
+            // Upgrade only exact shipped defaults. User-edited maps are preserved.
+            let mut v2 = Self::default();
+            for binding in &mut v2.bindings {
+                if binding.key == Key::Letter('h') && !binding.modifiers.shift {
+                    binding.action = Action::Back;
+                }
+                if binding.key == Key::Letter('l') {
+                    binding.action = Action::Activate;
+                }
+            }
+            let mut legacy = v2.clone();
+            legacy.bindings.retain(|b| {
+                b.action != Action::Settings && !(b.action == Action::Home && b.modifiers.shift)
+            });
+            for binding in &mut legacy.bindings {
+                if binding.key == Key::Letter('h') {
+                    binding.action = Action::Home;
+                }
+                if binding.key == Key::Letter('l') {
+                    binding.action = Action::ToggleLyrics;
+                }
+            }
+            legacy.bindings.retain(|b| b.key != Key::Letter('y'));
+            if (map.version == 1
+                && map.bindings.len() == legacy.bindings.len()
+                && map.bindings.iter().all(|b| legacy.bindings.contains(b)))
+                || (map.version == 2
+                    && map.bindings.len() == v2.bindings.len()
+                    && map.bindings.iter().all(|b| v2.bindings.contains(b)))
+            {
+                map = Self::default();
+                map.save(path)?;
+            }
             Ok(map)
         } else {
             let map = Self::default();
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            }
-            std::fs::write(
-                path,
-                serde_json::to_vec_pretty(&map).map_err(|e| e.to_string())?,
-            )
-            .map_err(|e| e.to_string())?;
+            map.save(path)?;
             Ok(map)
+        }
+    }
+
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        self.validate()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        let temporary = path.with_extension("json.tmp");
+        std::fs::write(
+            &temporary,
+            serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        std::fs::rename(temporary, path).map_err(|e| e.to_string())
+    }
+
+    pub fn edit(
+        &self,
+        action: Action,
+        binding: Option<Binding>,
+        replace: bool,
+    ) -> Result<Self, String> {
+        let mut map = self.clone();
+        map.version = 3;
+        if replace {
+            map.bindings.retain(|b| b.action != action);
+        }
+        if let Some(binding) = binding {
+            map.bindings.push(Binding { action, ..binding });
+        }
+        map.validate()?;
+        Ok(map)
+    }
+
+    pub fn restore_action(&self, action: Action) -> Result<Self, String> {
+        let mut map = self.edit(action, None, true)?;
+        map.bindings.extend(
+            Self::default()
+                .bindings
+                .into_iter()
+                .filter(|b| b.action == action),
+        );
+        map.validate()?;
+        Ok(map)
+    }
+
+    pub fn labels(&self, action: Action) -> String {
+        let labels: Vec<_> = self
+            .bindings
+            .iter()
+            .filter(|b| b.action == action)
+            .map(|b| b.label(cfg!(target_os = "macos")))
+            .collect();
+        if labels.is_empty() {
+            "Unassigned".into()
+        } else {
+            labels.join(" / ")
         }
     }
 }
@@ -229,6 +349,20 @@ impl Key {
             Self::Escape
         } else if c == char::from(S::Backspace) {
             Self::Backspace
+        } else if c == char::from(S::Tab) {
+            Self::Tab
+        } else if c == char::from(S::Delete) {
+            Self::Delete
+        } else if c == char::from(S::Home) {
+            Self::Home
+        } else if c == char::from(S::End) {
+            Self::End
+        } else if c == char::from(S::PageUp) {
+            Self::PageUp
+        } else if c == char::from(S::PageDown) {
+            Self::PageDown
+        } else if (char::from(S::F1)..=char::from(S::F24)).contains(&c) {
+            Self::Function((c as u32 - char::from(S::F1) as u32 + 1) as u8)
         } else {
             match c {
                 ' ' => Self::Space,
@@ -237,6 +371,7 @@ impl Key {
                 '-' => Self::Minus,
                 c if c.is_ascii_alphabetic() => Self::Letter(c.to_ascii_lowercase()),
                 c if c.is_ascii_digit() => Self::Digit(c),
+                c if c.is_ascii_punctuation() => Self::Character(c),
                 _ => return None,
             }
         })

@@ -85,6 +85,11 @@ impl Dispatcher {
             return Dispatch::Consumed;
         }
         let action = match (binding.action, context.surface) {
+            (NavigateLeft, Surface::Home) => Left,
+            (NavigateRight, Surface::Home) => Right,
+            (NavigateLeft, _) => Back,
+            (NavigateRight, Surface::Placeholder) => return Dispatch::Consumed,
+            (NavigateRight, _) => Activate,
             (Left, Surface::Library | Surface::Placeholder) => Back,
             (Right, Surface::Library) => Activate,
             (Left, Surface::NowPlaying) => SeekBackward,

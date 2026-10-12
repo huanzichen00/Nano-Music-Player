@@ -25,6 +25,8 @@ pub enum Screen {
     Songs(Filter),
     Search,
     NowPlaying,
+    Settings,
+    Shortcuts,
     Placeholder(String),
 }
 
@@ -43,6 +45,8 @@ impl Screen {
             Self::Songs(Filter::Genre(name)) => name,
             Self::Search => "Search",
             Self::NowPlaying => "Now Playing",
+            Self::Settings => "Settings",
+            Self::Shortcuts => "Shortcuts",
         }
     }
 }

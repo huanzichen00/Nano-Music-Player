@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 3,
   "bindings": [
     {
       "action": "select_previous",
@@ -83,7 +83,7 @@
       "optional_shift": false
     },
     {
-      "action": "home",
+      "action": "navigate_left",
       "key": {
         "letter": "h"
       },
@@ -181,7 +181,7 @@
       "optional_shift": false
     },
     {
-      "action": "toggle_lyrics",
+      "action": "navigate_right",
       "key": {
         "letter": "l"
       },
@@ -314,6 +314,45 @@
     {
       "action": "zoom_out",
       "key": "minus",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "toggle_lyrics",
+      "key": {
+        "letter": "y"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "home",
+      "key": {
+        "letter": "h"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": true
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "settings",
+      "key": {
+        "character": ","
+      },
       "modifiers": {
         "primary": true,
         "secondary": false,

@@ -22,3 +22,10 @@ All audio fixtures are original quiet synthetic tones generated locally; encoder
 ## Generated icon variants
 
 Sharper, transparent icon reconstructions are generated with the built-in imagegen tool from the original guide icons. They are derived approximations, not newly recovered original Apple assets. Outputs, prompts and chosen assets are saved in `assets/generated/`; the original extracted assets remain available for comparison.
+
+## Current player references
+
+- [Apollomaniacs: seventh-generation nano Music](https://www.apollomaniacs.com/ipod/howto_music_ipodnano.htm): supplied by the user; cover tap reveals extra controls and lyrics over artwork, and the track-list button opens the current album.
+- The four user-supplied photographs guide the charcoal title strip, full-width artwork, large white transport symbols, compact lyrics and blue aluminium device frame. The fourth photograph is the primary player reference.
+- [Yazi Quick Start](https://yazi-rs.github.io/docs/quick-start/): H leaves the current level, L enters, J/K move the cursor. Letters keep those meanings in lists, while Home uses H/L for horizontal icon navigation; seek and volume controls use separate actions or arrow context.
+- `previous.svg`, `next.svg`, `lyrics.svg`, `track-list.svg` and `slider-knob.svg` are small vector assets authored for this project. The lyrics symbol is an app-specific control; it does not claim to provide Apple Genius.

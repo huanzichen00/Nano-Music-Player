@@ -35,11 +35,11 @@ fn display_point(ui: &AppWindow, x: f32, y: f32) -> slint::LogicalPosition {
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     let scale = ui.get_display_scale();
     let content_height = ui.get_content_height();
-    let body_height = if ui.get_device_mode() { 488.0 } else { 432.0 };
+    let body_height = if ui.get_device_mode() { 600.0 } else { 432.0 };
     let top = size.height - content_height + (content_height - body_height * scale) / 2.0;
     slint::LogicalPosition::new(
         (size.width - 240.0 * scale) / 2.0 + x * scale,
-        top + (y + if ui.get_device_mode() { 8.0 } else { 0.0 }) * scale,
+        top + (y + if ui.get_device_mode() { 36.0 } else { 0.0 }) * scale,
     )
 }
 
@@ -244,11 +244,13 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         !ui.get_lyrics_visible(),
         "tap lyrics to return to artwork without an extra button"
     );
-    tap(&ui, "l");
+    tap(&ui, "y");
     assert!(ui.get_lyrics_visible());
     tap(&ui, Key::LeftArrow);
     assert!(controller.borrow().state.position < 11.0);
     tap(&ui, "h");
+    assert_eq!(ui.get_screen_title(), "Search");
+    ui.invoke_command("home".into());
     assert_eq!(ui.get_screen(), 0);
     tap(&ui, "s");
     assert!(
@@ -277,8 +279,122 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     controller.borrow_mut().poll(&ui);
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     assert!(
-        (size.width / 256.0 - ui.get_content_height() / 488.0).abs() < 0.01,
+        (size.width / 296.0 - ui.get_content_height() / 600.0).abs() < 0.01,
         "mouse resizing keeps a tight device aspect ratio"
     );
+    // Settings is reachable through its Home icon and the platform shortcut.
+    ui.invoke_command("home".into());
+    tap(&ui, "l");
+    assert_eq!(ui.get_selected(), 1);
+    tap(&ui, "l");
+    assert_eq!(ui.get_home_page(), 1);
+    tap(&ui, "l");
+    assert_eq!(ui.get_selected(), 1);
+    tap(&ui, Key::Return);
+    assert_eq!(ui.get_screen_title(), "Settings");
+    snapshot(&ui, "settings");
+    tap(&ui, "l");
+    assert_eq!(ui.get_screen_title(), "Shortcuts");
+    snapshot(&ui, "customize-shortcuts");
+    tap(&ui, "j"); // Move selection down.
+    tap(&ui, "l");
+    assert!(ui.get_shortcut_editor_open());
+    snapshot(&ui, "shortcut-editor");
+    click(&ui, 65.0, 256.0);
+    assert!(ui.get_shortcut_recording());
+    let before = controller.borrow().dispatcher.keymap.bindings.clone();
+    tap(&ui, " "); // Conflicts with Play / Pause and cannot execute playback.
+    assert!(ui.get_shortcut_message().contains("already assigned"));
+    assert_eq!(controller.borrow().dispatcher.keymap.bindings, before);
+    tap(&ui, "x");
+    assert!(!ui.get_shortcut_recording());
+    assert_eq!(ui.get_shortcut_keys(), "X");
+    click(&ui, 173.0, 256.0);
+    assert!(ui.get_shortcut_recording());
+    tap(&ui, "d");
+    assert_eq!(ui.get_shortcut_keys(), "X / D");
+    snapshot(&ui, "shortcut-saved");
+    ui.invoke_shortcut_command("done".into());
+    let saved =
+        nano_music_player::input::Keymap::load_or_create(&directory.path().join("shortcuts.json"))
+            .unwrap();
+    assert_eq!(
+        saved.bindings,
+        controller.borrow().dispatcher.keymap.bindings
+    );
+    assert_eq!(saved.labels(Action::SelectNext), "X / D");
+    tap(&ui, "j");
+    assert_eq!(
+        ui.get_selected(),
+        1,
+        "replaced aliases stop working immediately"
+    );
+    tap(&ui, "x");
+    assert_eq!(ui.get_selected(), 2);
+    tap(&ui, "d");
+    assert_eq!(ui.get_selected(), 3);
+    tap(&ui, "k");
+    tap(&ui, "k");
+    tap(&ui, "l");
+    ui.invoke_shortcut_command("clear".into());
+    assert_eq!(ui.get_shortcut_keys(), "Unassigned");
+    ui.invoke_shortcut_command("restore".into());
+    assert!(ui.get_shortcut_keys().contains("J"));
+    ui.invoke_shortcut_command("replace".into());
+    tap(&ui, slint::platform::Key::Escape);
+    assert!(!ui.get_shortcut_recording());
+    assert!(ui.get_shortcut_editor_open());
+    tap(&ui, slint::platform::Key::Escape);
+    assert!(!ui.get_shortcut_editor_open());
+    tap(&ui, "h");
+    assert_eq!(ui.get_screen_title(), "Settings");
+    primary(&ui, ",");
+    assert_eq!(ui.get_screen_title(), "Settings");
+
+    // The artwork is retained under the lyrics, even when no timed lyrics exist.
+    let artwork = image::RgbaImage::from_fn(480, 480, |x, y| {
+        let circle = (i64::from(x) - 240).pow(2) + (i64::from(y) - 240).pow(2) < 130_i64.pow(2);
+        if circle {
+            image::Rgba([225, 182, 106, 255])
+        } else {
+            image::Rgba([36, (55 + y / 6) as u8, (68 + x / 6) as u8, 255])
+        }
+    });
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    artwork
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    {
+        let mut controller = controller.borrow_mut();
+        controller.state.tracks[1].artwork = bytes.into_inner();
+        controller.state.tracks[1].lyrics = Lyrics::parse(
+            "[00:00]A small original lyric fixture\n[00:10]With artwork behind the words\n[00:20]And room to scroll the next line\n[00:30]Another line for the reader\n[00:40]The last line of this test",
+        );
+        controller.state.current = None;
+        controller.execute(&ui, Action::NowPlaying);
+        controller.state.start(1);
+        controller.state.status = nano_music_player::audio::PlaybackStatus::Playing;
+        controller.state.position = 11.0;
+        controller.execute(&ui, Action::NowPlaying);
+    }
+    ui.invoke_command("toggle_overlay".into());
+    if !ui.get_overlay_visible() {
+        ui.invoke_command("toggle_overlay".into());
+    }
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    assert!(ui.get_artwork().size().width > 0);
+    assert!(ui.get_lyrics_visible());
+    snapshot(&ui, "lyrics-with-artwork");
+    click(&ui, 211.0, 160.0); // Album track list.
+    assert_eq!(ui.get_screen_title(), "Test Album");
+    tap(&ui, "h");
+    assert_eq!(ui.get_screen_title(), "Now Playing");
+    click(&ui, 90.0, 160.0); // Lyrics toolbar button.
+    assert!(!ui.get_lyrics_visible());
+    assert!(ui.get_overlay_visible());
+    snapshot(&ui, "cover-controls");
+    click(&ui, 120.0, 240.0);
+    assert!(!ui.get_overlay_visible());
+    snapshot(&ui, "cover-with-artwork");
     ui.hide().unwrap();
 }

@@ -11,6 +11,8 @@ pub enum Action {
     Home,
     Left,
     Right,
+    NavigateLeft,
+    NavigateRight,
     TogglePlay,
     NextTrack,
     PreviousTrack,
@@ -32,6 +34,11 @@ pub enum Action {
     SeekBackward,
     SeekForward,
     ToggleLyrics,
+    ToggleOverlay,
+    Settings,
+    Shortcuts,
+    RestoreShortcuts,
+    TrackList,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +73,7 @@ impl Action {
             | Self::SeekBackward
             | Self::SeekForward
             | Self::ToggleLyrics => Category::Playback,
+            Self::ToggleOverlay | Self::TrackList => Category::Playback,
             Self::ImportFolder
             | Self::Search
             | Self::DeviceMode
@@ -74,6 +82,7 @@ impl Action {
             | Self::ZoomOut
             | Self::ShowShortcuts
             | Self::CloseShortcuts => Category::Application,
+            Self::Settings | Self::Shortcuts | Self::RestoreShortcuts => Category::Application,
             _ => Category::Navigation,
         }
     }
@@ -85,6 +94,8 @@ impl Action {
                 | Self::SelectNext
                 | Self::Left
                 | Self::Right
+                | Self::NavigateLeft
+                | Self::NavigateRight
                 | Self::VolumeUp
                 | Self::VolumeDown
                 | Self::SeekBackward
@@ -101,8 +112,10 @@ impl Action {
             Self::Activate => "Activate selected item",
             Self::Back => "Navigate back",
             Self::Home => "Physical Home button",
-            Self::Left => "Left: grid / back / seek",
-            Self::Right => "Right: grid / open / seek",
+            Self::Left => "Left arrow / seek back",
+            Self::Right => "Right arrow / seek forward",
+            Self::NavigateLeft => "Left / parent screen",
+            Self::NavigateRight => "Right / open item",
             Self::TogglePlay => "Play / Pause",
             Self::NextTrack => "Next track",
             Self::PreviousTrack => "Previous track",
@@ -124,8 +137,47 @@ impl Action {
             Self::SeekBackward => "Seek back 5 seconds",
             Self::SeekForward => "Seek forward 5 seconds",
             Self::ToggleLyrics => "Show / hide lyrics",
+            Self::ToggleOverlay => "Show / hide cover controls",
+            Self::Settings => "Open Settings",
+            Self::Shortcuts => "Customize shortcuts",
+            Self::RestoreShortcuts => "Restore default shortcuts",
+            Self::TrackList => "Album track list",
         }
     }
+
+    pub const CUSTOMIZABLE: &'static [Self] = &[
+        Self::SelectPrevious,
+        Self::SelectNext,
+        Self::NavigateLeft,
+        Self::NavigateRight,
+        Self::Back,
+        Self::Activate,
+        Self::Home,
+        Self::Left,
+        Self::Right,
+        Self::TogglePlay,
+        Self::NextTrack,
+        Self::PreviousTrack,
+        Self::VolumeUp,
+        Self::VolumeDown,
+        Self::ToggleMute,
+        Self::ToggleShuffle,
+        Self::CycleRepeat,
+        Self::NowPlaying,
+        Self::ToggleLyrics,
+        Self::ToggleOverlay,
+        Self::TrackList,
+        Self::SeekBackward,
+        Self::SeekForward,
+        Self::ImportFolder,
+        Self::Search,
+        Self::Settings,
+        Self::DeviceMode,
+        Self::ScreenMode,
+        Self::ZoomIn,
+        Self::ZoomOut,
+        Self::ShowShortcuts,
+    ];
 
     pub fn parse(value: &str) -> Option<Self> {
         serde_json::from_value(serde_json::Value::String(value.to_owned())).ok()

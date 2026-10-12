@@ -1,0 +1,44 @@
+component EditorButton inherits Rectangle {
+    in property <float> s;
+    in property <string> label;
+    in property <bool> primary;
+    callback clicked;
+    height: 34px * root.s;
+    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: root.primary ? #255e99 : #9ba3ab;
+    background: touch.pressed ? #8795a4 : (root.primary ? @linear-gradient(180deg, #619ed7, #2b6caf) : @linear-gradient(180deg, #fff, #d7dce2));
+    Text { text: root.label; font-size: 12px * root.s; font-weight: 600; color: root.primary ? white : #263441; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component ShortcutEditor inherits Rectangle {
+    in property <float> s;
+    in property <string> title;
+    in property <string> keys;
+    in property <string> message;
+    in property <bool> recording;
+    callback command(string);
+    background: #080e1b99;
+    TouchArea {} // Keep pointer input inside the modal.
+    Rectangle {
+        x: 10px * root.s; y: (parent.height - self.height) / 2;
+        width: parent.width - 20px * root.s; height: 310px * root.s;
+        background: @linear-gradient(180deg, #f9fafc, #e5e9ee);
+        border-radius: 8px * root.s; border-width: 1px * root.s; border-color: #9ba6b2;
+        Text { x: 12px * root.s; y: 14px * root.s; width: parent.width - 24px * root.s; height: 40px * root.s; text: root.title; font-size: 16px * root.s; font-weight: 700; color: #23313e; wrap: word-wrap; }
+        Text { x: 12px * root.s; y: 57px * root.s; width: parent.width - 24px * root.s; height: 42px * root.s; text: root.keys; font-size: 12px * root.s; font-weight: 600; color: #326ca4; wrap: word-wrap; }
+        Rectangle {
+            x: 12px * root.s; y: 105px * root.s; width: parent.width - 24px * root.s; height: 60px * root.s;
+            background: root.recording ? #d7e9fa : #f0f2f5; border-radius: 4px * root.s;
+            Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: root.message; font-size: 12px * root.s; color: #36475b; wrap: word-wrap; vertical-alignment: center; }
+        }
+        if !root.recording: Rectangle {
+            x: 12px * root.s; y: 178px * root.s; width: parent.width - 24px * root.s; height: 80px * root.s;
+            EditorButton { x: 0px; y: 0px; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Replace keys"; primary: true; clicked => { root.command("replace"); } }
+            EditorButton { x: (parent.width + 8px * root.s) / 2; y: 0px; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Add key"; clicked => { root.command("add"); } }
+            EditorButton { y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Remove keys"; clicked => { root.command("clear"); } }
+            EditorButton { x: (parent.width + 8px * root.s) / 2; y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Default keys"; clicked => { root.command("restore"); } }
+        }
+        if root.recording: Text { x: 14px * root.s; y: 180px * root.s; width: parent.width - 28px * root.s; height: 66px * root.s; text: "Letters, arrows, function keys\nand modifier combinations.\nChanges save automatically."; font-size: 11px * root.s; color: #647181; horizontal-alignment: center; vertical-alignment: center; }
+        EditorButton { x: 12px * root.s; y: 265px * root.s; width: parent.width - 24px * root.s; s: root.s; label: root.recording ? "Cancel recording" : "Done"; clicked => { root.command(root.recording ? "cancel" : "done"); } }
+    }
+}

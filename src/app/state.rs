@@ -14,6 +14,7 @@ pub enum Target {
     Screen(Screen),
     Play(usize),
     Action(Action),
+    Shortcut(Action),
 }
 
 #[derive(Clone)]
@@ -29,6 +30,8 @@ pub enum Effect {
     FocusSearch,
     FocusScreen,
     Resize,
+    EditShortcut(Action),
+    RestoreShortcuts,
 }
 
 pub struct State {
@@ -49,6 +52,7 @@ pub struct State {
     pub query: String,
     pub reference_open: bool,
     pub lyrics_visible: bool,
+    pub overlay_visible: bool,
     pub importing: bool,
     pub notice: String,
 }
@@ -73,6 +77,7 @@ impl Default for State {
             query: String::new(),
             reference_open: false,
             lyrics_visible: false,
+            overlay_visible: false,
             importing: false,
             notice: "Import a music folder to begin".to_owned(),
         }
@@ -98,6 +103,36 @@ impl State {
         };
         let to = |title: &str, screen| row(title, Target::Screen(screen));
         match &self.navigation.current().screen {
+            Screen::Settings => vec![
+                Row {
+                    title: "Keyboard Shortcuts".into(),
+                    subtitle: "Customize keys and navigation".into(),
+                    target: Target::Screen(Screen::Shortcuts),
+                },
+                Row {
+                    title: "Display Mode".into(),
+                    subtitle: if self.device_mode { "Device" } else { "Screen" }.into(),
+                    target: Target::Action(if self.device_mode {
+                        Action::ScreenMode
+                    } else {
+                        Action::DeviceMode
+                    }),
+                },
+                row("Zoom In", Target::Action(Action::ZoomIn)),
+                row("Zoom Out", Target::Action(Action::ZoomOut)),
+            ],
+            Screen::Shortcuts => Action::CUSTOMIZABLE
+                .iter()
+                .map(|action| Row {
+                    title: action.title().into(),
+                    subtitle: String::new(),
+                    target: Target::Shortcut(*action),
+                })
+                .chain(std::iter::once(row(
+                    "Restore All Defaults",
+                    Target::Action(Action::RestoreShortcuts),
+                )))
+                .collect(),
             Screen::Music => vec![
                 to("Now Playing", Screen::NowPlaying),
                 to("Playlists", Screen::Groups(Group::Playlists)),
@@ -184,7 +219,7 @@ impl State {
                     2
                 }
             }
-            Screen::NowPlaying => 6,
+            Screen::NowPlaying => 8,
             _ => self.rows().len(),
         }
     }
@@ -230,7 +265,7 @@ impl State {
         self.status = PlaybackStatus::Loading;
         self.paused = false;
         self.position = 0.0;
-        self.notice = format!("Playing {}", track.title);
+        self.notice.clear();
         vec![Effect::Audio(AudioCommand::Load {
             id,
             path: track.path.clone(),
@@ -284,6 +319,15 @@ impl State {
                     self.navigation.select(0);
                 }
             }
+            NavigateLeft | NavigateRight => {
+                return self.apply(if self.surface() == Surface::Home {
+                    if action == NavigateLeft { Left } else { Right }
+                } else if action == NavigateLeft {
+                    Back
+                } else {
+                    Activate
+                });
+            }
             Activate => {
                 let selected = self.navigation.selected();
                 match self.navigation.current().screen.clone() {
@@ -296,6 +340,8 @@ impl State {
                         };
                         self.navigation.open(if name == "Music" {
                             Screen::Music
+                        } else if name == "Settings" {
+                            Screen::Settings
                         } else {
                             Screen::Placeholder(name.to_owned())
                         });
@@ -309,7 +355,9 @@ impl State {
                                 ToggleMute,
                                 ToggleShuffle,
                                 CycleRepeat,
-                            ][selected.min(5)],
+                                ToggleLyrics,
+                                TrackList,
+                            ][selected.min(7)],
                         );
                     }
                     _ => {
@@ -317,6 +365,9 @@ impl State {
                             match row.target.clone() {
                                 Target::Screen(screen) => self.navigation.open(screen),
                                 Target::Action(action) => return self.apply(action),
+                                Target::Shortcut(action) => {
+                                    return vec![Effect::EditShortcut(action)];
+                                }
                                 Target::Play(id) => {
                                     let ids = self
                                         .rows()
@@ -441,7 +492,32 @@ impl State {
             }
             ToggleLyrics => {
                 self.lyrics_visible = !self.lyrics_visible;
+                self.overlay_visible = true;
                 self.navigation.open(Screen::NowPlaying);
+            }
+            ToggleOverlay => {
+                self.overlay_visible = !self.overlay_visible;
+                self.lyrics_visible = self.overlay_visible
+                    && self
+                        .current
+                        .and_then(|id| self.tracks.get(id))
+                        .is_some_and(|track| !track.lyrics.is_empty());
+                self.navigation.open(Screen::NowPlaying);
+            }
+            Settings => {
+                self.reference_open = false;
+                self.navigation.open(Screen::Settings);
+                return vec![Effect::FocusScreen];
+            }
+            Shortcuts => self.navigation.open(Screen::Shortcuts),
+            RestoreShortcuts => return vec![Effect::RestoreShortcuts],
+            TrackList => {
+                if let Some(track) = self.current.and_then(|id| self.tracks.get(id)) {
+                    self.navigation.open(Screen::Songs(Filter::Album {
+                        name: track.album.clone(),
+                        artist: Some(track.artist.clone()),
+                    }));
+                }
             }
             FinishSearchEditing => {
                 return vec![Effect::FocusScreen];

@@ -5,6 +5,7 @@ export component NanoSlider inherits Rectangle {
     in property <float> value;
     in property <bool> selected;
     in property <bool> enabled: true;
+    in property <length> handle-size: 18px * root.s;
     callback changed(float);
     height: 22px * s;
     background: transparent;
@@ -12,16 +13,17 @@ export component NanoSlider inherits Rectangle {
         y: (parent.height - self.height) / 2; height: 5px * root.s;
         border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #080808;
         background: @linear-gradient(180deg, #101010, #666);
-        Rectangle { width: parent.width * clamp(root.value, 0, 1); border-radius: parent.border-radius; background: @linear-gradient(180deg, #fafafa, #aaa); }
+        Rectangle { width: parent.width * clamp(root.value, 0, 1); border-radius: parent.border-radius; background: @linear-gradient(180deg, #f1f6fc, #b8d4e4); }
     }
     handle := Rectangle {
-        width: 16px * root.s; height: self.width;
+        width: root.handle-size; height: self.width;
         y: (parent.height - self.height) / 2;
         x: (root.width - self.width) * clamp(root.value, 0, 1);
         border-radius: self.width / 2;
-        background: @linear-gradient(180deg, #fff 0%, #b9b9b9 50%, #eee 100%);
+        background: transparent;
+        Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: @image-url("../assets/icons/slider-knob.svg"); image-fit: contain; }
         border-width: (root.selected ? 2px : 1px) * root.s;
-        border-color: root.selected ? #65b9ff : #666;
+        border-color: root.selected ? #65b9ff : transparent;
     }
     touch := TouchArea {
         enabled: root.enabled; mouse-cursor: pointer;
@@ -41,12 +43,14 @@ export component IconButton inherits Rectangle {
     in property <bool> selected;
     in property <bool> active;
     in property <float> s: 1;
+    in property <bool> flat;
+    in property <length> icon-size: min(root.width * 0.43, root.height * 0.5);
     callback clicked;
-    background: touch.pressed ? #111 : @linear-gradient(180deg, #444, #242424);
+    background: touch.pressed ? #0005 : (root.flat ? transparent : @linear-gradient(180deg, #444, #242424));
     border-width: root.selected ? 2px * s : 0px; border-color: #65b9ff;
     Image {
-        source: root.icon; colorize: root.active ? #73bfff : #eee;
-        width: parent.width * 0.43; height: parent.height * 0.5;
+        source: root.icon; colorize: root.active ? #94eeff : #f3f6ff;
+        width: root.icon-size; height: root.icon-size;
         x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; image-fit: contain;
     }
     touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }

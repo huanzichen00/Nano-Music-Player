@@ -4,6 +4,7 @@ export component LibraryView inherits Rectangle {
     in property <float> s;
     in property <int> selected;
     in property <bool> search;
+    in property <bool> compact-title;
     in property <bool> enabled: true;
     in property <[LibraryRow]> rows;
     in-out property <string> search-text;
@@ -39,7 +40,7 @@ export component LibraryView inherits Rectangle {
                 x: 12px * root.s; y: row.subtitle == "" ? 0px : 4px * root.s;
                 width: parent.width - 37px * root.s; height: (row.subtitle == "" ? 48px : 23px) * root.s;
                 text: row.title; color: root.selected == index ? white : #111;
-                font-size: 16px * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
+                font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
             if row.subtitle != "": Text {
                 x: 12px * root.s; y: 27px * root.s; width: parent.width - 37px * root.s; height: 17px * root.s;
