@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; playlist UI verified with backend queued. Always-on-top and rounded Device Mode edges are being verified before a combined build and launch. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
+Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; playlist UI verified with backend queued. Always-on-top and rounded Device Mode edges are verified, committed and included in the rebuilt running macOS app. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
 
 ## Inspection and design basis
 
@@ -49,7 +49,7 @@ Decisions: use DeepSeek's JSON chat endpoint with `deepseek-flash` by default, t
 
 Credentials: a separate atomically written `deepseek.json` with Unix mode 0600, redacted debug formatting and generic provider errors. The masked editor never preloads the saved secret; blank saves preserve it. `DEEPSEEK_API_KEY` overrides the saved key without being persisted. Credential and temporary files are ignored by Git. The fixed HTTPS endpoint disables redirects. Romaji visibility persists in normal settings, and plain R uses the existing Repeat binding to toggle only on the Now Playing surface, with text/modal guards and customized bindings preserved.
 
-Acceptance: local HTTP tests cover API request shape, error statuses, truncated/malformed/oversized replies and redacted errors; generation tests cover repeated LRC lines, blanks, English, unchanged timestamps, invalid IDs, cancellation and later-batch failure without partial results. Restart/controller coverage checks cached display, persistent visibility, blank-key saves, invalid model rejection, cancelling the settings editor and annotation removal without changing source lyrics. Native Windows/Linux validation and live provider reading accuracy remain unverified. A real DeepSeek request requires the user's own key; no credential was supplied in this chat.
+Acceptance: local HTTP tests cover API request shape, error statuses, truncated/malformed/oversized replies and redacted errors; generation tests cover repeated LRC lines, blanks, English, unchanged timestamps, invalid IDs, cancellation and later-batch failure without partial results. Restart/controller coverage checks cached display, persistent visibility, blank-key saves, invalid model rejection, cancelling the settings editor and annotation removal without changing source lyrics. Native Windows/Linux validation and live provider reading accuracy remain unverified. A real DeepSeek request requires the user's own key. No live provider call has been verified by this chat; the running app can save the user's key privately and initiate generation through Playback → Lyrics for Track → Generate Romaji.
 
 ## Phase 7 — Manual playlist creation UI (verified; backend queued)
 
@@ -63,7 +63,7 @@ User requested Maple Mono and JetBrains Mono in Settings after noticing the lyri
 
 Acceptance: switch via keyboard/pointer, persist/reopen selection, old settings migrate and invalid font values reject, different bundled fonts actually change rendered Latin glyphs without altering lyric text, wrapping/highlight/scroll and compact controls stay readable. Verify Classic/Maple/JetBrains lyric screenshots with s/e/a/o/n and Japanese/Chinese examples. Run formatting, compilation, tests and strict lint; commit, build and launch the combined app.
 
-## Phase 9 — Window preferences and rounded silhouette (verified; native delivery pending)
+## Phase 9 — Window preferences and rounded silhouette (verified)
 
 User requested always above other windows by default and rounded Device Mode edges. Use Slint's native `always-on-top` property (Winit window level), persisted as a bool defaulting to true for old settings. Add a Settings toggle and checked View menu item through the central semantic action; allow customization without assigning a conflicting default key. Use a transparent Device Mode window background and an SVG shell with the existing 15-unit outer/10-unit inner curves. Slint software rendering ignores corner radii on its linear-gradient rectangles, so the SVG retains the metal/bezel gradients and guarantees a rounded silhouette in both renderers. Derive its 296×571.818 viewBox from the shared hardware ratio; retain opaque Screen Mode. No arbitrary shell resizing or global window-manager changes.
 
@@ -71,7 +71,7 @@ Acceptance: default/new/old config pins the window, off/on persists across contr
 
 ## Verification log and blockers
 
-- Window polish: all 104 automated tests pass (three manual profiles ignored). Default/migrated pinning, persisted off/on/controller restart, unchanged playback/geometry and mode switching verified. Pixel tests check transparent outer corners and opaque shell interior at 0.75×/1.25×/2×; Screen Mode is fully opaque. Inspected the rendered rounded-device preview. Combined native packaging/launch is the remaining delivery check.
+- Window polish: all 104 automated tests pass (three manual profiles ignored). Default/migrated pinning, persisted off/on/controller restart, unchanged playback/geometry and mode switching verified. Pixel tests check transparent outer corners and opaque shell interior at 0.75×/1.25×/2×; Screen Mode is fully opaque. Inspected the rendered rounded-device preview. Strict Clippy, formatting, compilation and whitespace checks pass. Commit `48c05ea` was packaged into the debug macOS bundle and launched with the normal configuration. Native capture confirms the rounded silhouette and Settings shows Always on Top enabled. AeroSpace detects the new window 86993 as floating via the saved targeted rule; the existing SQLite library still contains 42 tracks. The user is actively playing music in the rebuilt app, so further navigation was left to them.
 
 - Fonts: full combined tests pass (103, three ignored manual profiles), formatting/compilation/strict Clippy/whitespace checks pass. Settings switching, persisted restart, old-config defaults, unchanged metadata/lyrics and distinct rendered lyric glyph regions verified. Inspected Classic/Maple/JetBrains previews with Latin s/e/a/o/n and CJK; licenses bundled. Native Windows/Linux validation remains unverified.
 
