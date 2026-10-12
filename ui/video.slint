@@ -1,0 +1,59 @@
+import { NanoSlider, IconButton, NanoActionButton } from "components.slint";
+import { I18n } from "i18n.slint";
+
+// Manual chapter 5: video fills the display; tapping reveals Done, scrubbing
+// and transport. Image containment preserves portrait/landscape source aspect.
+export component VideoView inherits Rectangle {
+    in property <float> s: 1;
+    in property <image> frame;
+    in property <string> title;
+    in property <string> elapsed;
+    in property <string> remaining;
+    in property <float> progress;
+    in property <float> volume;
+    in property <bool> muted;
+    in property <bool> playing;
+    in property <bool> controls-visible: true;
+    in property <bool> selection-visible;
+    in property <int> selected: 1;
+    callback command(string);
+    callback seek-changed(float);
+    callback volume-changed(float);
+    background: black;
+    clip: true;
+    Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
+    TouchArea { mouse-cursor: pointer; clicked => { root.command("toggle_overlay"); } }
+    if root.controls-visible || root.selection-visible: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        background: transparent;
+        Rectangle {
+            x: 0px; y: 0px; width: parent.width;
+            height: 84px * root.s; background: @linear-gradient(180deg, #171a20e0, #171a2080, #171a2000);
+            NanoActionButton { x: 6px * root.s; y: 5px * root.s; width: 48px * root.s; height: 25px * root.s; s: root.s; primary: true; label: "Done"; clicked => { root.command("back"); } }
+            Text { x: 61px * root.s; y: 5px * root.s; width: parent.width - 69px * root.s; height: 25px * root.s; text: root.title; color: white; font-size: 12px * root.s; font-weight: 600; overflow: elide; vertical-alignment: center; }
+            Text { x: 8px * root.s; y: 36px * root.s; width: 46px * root.s; height: 17px * root.s; text: root.elapsed; color: white; font-size: 10px * root.s; vertical-alignment: center; }
+            NanoSlider { x: 55px * root.s; y: 35px * root.s; width: parent.width - 110px * root.s; s: root.s; handle-size: 12px * root.s; value: root.progress; selected: root.selection-visible && root.selected == 4; changed(value) => { root.seek-changed(value); } }
+            Text { x: parent.width - 51px * root.s; y: 36px * root.s; width: 43px * root.s; height: 17px * root.s; text: root.remaining; color: white; font-size: 10px * root.s; horizontal-alignment: right; vertical-alignment: center; }
+        }
+        Rectangle {
+            x: 0px; y: parent.height - self.height; width: parent.width; height: 98px * root.s;
+            background: @linear-gradient(180deg, #171a2000, #171a2080, #171a20e0);
+            Rectangle {
+                x: 31px * root.s; y: 2px * root.s; width: parent.width - 62px * root.s; height: 52px * root.s;
+                background: @linear-gradient(180deg, #ccd3df88, #353a4788); border-width: 1px * root.s; border-color: #ffffff88; border-radius: 7px * root.s;
+                for item[index] in [
+                    {icon: @image-url("../assets/icons/previous.svg"), action: "previous_track"},
+                    {icon: root.playing ? @image-url("../assets/icons/pause.svg") : @image-url("../assets/icons/play.svg"), action: "toggle_play"},
+                    {icon: @image-url("../assets/icons/next.svg"), action: "next_track"},
+                ]: IconButton {
+                    x: index * parent.width / 3; width: parent.width / 3; height: parent.height;
+                    s: root.s; flat: true; icon-size: 28px * root.s; icon: item.icon;
+                    selected: root.selection-visible && root.selected == index;
+                    clicked => { root.command(item.action); }
+                }
+            }
+            NanoSlider { x: 17px * root.s; y: 66px * root.s; width: parent.width - 58px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
+            Image { x: parent.width - 32px * root.s; y: 70px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: white; image-fit: contain; TouchArea { mouse-cursor: pointer; clicked => { root.command("toggle_mute"); } } }
+        }
+    }
+}
