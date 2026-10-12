@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; playlist UI verified with backend queued. Always-on-top and rounded Device Mode edges are verified, committed and included in the rebuilt running macOS app. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
+Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; playlist draft UI verified; live playlist selection/saving is now being completed. Always-on-top and rounded Device Mode edges are verified, committed and included in the rebuilt running macOS app. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
 
 ## Inspection and design basis
 
@@ -69,7 +69,15 @@ User requested always above other windows by default and rounded Device Mode edg
 
 Acceptance: default/new/old config pins the window, off/on persists across controller restart, settings and native menu remain consistent, pinning changes neither playback nor geometry, and mode switching retains the choice. Render all four device corners at multiple sizes to verify transparent exterior with opaque shell edges and unchanged artwork/control scaling. Native verification checks the rebuilt window floats above other application windows on macOS. Run formatting/compilation/relevant tests/strict lint, commit and package the combined build.
 
+## Phase 10 — Live playlist creation (in progress)
+
+Re-rendered and inspected manual page 22: compact Playlists title, blue Add toolbar and separated name/song-count rows. Connect the existing name/select/review editor to the actual music library and transactional SQLite storage. Keep All Songs available; list saved playlists by deterministic case-insensitive name and retain user-selected order inside each playlist. Use paths and stable playlist IDs rather than transient library indices. Add through Music → Playlists → Add Playlist or File → New Playlist; naming is a desktop extension to the manual's Add/Done flow. Preserve current playback while drafting and saving.
+
+Acceptance: select/deselect, reorder/remove, keyboard/text focus isolation, valid Create saves then opens the playlist, cancellation never writes, invalid/duplicate names and storage failures retain the draft, empty/loading library states are accurate, restarted app restores names and order, audio paths absent from the current library remain stored and are skipped when resolving playlist rows. Database loading/writing runs off the UI thread; save controls lock until completion. Verify persisted playlist playback queue order, languages, rendered list/picker/review against the manual, formatting/check/tests/strict lint. Commit, rebuild and launch. Video implementation is delegated to the user-requested separate chat and must avoid these shared files until playlist integration is complete.
+
 ## Verification log and blockers
+
+- Live playlist storage: four SQLite tests and strict targeted Clippy pass. New tables preserve existing tracks, lyrics and romaji; ordered Unicode paths and names survive reload, duplicate names/invalid input reject, missing files remain recorded, and an injected mid-transaction failure rolls back without a partial playlist. Controller and UI integration are being tested next.
 
 - Window polish: all 104 automated tests pass (three manual profiles ignored). Default/migrated pinning, persisted off/on/controller restart, unchanged playback/geometry and mode switching verified. Pixel tests check transparent outer corners and opaque shell interior at 0.75×/1.25×/2×; Screen Mode is fully opaque. Inspected the rendered rounded-device preview. Strict Clippy, formatting, compilation and whitespace checks pass. Commit `48c05ea` was packaged into the debug macOS bundle and launched with the normal configuration. Native capture confirms the rounded silhouette and Settings shows Always on Top enabled. AeroSpace detects the new window 86993 as floating via the saved targeted rule; the existing SQLite library still contains 42 tracks. The user is actively playing music in the rebuilt app, so further navigation was left to them.
 

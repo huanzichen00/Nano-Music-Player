@@ -1,5 +1,6 @@
 pub mod database;
 pub mod lyrics;
+pub mod playlists;
 pub mod romaji;
 pub mod scanner;
 
