@@ -1,0 +1,326 @@
+{
+  "version": 1,
+  "bindings": [
+    {
+      "action": "select_previous",
+      "key": "up",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "select_next",
+      "key": "down",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "select_previous",
+      "key": {
+        "letter": "k"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "select_next",
+      "key": {
+        "letter": "j"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "activate",
+      "key": "enter",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "back",
+      "key": "escape",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "back",
+      "key": "backspace",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "home",
+      "key": {
+        "letter": "h"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "left",
+      "key": "left",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "right",
+      "key": "right",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "toggle_play",
+      "key": "space",
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "toggle_mute",
+      "key": {
+        "letter": "m"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "toggle_shuffle",
+      "key": {
+        "letter": "s"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "cycle_repeat",
+      "key": {
+        "letter": "r"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "now_playing",
+      "key": {
+        "letter": "n"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "toggle_lyrics",
+      "key": {
+        "letter": "l"
+      },
+      "modifiers": {
+        "primary": false,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "next_track",
+      "key": "right",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "previous_track",
+      "key": "left",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "volume_up",
+      "key": "up",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "volume_down",
+      "key": "down",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "import_folder",
+      "key": {
+        "letter": "o"
+      },
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "search",
+      "key": {
+        "letter": "f"
+      },
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "device_mode",
+      "key": {
+        "digit": "1"
+      },
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "screen_mode",
+      "key": {
+        "digit": "2"
+      },
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    },
+    {
+      "action": "zoom_in",
+      "key": "plus",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": true
+    },
+    {
+      "action": "zoom_in",
+      "key": "equals",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": true
+    },
+    {
+      "action": "zoom_out",
+      "key": "minus",
+      "modifiers": {
+        "primary": true,
+        "secondary": false,
+        "alt": false,
+        "shift": false
+      },
+      "optional_shift": false
+    }
+  ]
+}

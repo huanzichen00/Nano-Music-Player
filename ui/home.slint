@@ -1,0 +1,61 @@
+import { AppIcon } from "components.slint";
+
+export component HomeView inherits Rectangle {
+    in property <float> s;
+    in property <int> selected;
+    in property <int> page;
+    callback activated(int);
+    callback swipe(bool);
+    background: @linear-gradient(155deg, #779487, #334d45 70%, #253a37);
+    clip: true;
+    Rectangle {
+        x: -80px * root.s; y: 170px * root.s; width: 350px * root.s; height: 360px * root.s;
+        border-radius: 175px * root.s;
+        background: @linear-gradient(180deg, #76948445, #16372b00);
+        border-width: 1px * root.s; border-color: #aec1b030;
+    }
+    gesture := TouchArea {
+        property <length> accumulated-x;
+        scroll-event(event) => {
+            if abs(event.delta-x) > abs(event.delta-y) {
+                self.accumulated-x += event.delta-x;
+                if abs(self.accumulated-x) > 32px * root.s {
+                    root.swipe(self.accumulated-x < 0px); self.accumulated-x = 0px;
+                }
+                accept
+            } else { self.accumulated-x = 0px; reject }
+        }
+        pointer-event(event) => { if event.kind == PointerEventKind.up && abs(self.mouse-x - self.pressed-x) > 24px * root.s { root.swipe(self.mouse-x < self.pressed-x); } }
+    }
+    for item[index] in [
+        {label: "Music", icon: @image-url("../assets/generated/music.png"), tint: #ef990a},
+        {label: "Videos", icon: @image-url("../assets/generated/videos.png"), tint: #187dd9},
+        {label: "Fitness", icon: @image-url("../assets/generated/fitness.png"), tint: #c52527},
+        {label: "Podcasts", icon: @image-url("../assets/generated/podcasts.png"), tint: #9540c6},
+        {label: "Photos", icon: @image-url("../assets/generated/photos.png"), tint: #1c9dcb},
+        {label: "Radio", icon: @image-url("../assets/generated/radio.png"), tint: #596473},
+    ]: AppIcon {
+        visible: root.page == 0; s: root.s; full-artwork: true;
+        x: (18px + mod(index, 2) * 112px) * root.s;
+        y: (24px + floor(index / 2) * 115px) * root.s;
+        label: item.label; icon: item.icon; tint: item.tint; selected: root.selected == index;
+        clicked => { root.activated(index); }
+    }
+    for item[index] in [
+        {label: "Clock", icon: @image-url("../assets/icons/clock.svg"), tint: #777},
+        {label: "Settings", icon: @image-url("../assets/icons/gear.svg"), tint: #aaa},
+    ]: AppIcon {
+        visible: root.page == 1; s: root.s; x: (18px + index * 112px) * root.s; y: 24px * root.s;
+        label: item.label; icon: item.icon; tint: item.tint; selected: root.selected == index;
+        clicked => { root.activated(index); }
+    }
+    Rectangle {
+        y: 377px * root.s; height: 30px * root.s; background: transparent;
+        for page in 2: Rectangle {
+            x: (108px + page * 16px) * root.s; y: 5px * root.s;
+            width: 6px * root.s; height: self.width; border-radius: self.width / 2;
+            background: root.page == page ? white : #fff5;
+        }
+        TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.up && abs(self.mouse-x - self.pressed-x) > 24px * root.s { root.swipe(self.mouse-x < self.pressed-x); } } }
+    }
+}

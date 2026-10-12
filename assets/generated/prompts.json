@@ -1,0 +1,44 @@
+[
+  {
+    "name": "music",
+    "source": "/Users/huanzichen/.codex/generated_images/01a12e65-3c43-7cd2-8f1a-9575552b75e1/exec-2faa9453-81a5-4aa0-9a14-16ba39c319fd.png",
+    "prompt": "Use case: precise-object-edit. Asset type: one transparent desktop UI app icon. Edit target: the supplied original iPod nano seventh generation music icon from Apple's guide. Primary request: faithfully reconstruct this low resolution icon as a sharp high resolution raster asset. Subject: orange and gold circular icon, a precise white pair of joined musical eighth notes. Preserve the original circular shape, original symbol, color family, subtle glossy highlight across the upper half, front-facing composition and original proportions. Improve only clarity, edge precision and smooth gradients. A single circle centered on a square transparent canvas, with the circle occupying 90% of canvas width, identical 5% padding on every side. Crisp white symbol suitable for being displayed at 72 logical pixels on a Retina display. No text, no label, no extra objects, no perspective, no device mockup, no external shadows, no new design embellishments. Preserve the original icon's identity; do not invent a different symbol. True transparent background outside the circle.",
+    "method": "built-in imagegen",
+    "reference": "Apple iPod nano User Guide, page 5"
+  },
+  {
+    "name": "videos",
+    "source": "/Users/huanzichen/.codex/generated_images/01a12e65-3c43-7cd2-8f1a-9575552b75e1/exec-a16bfdde-b003-4479-a969-adbd9005f716.png",
+    "prompt": "Use case: precise-object-edit. Asset type: one transparent desktop UI app icon. Edit target: the supplied original iPod nano seventh generation videos icon from Apple's guide. Primary request: faithfully reconstruct this low resolution icon as a sharp high resolution raster asset. Subject: cobalt and sky blue circular icon, a precise white rectangular filmstrip. Preserve the original circular shape, original symbol, color family, subtle glossy highlight across the upper half, front-facing composition and original proportions. Improve only clarity, edge precision and smooth gradients. A single circle centered on a square transparent canvas, with the circle occupying 90% of canvas width, identical 5% padding on every side. Crisp white symbol suitable for being displayed at 72 logical pixels on a Retina display. No text, no label, no extra objects, no perspective, no device mockup, no external shadows, no new design embellishments. Preserve the original icon's identity; do not invent a different symbol. True transparent background outside the circle.",
+    "method": "built-in imagegen",
+    "reference": "Apple iPod nano User Guide, page 5"
+  },
+  {
+    "name": "fitness",
+    "source": "/Users/huanzichen/.codex/generated_images/01a12e65-3c43-7cd2-8f1a-9575552b75e1/exec-46c8d20d-f07f-4da5-9b41-1c0688dd7798.png",
+    "prompt": "Use case: precise-object-edit. Asset type: one transparent desktop UI app icon. Edit target: the supplied original iPod nano seventh generation fitness icon from Apple's guide. Primary request: faithfully reconstruct this low resolution icon as a sharp high resolution raster asset. Subject: red circular icon, a precise white swoosh and small plus sign, exactly as in the reference. Preserve the original circular shape, original symbol, color family, subtle glossy highlight across the upper half, front-facing composition and original proportions. Improve only clarity, edge precision and smooth gradients. A single circle centered on a square transparent canvas, with the circle occupying 90% of canvas width, identical 5% padding on every side. Crisp white symbol suitable for being displayed at 72 logical pixels on a Retina display. No text, no label, no extra objects, no perspective, no device mockup, no external shadows, no new design embellishments. Preserve the original icon's identity; do not invent a different symbol. True transparent background outside the circle.",
+    "method": "built-in imagegen",
+    "reference": "Apple iPod nano User Guide, page 5"
+  },
+  {
+    "name": "podcasts",
+    "source": "/Users/huanzichen/.codex/generated_images/01a12e65-3c43-7cd2-8f1a-9575552b75e1/exec-ff28d10b-8dc9-4956-9efb-448f6ffcade2.png",
+    "prompt": "Use case: precise-object-edit. Asset type: one transparent desktop UI app icon. Edit target: the supplied original iPod nano seventh generation podcasts icon from Apple's guide. Primary request: faithfully reconstruct this low resolution icon as a sharp high resolution raster asset. Subject: purple circular icon, a precise white podcast person with concentric transmission rings. Preserve the original circular shape, original symbol, color family, subtle glossy highlight across the upper half, front-facing composition and original proportions. Improve only clarity, edge precision and smooth gradients. A single circle centered on a square transparent canvas, with the circle occupying 90% of canvas width, identical 5% padding on every side. Crisp white symbol suitable for being displayed at 72 logical pixels on a Retina display. No text, no label, no extra objects, no perspective, no device mockup, no external shadows, no new design embellishments. Preserve the original icon's identity; do not invent a different symbol. True transparent background outside the circle.",
+    "method": "built-in imagegen",
+    "reference": "Apple iPod nano User Guide, page 5"
+  },
+  {
+    "name": "photos",
+    "source": "/Users/huanzichen/.codex/generated_images/01a12e65-3c43-7cd2-8f1a-9575552b75e1/exec-e354f8db-2269-4681-80dc-a1fa828786a8.png",
+    "prompt": "Use case: precise-object-edit. Asset type: one transparent desktop UI app icon. Edit target: the supplied original iPod nano seventh generation photos icon from Apple's guide. Primary request: faithfully reconstruct this low resolution icon as a sharp high resolution raster asset. Subject: cyan and blue circular icon, white overlapping photo frames with a mountain and sun. Preserve the original circular shape, original symbol, color family, subtle glossy highlight across the upper half, front-facing composition and original proportions. Improve only clarity, edge precision and smooth gradients. A single circle centered on a square transparent canvas, with the circle occupying 90% of canvas width, identical 5% padding on every side. Crisp white symbol suitable for being displayed at 72 logical pixels on a Retina display. No text, no label, no extra objects, no perspective, no device mockup, no external shadows, no new design embellishments. Preserve the original icon's identity; do not invent a different symbol. True transparent background outside the circle.",
+    "method": "built-in imagegen",
+    "reference": "Apple iPod nano User Guide, page 5"
+  },
+  {
+    "name": "radio",
+    "source": "/Users/huanzichen/.codex/generated_images/01a12e65-3c43-7cd2-8f1a-9575552b75e1/exec-1f0bbf6d-59a6-4280-abe4-f0a3e6cbc5af.png",
+    "prompt": "Use case: precise-object-edit. Asset type: one transparent desktop UI app icon. Edit target: the supplied original iPod nano seventh generation radio icon from Apple's guide. Primary request: faithfully reconstruct this low resolution icon as a sharp high resolution raster asset. Subject: slate gray circular icon, a white radio transmission tower with symmetrical radio waves. Preserve the original circular shape, original symbol, color family, subtle glossy highlight across the upper half, front-facing composition and original proportions. Improve only clarity, edge precision and smooth gradients. A single circle centered on a square transparent canvas, with the circle occupying 90% of canvas width, identical 5% padding on every side. Crisp white symbol suitable for being displayed at 72 logical pixels on a Retina display. No text, no label, no extra objects, no perspective, no device mockup, no external shadows, no new design embellishments. Preserve the original icon's identity; do not invent a different symbol. True transparent background outside the circle.",
+    "method": "built-in imagegen",
+    "reference": "Apple iPod nano User Guide, page 5"
+  }
+]

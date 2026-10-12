@@ -1,0 +1,27 @@
+pub mod action;
+pub mod config;
+pub mod controller;
+pub mod navigation;
+pub mod state;
+
+pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+    use slint::{ComponentHandle, Timer, TimerMode};
+    use std::{cell::RefCell, rc::Rc, time::Duration};
+    let directory = config::config_dir()?;
+    let ui = crate::ui::AppWindow::new()?;
+    let controller = Rc::new(RefCell::new(controller::Controller::new(directory)));
+    controller::connect(&ui, &controller);
+    controller.borrow_mut().initialize(&ui);
+    let timer = Timer::default();
+    let weak = ui.as_weak();
+    let ticking = controller.clone();
+    timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
+        if let Some(ui) = weak.upgrade() {
+            ticking.borrow_mut().poll(&ui);
+        }
+    });
+    ui.invoke_focus_screen();
+    ui.run()?;
+    controller.borrow_mut().save_settings(&ui);
+    Ok(())
+}

@@ -1,0 +1,69 @@
+import { IconButton, NanoSlider } from "components.slint";
+
+export component NowPlayingView inherits Rectangle {
+    in property <float> s;
+    in property <int> selected;
+    in property <bool> playing;
+    in property <bool> has-track;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> album;
+    in property <image> artwork;
+    in property <float> volume;
+    in property <bool> muted;
+    in property <float> progress;
+    in property <string> elapsed;
+    in property <string> remaining;
+    in property <bool> shuffle;
+    in property <string> repeat-mode;
+    in property <bool> lyrics-visible;
+    in property <[string]> lyric-lines;
+    in property <int> active-lyric;
+    in property <bool> timed-lyrics;
+    in-out property <length> lyric-scroll-y;
+    callback activated(int);
+    callback toggle-lyrics;
+    callback seek-changed(float);
+    callback volume-changed(float);
+    background: @linear-gradient(180deg, #3b3b3b, #141414);
+    Text { x: 20px * root.s; y: 8px * root.s; width: 200px * root.s; height: 16px * root.s; text: root.has-track ? root.artist : "iPod nano"; color: #eee; horizontal-alignment: center; font-size: 12px * root.s; overflow: elide; }
+    Text { x: 14px * root.s; y: 26px * root.s; width: 212px * root.s; height: 20px * root.s; text: root.has-track ? root.title : "No song selected"; color: white; horizontal-alignment: center; font-size: 15px * root.s; font-weight: 700; overflow: elide; }
+    Text { x: 20px * root.s; y: 48px * root.s; width: 200px * root.s; height: 16px * root.s; text: root.album; color: #ccc; horizontal-alignment: center; font-size: 11px * root.s; overflow: elide; }
+    art := Rectangle {
+        x: 10px * root.s; y: 72px * root.s; width: 220px * root.s; height: self.width;
+        background: @linear-gradient(180deg, #777, #444);
+        if !root.lyrics-visible && root.artwork.width > 0: Image { source: root.artwork; image-fit: contain; }
+        if !root.lyrics-visible && root.artwork.width == 0: Image { x: 67px * root.s; y: 65px * root.s; width: 86px * root.s; height: 86px * root.s; source: @image-url("../assets/icons/music.svg"); colorize: #ddd; }
+        if !root.lyrics-visible: TouchArea { mouse-cursor: pointer; clicked => { root.toggle-lyrics(); } }
+        if root.lyrics-visible: Flickable {
+            content-height: max(self.height, root.lyric-lines.length * 54px * root.s + 110px * root.s);
+            content-y <=> root.lyric-scroll-y;
+            TouchArea { width: art.width; height: max(art.height, root.lyric-lines.length * 54px * root.s + 110px * root.s); mouse-cursor: pointer; clicked => { root.toggle-lyrics(); } }
+            for line[index] in root.lyric-lines: Rectangle {
+                y: (55px + index * 54px) * root.s; width: art.width; height: 54px * root.s;
+                background: root.active-lyric == index ? #ffffff15 : transparent;
+                Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: line; color: root.active-lyric == index ? #fff : #c2c2c2; font-weight: root.active-lyric == index ? 700 : 400; font-size: 14px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
+            }
+            if root.lyric-lines.length == 0: Text { width: art.width; height: art.height; text: "No lyrics found\n\nAdd a .lrc file beside the song\nor embed lyrics in its tags."; font-size: 12px * root.s; color: #ddd; horizontal-alignment: center; vertical-alignment: center; }
+            animate content-y { duration: 180ms; easing: ease-out; }
+        }
+    }
+    Rectangle {
+        x: 10px * root.s; y: 295px * root.s; width: 220px * root.s; height: 32px * root.s; background: transparent;
+        Text { width: 50px * root.s; height: 12px * root.s; text: root.elapsed; font-size: 9px * root.s; color: #ddd; }
+        Text { x: 165px * root.s; width: 55px * root.s; height: 12px * root.s; text: root.remaining; horizontal-alignment: right; font-size: 9px * root.s; color: #ddd; }
+        NanoSlider { y: 11px * root.s; width: parent.width; s: root.s; value: root.progress; enabled: root.has-track; changed(value) => { root.seek-changed(value); } }
+    }
+    for icon[index] in [@image-url("../assets/icons/backward-step.svg"), root.playing ? @image-url("../assets/icons/pause.svg") : @image-url("../assets/icons/play.svg"), @image-url("../assets/icons/forward-step.svg")]: IconButton {
+        x: (10px + index * 74px) * root.s; y: 332px * root.s; width: 72px * root.s; height: 42px * root.s;
+        s: root.s; icon: icon; selected: root.selected == index;
+        clicked => { root.activated(index); }
+    }
+    NanoSlider { x: 25px * root.s; y: 379px * root.s; width: 190px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selected == 3; changed(value) => { root.volume-changed(value); } }
+    if root.lyrics-visible || root.selected >= 4: Rectangle {
+        x: 10px * root.s; y: 72px * root.s; width: 220px * root.s; height: 30px * root.s; background: #000c;
+        IconButton { width: 48px * root.s; s: root.s; selected: root.selected == 4; active: root.shuffle; icon: @image-url("../assets/icons/shuffle.svg"); clicked => { root.activated(4); } }
+        IconButton { x: 49px * root.s; width: 48px * root.s; s: root.s; selected: root.selected == 5; active: root.repeat-mode != "Off"; icon: @image-url("../assets/icons/repeat.svg"); clicked => { root.activated(5); } }
+        Text { x: 102px * root.s; width: 55px * root.s; text: root.repeat-mode; color: #ddd; font-size: 10px * root.s; vertical-alignment: center; }
+    }
+}

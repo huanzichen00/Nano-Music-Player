@@ -1,0 +1,200 @@
+import { HomeView } from "home.slint";
+import { LibraryView, LibraryRow } from "library.slint";
+import { NowPlayingView } from "now-playing.slint";
+export { LibraryRow }
+export struct ShortcutRow { category: string, title: string, keys: string }
+
+export component AppWindow inherits Window {
+    title: "iPod nano";
+    preferred-width: 320px; preferred-height: 610px;
+    min-width: (device-mode ? 256px : 240px) * 0.75;
+    min-height: (device-mode ? 488px : 432px) * 0.75;
+    max-width: (device-mode ? 256px : 240px) * 3;
+    max-height: (device-mode ? 488px : 432px) * 3;
+    no-frame: device-mode;
+    resize-border-width: device-mode ? 5px : 0px;
+    background: device-mode ? #e5e9ec : #fff;
+    default-font-family: "Helvetica Neue";
+    in property <bool> device-mode: true;
+    in property <int> screen;
+    in property <string> screen-title;
+    in property <int> selected;
+    in property <int> home-page;
+    in property <string> clock-text;
+    in property <bool> playing;
+    in property <bool> has-track;
+    in property <string> track-title;
+    in property <string> track-artist;
+    in property <string> track-album;
+    in property <image> artwork;
+    in property <float> volume: 0.5;
+    in property <bool> muted;
+    in property <float> progress;
+    in property <string> elapsed;
+    in property <string> remaining;
+    in property <bool> shuffle;
+    in property <string> repeat-mode;
+    in property <string> notice;
+    in property <[LibraryRow]> rows;
+    in property <[ShortcutRow]> shortcuts;
+    in property <bool> reference-open;
+    in property <bool> lyrics-visible;
+    in property <[string]> lyric-lines;
+    in property <int> active-lyric: -1;
+    in property <bool> timed-lyrics;
+    in-out property <string> search-text;
+    in-out property <length> list-scroll-y;
+    in-out property <length> lyric-scroll-y;
+    out property <bool> search-focused: library.search-focused;
+    out property <float> display-scale: s;
+    out property <length> content-height: keyboard.height;
+    private property <float> s: min(root.width / ((device-mode ? 256 : 240) * 1px), root.height / ((device-mode ? 488 : 432) * 1px));
+    callback key-event(KeyEvent, bool) -> bool;
+    callback command(string);
+    callback item-clicked(int);
+    callback query-changed(string);
+    callback volume-changed(float);
+    callback seek-changed(float);
+    callback home-swipe(bool);
+    public function focus-screen() { keyboard.focus(); }
+    public function focus-search() { library.focus-search(); }
+
+    // Menu commands share the Rust reducer; no menu accelerators bypass keyboard context guards.
+    MenuBar {
+        Menu {
+            title: "File";
+            MenuItem { title: "Import Music Folder…"; activated => { root.command("import_folder"); } }
+            MenuItem { title: "Search Library…"; activated => { root.command("search"); } }
+            MenuItem { title: "Quit"; activated => { root.close(); } }
+        }
+        Menu {
+            title: "Playback";
+            MenuItem { title: "Play / Pause"; activated => { root.command("toggle_play"); } }
+            MenuItem { title: "Next Track"; activated => { root.command("next_track"); } }
+            MenuItem { title: "Previous Track"; activated => { root.command("previous_track"); } }
+            MenuItem { title: "Now Playing"; activated => { root.command("now_playing"); } }
+            MenuItem { title: "Lyrics"; activated => { root.command("toggle_lyrics"); } }
+        }
+        Menu {
+            title: "View";
+            MenuItem { title: "Device Mode"; activated => { root.command("device_mode"); } }
+            MenuItem { title: "Screen Mode"; activated => { root.command("screen_mode"); } }
+            MenuItem { title: "Zoom In"; activated => { root.command("zoom_in"); } }
+            MenuItem { title: "Zoom Out"; activated => { root.command("zoom_out"); } }
+            MenuItem { title: "Home"; activated => { root.command("home"); } }
+        }
+        Menu { title: "Help"; MenuItem { title: "Keyboard Shortcuts…"; activated => { root.command("show_shortcuts"); } } }
+    }
+    forward-focus: keyboard;
+    keyboard := FocusScope {
+        // The sole keyboard entry point for the entire application.
+        capture-key-pressed(event) => { root.key-event(event, library.search-focused) ? accept : reject }
+        if root.device-mode: Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: 256px * root.s; height: 488px * root.s;
+            border-radius: 12px * root.s; border-width: 1px * root.s; border-color: #91979b;
+            background: @linear-gradient(90deg, #929b9f 0%, #eef0f2 3%, #b4bdc4 9%, #d9dfe3 94%, #fafafa 97%, #879198 100%);
+            Rectangle {
+                x: 5px * root.s; y: 3px * root.s; width: parent.width - 10px * root.s; height: parent.height - 6px * root.s;
+                border-radius: 10px * root.s; border-width: 1px * root.s; border-color: #fff;
+                background: @linear-gradient(180deg, #fff, #f1f2f2);
+            }
+            // Native dragging from the narrow bezel, without touching display gestures.
+            WindowMoveArea {}
+            Rectangle {
+                x: (parent.width - self.width) / 2; y: 445px * root.s;
+                width: 34px * root.s; height: self.width; border-radius: self.width / 2;
+                background: home-touch.pressed ? #ddd : @linear-gradient(180deg, #fafafa, #eee);
+                border-width: 1px * root.s; border-color: #b9bdc2;
+                Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 15px * root.s; height: self.width; border-radius: 4px * root.s; border-width: 1.5px * root.s; border-color: #a7adb5; background: transparent; }
+                home-touch := TouchArea { mouse-cursor: pointer; clicked => { root.command("home"); keyboard.focus(); } }
+            }
+        }
+        display := Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: root.device-mode ? (parent.height - 488px * root.s) / 2 + 8px * root.s : (parent.height - self.height) / 2;
+            width: 240px * root.s; height: 432px * root.s; clip: true; background: #fff;
+            border-width: 1px * root.s; border-color: #101010;
+            HomeView {
+                visible: root.screen == 0; y: 20px * root.s; height: 412px * root.s; s: root.s;
+                page: root.home-page; selected: root.selected;
+                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                swipe(next) => { root.home-swipe(next); }
+            }
+            Rectangle {
+                x: 0px; y: 0px; height: 20px * root.s;
+                background: root.screen == 0 || root.screen == 2 ? #2b3030 : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
+                Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 10px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
+                if root.playing: Image { x: 194px * root.s; y: 6px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: #eee; }
+                Rectangle {
+                    x: 212px * root.s; y: 6px * root.s; width: 20px * root.s; height: 9px * root.s;
+                    border-color: #888; border-width: 1px * root.s; background: transparent;
+                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: #8bb349; }
+                }
+            }
+            Rectangle {
+                visible: root.screen != 0 && root.screen != 2;
+                y: 20px * root.s; height: 38px * root.s;
+                background: @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: #969ca1;
+                Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; overflow: elide; }
+                Rectangle {
+                    x: 5px * root.s; y: 6px * root.s; width: 39px * root.s; height: 26px * root.s;
+                    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: @linear-gradient(180deg, #d9e0e5, #99a3af);
+                    Image { source: @image-url("../assets/icons/chevron-left.svg"); colorize: #fff; x: 14px * root.s; y: 6px * root.s; width: 10px * root.s; height: 14px * root.s; }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.command("back"); keyboard.focus(); } }
+                }
+            }
+            library := LibraryView {
+                visible: root.screen == 1 || root.screen == 3;
+                enabled: (root.screen == 1 || root.screen == 3) && !root.reference-open;
+                y: 58px * root.s; height: 374px * root.s; s: root.s;
+                rows: root.rows; selected: root.selected; search: root.screen == 3;
+                search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
+                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                edited(text) => { root.query-changed(text); }
+            }
+            if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\nThis app is not available yet.\nPress H to return Home."; font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
+            now-playing := NowPlayingView {
+                visible: root.screen == 2; y: 20px * root.s; height: 412px * root.s; s: root.s;
+                selected: root.selected; playing: root.playing; has-track: root.has-track;
+                title: root.track-title; artist: root.track-artist; album: root.track-album; artwork: root.artwork;
+                volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; remaining: root.remaining;
+                shuffle: root.shuffle; repeat-mode: root.repeat-mode;
+                lyrics-visible: root.lyrics-visible; lyric-lines: root.lyric-lines; active-lyric: root.active-lyric; timed-lyrics: root.timed-lyrics;
+                lyric-scroll-y <=> root.lyric-scroll-y;
+                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                toggle-lyrics => { root.command("toggle_lyrics"); keyboard.focus(); }
+                seek-changed(value) => { root.seek-changed(value); }
+                volume-changed(value) => { root.volume-changed(value); }
+            }
+        }
+        // Status stays inside the display; the window has no surrounding panel or footer.
+        if root.notice != "" && root.notice != "Ready": Rectangle {
+            x: display.x + 4px * root.s; y: display.y + display.height - 24px * root.s;
+            width: display.width - 8px * root.s; height: 20px * root.s; background: #222d;
+            Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
+        }
+        if root.reference-open: Rectangle {
+            background: #0008;
+            TouchArea { clicked => { root.command("close_shortcuts"); } }
+            Rectangle {
+                x: 12px; y: 16px; width: parent.width - 24px; height: parent.height - 32px;
+                background: #f4f5f6; border-radius: 6px; border-width: 1px; border-color: #899098;
+                Text { x: 16px; y: 10px; height: 24px; text: "Keyboard Shortcuts"; font-size: 18px; font-weight: 700; color: #222; }
+                Text { x: parent.width - 38px; y: 10px; width: 26px; height: 24px; text: "×"; font-size: 22px; color: #555; horizontal-alignment: center; TouchArea { mouse-cursor: pointer; clicked => { root.command("close_shortcuts"); } } }
+                Text { x: 16px; y: 40px; width: parent.width - 32px; height: 48px; text: "Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nL opens lyrics; arrows seek on Now Playing."; font-size: 11px; color: #666; }
+                Flickable {
+                    x: 12px; y: 96px; width: parent.width - 24px; height: parent.height - 110px;
+                    content-height: root.shortcuts.length * 46px;
+                    for shortcut[index] in root.shortcuts: Rectangle {
+                        y: index * 46px; height: 46px;
+                        background: mod(index, 2) == 0 ? #fff : #eef0f2;
+                        Text { x: 8px; y: 4px; height: 12px; text: shortcut.category; color: #697785; font-size: 9px; }
+                        Text { x: 8px; y: 19px; height: 22px; width: parent.width - 138px; text: shortcut.title; font-size: 11px; color: #222; overflow: elide; }
+                        Text { x: parent.width - 122px; width: 114px; text: shortcut.keys; horizontal-alignment: right; vertical-alignment: center; color: #30649c; font-size: 11px; }
+                    }
+                }
+            }
+        }
+    }
+}

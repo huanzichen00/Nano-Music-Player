@@ -1,0 +1,76 @@
+// NanoSlider's drag mapping is adapted from Slint's MIT-licensed fancy_demo Slider.
+// Copyright © SixtyFPS GmbH <info@slint.dev>. See licenses/slint-examples-MIT.txt.
+export component NanoSlider inherits Rectangle {
+    in property <float> s: 1;
+    in property <float> value;
+    in property <bool> selected;
+    in property <bool> enabled: true;
+    callback changed(float);
+    height: 22px * s;
+    background: transparent;
+    Rectangle {
+        y: (parent.height - self.height) / 2; height: 5px * root.s;
+        border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #080808;
+        background: @linear-gradient(180deg, #101010, #666);
+        Rectangle { width: parent.width * clamp(root.value, 0, 1); border-radius: parent.border-radius; background: @linear-gradient(180deg, #fafafa, #aaa); }
+    }
+    handle := Rectangle {
+        width: 16px * root.s; height: self.width;
+        y: (parent.height - self.height) / 2;
+        x: (root.width - self.width) * clamp(root.value, 0, 1);
+        border-radius: self.width / 2;
+        background: @linear-gradient(180deg, #fff 0%, #b9b9b9 50%, #eee 100%);
+        border-width: (root.selected ? 2px : 1px) * root.s;
+        border-color: root.selected ? #65b9ff : #666;
+    }
+    touch := TouchArea {
+        enabled: root.enabled; mouse-cursor: pointer;
+        property <float> pressed-value;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                self.pressed-value = clamp((self.mouse-x - handle.width / 2) / (root.width - handle.width), 0, 1);
+                root.changed(self.pressed-value);
+            }
+        }
+        moved => { if self.pressed { root.changed(clamp(self.pressed-value + (self.mouse-x - self.pressed-x) / (root.width - handle.width), 0, 1)); } }
+    }
+}
+
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <bool> selected;
+    in property <bool> active;
+    in property <float> s: 1;
+    callback clicked;
+    background: touch.pressed ? #111 : @linear-gradient(180deg, #444, #242424);
+    border-width: root.selected ? 2px * s : 0px; border-color: #65b9ff;
+    Image {
+        source: root.icon; colorize: root.active ? #73bfff : #eee;
+        width: parent.width * 0.43; height: parent.height * 0.5;
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; image-fit: contain;
+    }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+export component AppIcon inherits Rectangle {
+    in property <float> s: 1;
+    in property <string> label;
+    in property <image> icon;
+    in property <color> tint;
+    in property <bool> full-artwork;
+    in property <bool> selected;
+    callback clicked;
+    width: 92px * s; height: 104px * s; background: transparent;
+    Rectangle {
+        x: (parent.width - self.width) / 2; y: 0px; width: 72px * root.s; height: self.width; border-radius: self.width / 2;
+        background: root.full-artwork ? transparent : @linear-gradient(180deg, root.tint.brighter(55%) 0%, root.tint.darker(20%) 49%, root.tint 52%, root.tint.brighter(15%) 100%);
+        border-width: (root.full-artwork ? 0px : (root.selected ? 3px : 1px)) * root.s; border-color: root.selected ? #fff : root.tint.brighter(75%);
+        drop-shadow-blur: 3px * root.s; drop-shadow-offset-y: 2px * root.s; drop-shadow-color: #0008;
+        if root.full-artwork: Image { source: root.icon; x: 0px; y: 0px; width: parent.width; height: parent.height; image-fit: contain; }
+        if !root.full-artwork: Image { source: root.icon; colorize: #fff; x: 18px * root.s; y: 18px * root.s; width: 36px * root.s; height: 36px * root.s; image-fit: contain; }
+        if !root.full-artwork: Rectangle { x: 9px * root.s; y: 5px * root.s; width: 54px * root.s; height: 24px * root.s; border-radius: 16px * root.s; background: @linear-gradient(180deg, #ffffff90, #ffffff00); }
+    }
+    if root.selected: Rectangle { x: 8px * root.s; y: -2px * root.s; width: 76px * root.s; height: self.width; border-radius: self.width / 2; background: transparent; border-color: white; border-width: 2px * root.s; }
+    Text { y: 78px * root.s; height: 20px * root.s; text: root.label; color: white; font-size: 13px * root.s; font-weight: root.selected ? 700 : 500; horizontal-alignment: center; }
+    TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
