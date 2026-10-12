@@ -34,7 +34,7 @@ export component VideoDeviceFrame inherits Rectangle {
             background: home-touch.pressed ? #deddd5 : #eeede5;
             border-width: 1px * root.scale; border-color: #b9bdc2;
             Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 30px * root.scale; height: self.width; border-radius: self.width / 2; border-width: 1.5px * root.scale; border-color: #a7adb5; background: transparent; }
-            home-touch := TouchArea { mouse-cursor: pointer; clicked => { root.home(); } }
+            home-touch := TouchArea { clicked => { root.home(); } }
         }
     }
     Rectangle {

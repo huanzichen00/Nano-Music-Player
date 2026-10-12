@@ -22,7 +22,7 @@ export component VideoView inherits Rectangle {
     background: black;
     clip: true;
     Image { width: parent.width; height: parent.height; source: root.frame; image-fit: contain; }
-    TouchArea { mouse-cursor: pointer; clicked => { root.command("toggle_overlay"); } }
+    TouchArea { clicked => { root.command("toggle_overlay"); } }
     if root.controls-visible || root.selection-visible: Rectangle {
         x: 0px; y: 0px; width: root.width; height: root.height;
         background: transparent;
@@ -53,7 +53,7 @@ export component VideoView inherits Rectangle {
                 }
             }
             NanoSlider { x: 17px * root.s; y: 66px * root.s; width: parent.width - 58px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
-            Image { x: parent.width - 32px * root.s; y: 70px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: white; image-fit: contain; TouchArea { mouse-cursor: pointer; clicked => { root.command("toggle_mute"); } } }
+            Image { x: parent.width - 32px * root.s; y: 70px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: white; image-fit: contain; TouchArea { clicked => { root.command("toggle_mute"); } } }
         }
     }
 }
