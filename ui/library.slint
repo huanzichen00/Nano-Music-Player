@@ -1,6 +1,13 @@
 import { I18n } from "i18n.slint";
 export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwork: image, show-artwork: bool }
 
+// Shared with the controller for thumbnail decoding and selection scrolling.
+export global ListMetrics {
+    out property <float> text-row-height: 48;
+    out property <float> artwork-row-height: 64;
+    out property <float> artwork-padding: 4;
+}
+
 export component LibraryView inherits Rectangle {
     in property <float> s;
     in property <int> selected;
@@ -11,6 +18,7 @@ export component LibraryView inherits Rectangle {
     in-out property <string> search-text;
     in-out property <length> scroll-y;
     out property <bool> search-focused: input.has-focus;
+    out property <length> row-height: (root.rows.length > 0 && root.rows[0].show-artwork ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
     callback edited(string);
     public function focus-search() { input.focus(); }
@@ -31,28 +39,32 @@ export component LibraryView inherits Rectangle {
     Flickable {
         y: (root.search ? 44px : 0px) * root.s;
         height: root.height - self.y; width: root.width;
-        content-height: max(self.height, root.rows.length * 48px * root.s);
+        content-height: max(self.height, root.rows.length * root.row-height);
         content-y <=> root.scroll-y;
         for row[index] in root.rows: Rectangle {
-            y: index * 48px * root.s; width: root.width; height: 48px * root.s;
+            y: index * root.row-height; width: root.width; height: root.row-height;
             background: root.selected == index ? @linear-gradient(180deg, #4794e4, #1666bb) : #fff;
             Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #d5d5d5; }
             if row.show-artwork: Rectangle {
-                x: 6px * root.s; y: 6px * root.s; width: 36px * root.s; height: 36px * root.s; background: #e0e3e6;
+                x: ListMetrics.artwork-padding * 1px * root.s; y: self.x;
+                width: parent.height - 2 * self.x; height: self.width; background: #e0e3e6;
                 Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row.artwork.width > 0 ? row.artwork : @image-url("../assets/icons/music.svg"); image-fit: contain; }
             }
             Text {
-                x: (row.show-artwork ? 50px : 12px) * root.s; y: row.subtitle == "" ? 0px : 4px * root.s;
-                width: parent.width - (row.show-artwork ? 75px : 37px) * root.s; height: (row.subtitle == "" ? 48px : 23px) * root.s;
+                x: row.show-artwork ? root.row-height + 4px * root.s : 12px * root.s;
+                y: row.subtitle == "" ? 0px : (parent.height - 40px * root.s) / 2;
+                width: parent.width - self.x - 25px * root.s; height: row.subtitle == "" ? parent.height : 23px * root.s;
                 text: row.title; color: root.selected == index ? white : #111;
                 font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
             if row.subtitle != "": Text {
-                x: (row.show-artwork ? 50px : 12px) * root.s; y: 27px * root.s; width: parent.width - (row.show-artwork ? 75px : 37px) * root.s; height: 17px * root.s;
+                x: row.show-artwork ? root.row-height + 4px * root.s : 12px * root.s;
+                y: (parent.height - 40px * root.s) / 2 + 23px * root.s;
+                width: parent.width - self.x - 25px * root.s; height: 17px * root.s;
                 text: row.subtitle; color: root.selected == index ? #e1efff : #929292; font-size: 11px * root.s; overflow: elide;
             }
             if row.chevron: Image {
-                x: parent.width - 18px * root.s; y: 18px * root.s; width: 7px * root.s; height: 12px * root.s;
+                x: parent.width - 18px * root.s; y: (parent.height - self.height) / 2; width: 7px * root.s; height: 12px * root.s;
                 source: @image-url("../assets/icons/chevron-right.svg"); colorize: root.selected == index ? #fff : #aaa;
             }
             TouchArea { mouse-cursor: pointer; clicked => { root.activated(index); } }

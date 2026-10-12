@@ -12,7 +12,7 @@ use crate::{
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
     library::{Track, scanner},
-    ui::{AppWindow, I18n, LibraryRow, ShortcutRow},
+    ui::{AppWindow, I18n, LibraryRow, ListMetrics, ShortcutRow},
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
@@ -567,7 +567,12 @@ impl Controller {
                                 .or_insert_with(|| {
                                     decode_artwork(
                                         &self.state.tracks[id].artwork,
-                                        (36.0 * 3.0 * ui.window().scale_factor()).ceil() as u32,
+                                        ((ui.global::<ListMetrics>().get_artwork_row_height()
+                                            - 2.0
+                                                * ui.global::<ListMetrics>().get_artwork_padding())
+                                            * 3.0
+                                            * ui.window().scale_factor())
+                                        .ceil() as u32,
                                     )
                                 })
                                 .clone()
@@ -606,7 +611,8 @@ impl Controller {
                     | Screen::Lyrics(_)
                     | Screen::Languages
             ) {
-                let row_y = self.state.navigation.selected() as f32 * 48.0 * scale;
+                let row_height = ui.get_list_row_height();
+                let row_y = self.state.navigation.selected() as f32 * row_height;
                 let visible_height = if *screen == Screen::Search {
                     324.0
                 } else {
@@ -615,8 +621,8 @@ impl Controller {
                 let scroll = ui.get_list_scroll_y();
                 if row_y + scroll < 0.0 {
                     ui.set_list_scroll_y(-row_y);
-                } else if row_y + 48.0 * scale + scroll > visible_height {
-                    ui.set_list_scroll_y(visible_height - row_y - 48.0 * scale);
+                } else if row_y + row_height + scroll > visible_height {
+                    ui.set_list_scroll_y(visible_height - row_y - row_height);
                 }
             }
             self.last_selected = self.state.navigation.selected();

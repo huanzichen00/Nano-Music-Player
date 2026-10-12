@@ -501,7 +501,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         (200, 100, "landscape-cover"),
         (100, 100, "square-cover"),
     ] {
-        let pixels = vec![219u8, 52, 111, 255].repeat((width * height) as usize);
+        let pixels = [219u8, 52, 111, 255].repeat((width * height) as usize);
         ui.set_artwork(slint::Image::from_rgba8(slint::SharedPixelBuffer::<
             slint::Rgba8Pixel,
         >::clone_from_slice(
@@ -601,6 +601,36 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     }
     snapshot(&ui, "artist-thumbnails");
     assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
+
+    // Larger cover rows use the rendered geometry for keyboard/F-prefix scrolling.
+    {
+        let mut controller = controller.borrow_mut();
+        let template = controller.state.tracks[1].clone();
+        controller.state.merge_library(
+            (0..8)
+                .map(|id| {
+                    let mut track = template.clone();
+                    track.path = directory.path().join(format!("gallery-{id}.mp3"));
+                    track.album = format!("Gallery Album {id:02}");
+                    track
+                })
+                .collect(),
+        );
+        controller
+            .state
+            .navigation
+            .open(nano_music_player::app::navigation::Screen::Groups(
+                nano_music_player::app::navigation::Group::Albums,
+            ));
+        controller.execute(&ui, Action::FinishSearchEditing);
+    }
+    assert!((ui.get_list_row_height() - 64.0 * ui.get_display_scale()).abs() < 0.01);
+    snapshot(&ui, "larger-album-thumbnails");
+    tap(&ui, "f");
+    tap(&ui, "z");
+    assert_eq!(ui.get_selected(), 9);
+    assert!((ui.get_list_scroll_y() - (368.0 - 10.0 * 64.0) * ui.get_display_scale()).abs() < 0.01);
+    snapshot(&ui, "larger-album-jump");
 
     // Language changes through Settings persist while catalog-like metadata remains literal.
     use nano_music_player::app::{config::Settings, i18n::Language, navigation::Screen};

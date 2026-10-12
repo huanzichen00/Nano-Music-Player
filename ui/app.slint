@@ -1,10 +1,11 @@
 import { HomeView } from "home.slint";
-import { LibraryView, LibraryRow } from "library.slint";
+import { LibraryView, LibraryRow, ListMetrics } from "library.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { ShortcutEditor } from "shortcut-editor.slint";
 import { I18n } from "i18n.slint";
 export { I18n }
 export { LibraryRow }
+export { ListMetrics }
 export struct ShortcutRow { category: string, title: string, keys: string }
 
 export component AppWindow inherits Window {
@@ -56,6 +57,7 @@ export component AppWindow inherits Window {
     in property <bool> timed-lyrics;
     in-out property <string> search-text;
     in-out property <length> list-scroll-y;
+    out property <float> list-row-height: library.row-height / 1px;
     in-out property <length> lyric-scroll-y;
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;

@@ -27,6 +27,8 @@ Decisions: sort view rows without moving stable track indexes used by queues/aud
 
 Acceptance: mixed case/ties deterministic, album order preserved, artist/album thumbnails and missing-art fallback visible; F+A–Z scrolls selection into view; text editing, customized bindings and playback shortcuts remain safe. Format/check/tests, visual inspection, commit.
 
+User refinement: enlarge the pictures in album lists. Cover rows now use 64 logical units with 4-unit padding, deriving a 56-unit thumbnail (previously 36). The same geometry applies to representative artist artwork. Slint exports shared list metrics for decoder resolution; controller scrolling reads the actual rendered row height rather than assuming every list uses 48-unit rows. Ordinary song/settings rows retain 48 units.
+
 ## Phase 4 — Internationalization (verified)
 
 Decisions: persisted enum English/Simplified Chinese/Japanese; Settings language screen. Central translation catalog for interface strings, action labels, menus, notices, dialogs and editor; leave metadata, lyrics and keys unchanged. Default English, migrate existing settings with serde defaults.
@@ -47,4 +49,5 @@ Acceptance: bundle ID verified, rule documented against official AeroSpace docs,
 - Phase 2: fmt/check and 64 tests pass (42 core, 15 codecs, 6 association, 1 comprehensive UI). Worker-load regressions cover sidecar changes, deleted manual source, changed audio, removal tombstone and reset. UI regressions cover real remove/reset effects and seek highlight/scroll; wrapped rows use measured Slint heights. Inspected plain and synced lyrics screenshots.
 - Phase 3: fmt/check and 68 tests pass. Sorting uses lowercase text, original spelling and path tie-breakers; unknown album track numbers sort after known numbers. UI sequence tests cover scroll-to-match, no-match letter consuming, Escape, Command/Ctrl+F, text entry and Home guards. Representative thumbnail screenshots inspected. Original 112×112 firmware Settings icon used directly; generated Home assets retained.
 - Phase 4: fmt/check and 72 tests pass (3 catalog, 43 core, 15 format, 4 ordering, 6 association, 1 comprehensive UI). Catalog coverage checks static UI keys and customizable action titles. Settings-driven changes, old-config English defaults and persisted languages tested. Metadata deliberately named Music/Settings/Lyrics remains unchanged. Inspected Chinese/Japanese Home, Settings and language-selection screenshots; native menus receive the same translated bindings.
+- Album-list refinement: fmt/check and comprehensive UI test pass; inspected larger-cover screenshots. Ten-album regression verifies 64-unit row sizing and F+Z scrolling to the final album using the new geometry.
 - No current blockers. Native Windows/Linux validation unavailable on this macOS host.
