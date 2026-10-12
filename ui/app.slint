@@ -2,6 +2,8 @@ import { HomeView } from "home.slint";
 import { LibraryView, LibraryRow, ListMetrics } from "library.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { ShortcutEditor } from "shortcut-editor.slint";
+import { DeepSeekSettings } from "deepseek-settings.slint";
+import { GeniusPreview } from "genius-preview.slint";
 import { I18n } from "i18n.slint";
 export { I18n }
 export { LibraryRow }
@@ -53,6 +55,18 @@ export component AppWindow inherits Window {
     in property <string> shortcut-keys;
     in property <string> shortcut-message;
     in property <[string]> lyric-lines;
+    in property <[string]> romaji-lines;
+    in property <bool> romaji-visible;
+    in property <bool> deepseek-settings-open;
+    in property <bool> deepseek-key-configured;
+    in property <string> deepseek-message;
+    in-out property <string> deepseek-api-key;
+    in-out property <string> deepseek-model: "deepseek-flash";
+    in-out property <bool> genius-preview-open;
+    out property <int> genius-preview-stage: genius-preview.stage;
+    out property <int> genius-preview-variation: genius-preview.variation;
+    private property <string> genius-seed-title;
+    private property <string> genius-seed-artist;
     in property <int> active-lyric: -1;
     in property <bool> timed-lyrics;
     in-out property <string> search-text;
@@ -68,13 +82,32 @@ export component AppWindow inherits Window {
     callback key-event(KeyEvent, bool) -> bool;
     callback command(string);
     callback shortcut-command(string);
+    callback deepseek-command(string);
+    callback genius-command(string);
     callback item-clicked(int);
     callback query-changed(string);
     callback volume-changed(float);
     callback seek-changed(float);
     callback home-swipe(bool);
-    public function focus-screen() { keyboard.focus(); }
+    public function focus-screen() { if root.deepseek-settings-open { deepseek-dialog.focus-editor(); } else { keyboard.focus(); } }
     public function focus-search() { library.focus-search(); }
+    changed deepseek-settings-open => { root.focus-screen(); }
+    public function open-genius-preview() {
+        root.genius-seed-title = root.has-track ? root.track-title : I18n.tr("No song selected");
+        root.genius-seed-artist = root.has-track ? root.track-artist : "";
+        genius-preview.stage = 0;
+        genius-preview.variation = 0;
+        root.genius-preview-open = true;
+        keyboard.focus();
+    }
+    public function genius-action(name: string) {
+        if name == "close" { root.genius-preview-open = false; root.focus-screen(); }
+        else if name == "create" { genius-preview.stage = 1; }
+        else if name == "refresh" { genius-preview.variation += 1; genius-preview.stage = 1; }
+        else if name == "play" && genius-preview.stage > 0 { genius-preview.stage = 2; }
+        else if name == "save" && genius-preview.stage > 0 { genius-preview.stage = 3; }
+        root.genius-command(name);
+    }
 
     // Menu commands share the Rust reducer; no menu accelerators bypass keyboard context guards.
     MenuBar {
@@ -92,6 +125,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Previous Track"); activated => { root.command("previous_track"); } }
             MenuItem { title: I18n.tr("Now Playing"); activated => { root.command("now_playing"); } }
             MenuItem { title: I18n.tr("Lyrics for Track…"); activated => { root.command("manage_lyrics"); } }
+            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-preview(); } }
         }
         Menu {
             title: I18n.tr("View");
@@ -107,7 +141,22 @@ export component AppWindow inherits Window {
     forward-focus: keyboard;
     keyboard := FocusScope {
         // The sole keyboard entry point for the entire application.
-        capture-key-pressed(event) => { root.key-event(event, library.search-focused) ? accept : reject }
+        capture-key-pressed(event) => {
+            if root.deepseek-settings-open {
+                if event.text == Key.Escape { root.deepseek-command("cancel"); return accept; }
+                if event.text == Key.Return { root.deepseek-command("save"); return accept; }
+                return reject;
+            }
+            if root.genius-preview-open {
+                if event.repeat { return accept; }
+                if event.text == Key.Escape { root.genius-action("close"); }
+                else if event.text == Key.Return { root.genius-action(genius-preview.stage == 0 ? "create" : "play"); }
+                else if event.text.to-lowercase() == "r" && genius-preview.stage > 0 { root.genius-action("refresh"); }
+                else if event.text.to-lowercase() == "s" && genius-preview.stage > 0 { root.genius-action("save"); }
+                return accept;
+            }
+            return root.key-event(event, library.search-focused) ? accept : reject;
+        }
         if root.device-mode: Rectangle {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 296px * root.s; height: (296px * 76.5 / 39.6) * root.s;
@@ -168,7 +217,7 @@ export component AppWindow inherits Window {
             }
             library := LibraryView {
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
-                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open;
+                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open;
                 y: (root.artwork-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
@@ -183,9 +232,11 @@ export component AppWindow inherits Window {
                 volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
                 shuffle: root.shuffle; repeat-mode: root.repeat-mode;
                 overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.lyric-lines; active-lyric: root.active-lyric;
+                romaji-lines: root.romaji-lines; romaji-visible: root.romaji-visible;
                 lyric-scroll-y <=> root.lyric-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 toggle-overlay => { root.command("toggle_overlay"); keyboard.focus(); }
+                genius-requested => { root.open-genius-preview(); }
                 seek-changed(value) => { root.seek-changed(value); }
                 volume-changed(value) => { root.volume-changed(value); }
             }
@@ -196,8 +247,20 @@ export component AppWindow inherits Window {
             message: root.shortcut-message; recording: root.shortcut-recording;
             command(name) => { root.shortcut-command(name); }
         }
+        genius-preview := GeniusPreview {
+            visible: root.genius-preview-open;
+            x: display.x; y: display.y; width: display.width; height: display.height;
+            s: root.s; seed-title: root.genius-seed-title; seed-artist: root.genius-seed-artist;
+            command(name) => { root.genius-action(name); }
+        }
+        deepseek-dialog := DeepSeekSettings {
+            x: display.x; y: display.y; width: display.width; height: display.height;
+            s: root.s; open: root.deepseek-settings-open; key-configured: root.deepseek-key-configured;
+            message: root.deepseek-message; api-key <=> root.deepseek-api-key; model <=> root.deepseek-model;
+            command(name) => { root.deepseek-command(name); }
+        }
         // Status stays inside the display; the window has no surrounding panel or footer.
-        if root.notice != "" && root.notice != "Ready": Rectangle {
+        if root.notice != "" && root.notice != "Ready" && !root.deepseek-settings-open && !root.genius-preview-open: Rectangle {
             x: display.x + 4px * root.s; y: display.y + (root.screen == 2 ? 296px : 408px) * root.s;
             width: display.width - 8px * root.s; height: 20px * root.s; background: #222d;
             Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }

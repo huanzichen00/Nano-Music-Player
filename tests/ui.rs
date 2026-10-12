@@ -425,7 +425,16 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         controller.execute(&ui, Action::ManageLyrics);
     }
     assert_eq!(ui.get_screen(), 7);
-    assert_eq!(ui.get_rows().row_count(), 3);
+    assert_eq!(
+        ui.get_rows().row_data(0).unwrap().title,
+        "Import / Replace Lyrics…"
+    );
+    assert_eq!(ui.get_rows().row_data(1).unwrap().title, "Remove Lyrics");
+    assert!(
+        ui.get_rows()
+            .iter()
+            .any(|row| row.title == "Generate Romaji")
+    );
     snapshot(&ui, "manage-lyrics");
     ui.invoke_command("remove_lyrics".into());
     for _ in 0..100 {
@@ -687,5 +696,175 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         ui.invoke_command("home".into());
         snapshot(&ui, &format!("home-{}", language.code()));
     }
+    // R is contextual: only the song interface toggles romaji; inputs keep their letters.
+    controller.borrow_mut().execute(&ui, Action::NowPlaying);
+    let romaji_before = controller.borrow().state.romaji_visible;
+    let repeat_before = controller.borrow().state.repeat;
+    tap(&ui, "r");
+    assert_eq!(controller.borrow().state.romaji_visible, !romaji_before);
+    assert_eq!(controller.borrow().state.repeat, repeat_before);
+    tap(&ui, "r");
+    assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
+    controller.borrow_mut().state.navigation.select(3); // Now Playing volume context.
+    tap(&ui, "r");
+    assert_eq!(controller.borrow().state.romaji_visible, !romaji_before);
+    tap(&ui, "r");
+    ui.invoke_command("home".into());
+    tap(&ui, "r");
+    assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
+    assert_ne!(controller.borrow().state.repeat, repeat_before);
+    ui.invoke_command("search".into());
+    let search_before = ui.get_search_text().to_string();
+    tap(&ui, "r");
+    assert!(ui.get_search_text().to_string().contains('r'));
+    assert_ne!(ui.get_search_text().to_string(), search_before);
+    assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
+    tap(&ui, Key::Escape);
+
+    controller.borrow_mut().execute(&ui, Action::DeviceMode);
+    ui.window().set_size(slint::LogicalSize::new(592.0, 1172.0));
+    controller.borrow_mut().poll(&ui);
+    ui.invoke_command("configure_deep_seek".into());
+    assert!(ui.get_deepseek_settings_open());
+    assert_eq!(ui.get_deepseek_api_key(), "");
+    ui.invoke_focus_screen();
+    let repeat_before = controller.borrow().state.repeat;
+    for key in ["r", "s", "m"] {
+        tap(&ui, key);
+    }
+    assert_eq!(ui.get_deepseek_api_key(), "rsm");
+    assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
+    assert_eq!(controller.borrow().state.repeat, repeat_before);
+    let masked = ui.window().take_snapshot().unwrap();
+    ui.set_deepseek_api_key("abc".into());
+    let masked_replacement = ui.window().take_snapshot().unwrap();
+    assert_eq!(
+        masked.as_bytes(),
+        masked_replacement.as_bytes(),
+        "equal-length keys render as identical masks"
+    );
+    snapshot(&ui, "deepseek-masked-key");
+    click(&ui, 175.0, 362.0); // Save from the dialog.
+    assert!(!ui.get_deepseek_settings_open());
+    assert!(ui.get_deepseek_key_configured());
+    ui.invoke_command("configure_deep_seek".into());
+    assert_eq!(
+        ui.get_deepseek_api_key(),
+        "",
+        "never prefill a configured key"
+    );
+    snapshot(&ui, "deepseek-saved-key");
+    tap(&ui, Key::Return); // Blank retains the configured key.
+    assert!(!ui.get_deepseek_settings_open());
+    ui.invoke_command("configure_deep_seek".into());
+    tap(&ui, Key::Escape);
+    assert!(!ui.get_deepseek_settings_open());
+
+    // Romaji uses the same lyric index and measured row, including wrapped readings.
+    controller.borrow_mut().execute(&ui, Action::DeviceMode);
+    ui.window().set_size(slint::LogicalSize::new(592.0, 1172.0));
+    controller.borrow_mut().poll(&ui);
+    ui.set_screen(2);
+    ui.set_has_track(true);
+    ui.set_keyboard_navigation(false);
+    ui.set_notice("".into());
+    ui.set_track_title("夜の散歩".into());
+    ui.set_track_artist("Demo Artist".into());
+    ui.set_track_album("Romaji Preview".into());
+    ui.set_clock_text("9:41".into());
+    ui.set_elapsed("0:19".into());
+    ui.set_duration("4:18".into());
+    ui.set_track_count("2 of 5".into());
+    ui.set_progress(19.0 / 258.0);
+    ui.set_artwork(slint::Image::from_rgba8(slint::SharedPixelBuffer::<
+        slint::Rgba8Pixel,
+    >::clone_from_slice(
+        artwork.as_raw(), 480, 480
+    )));
+    ui.set_overlay_visible(true);
+    ui.set_lyrics_visible(true);
+    ui.set_lyric_lines(slint::ModelRc::new(slint::VecModel::from(
+        [
+            "静かな夜に",
+            "街の灯りが揺れる",
+            "風はそっと通り過ぎる",
+            "小さな夢を抱いて",
+            "また明日へ歩こう",
+            "星を見上げながら",
+        ]
+        .map(slint::SharedString::from)
+        .to_vec(),
+    )));
+    ui.set_romaji_lines(slint::ModelRc::new(slint::VecModel::from(
+        [
+            "Shizuka na yoru ni",
+            "Machi no akari ga yureru",
+            "Kaze wa sotto toorisugiru",
+            "Chiisana yume o daite",
+            "Mata ashita e arukou",
+            "Hoshi o miagenagara",
+        ]
+        .map(slint::SharedString::from)
+        .to_vec(),
+    )));
+    ui.set_romaji_visible(true);
+    ui.set_active_lyric(0);
+    ui.set_lyric_scroll_y(0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    snapshot(&ui, "romaji-device-preview");
+    let playback_before = controller.borrow().state.status;
+    let queue_before = controller.borrow().state.queue.current();
+    click(&ui, 90.0, 163.0); // Genius, between Repeat and Shuffle.
+    assert!(ui.get_genius_preview_open());
+    assert_eq!(ui.get_genius_preview_stage(), 0);
+    snapshot(&ui, "genius-create-preview");
+    tap(&ui, Key::Return);
+    assert_eq!(ui.get_genius_preview_stage(), 1);
+    let frozen = ui.window().take_snapshot().unwrap();
+    ui.set_track_title("A different playing song".into());
+    assert_eq!(
+        frozen.as_bytes(),
+        ui.window().take_snapshot().unwrap().as_bytes(),
+        "preview keeps its captured seed when the playing title changes"
+    );
+    ui.set_track_title("夜の散歩".into());
+    snapshot(&ui, "genius-ready-preview");
+    tap(&ui, "r");
+    assert_eq!(ui.get_genius_preview_variation(), 1);
+    assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
+    tap(&ui, Key::Return);
+    assert_eq!(ui.get_genius_preview_stage(), 2);
+    assert_eq!(controller.borrow().state.status, playback_before);
+    assert_eq!(controller.borrow().state.queue.current(), queue_before);
+    tap(&ui, "s");
+    assert_eq!(ui.get_genius_preview_stage(), 3);
+    snapshot(&ui, "genius-save-preview");
+    click(&ui, 24.0, 16.0); // Close in the compact Genius header.
+    assert!(!ui.get_genius_preview_open());
+    ui.invoke_open_genius_preview();
+    tap(&ui, Key::Escape);
+    assert!(!ui.get_genius_preview_open());
+    ui.set_active_lyric(5);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    let _ = ui.window().take_snapshot().unwrap();
+    assert!(
+        ui.get_lyric_scroll_y() < 0.0,
+        "romaji rows scroll with the active Japanese line"
+    );
+    ui.set_active_lyric(0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    let _ = ui.window().take_snapshot().unwrap();
+    assert_eq!(
+        ui.get_lyric_scroll_y(),
+        0.0,
+        "backward highlight returns both lines to the top"
+    );
+    ui.set_romaji_visible(false);
+    snapshot(&ui, "romaji-hidden");
+    ui.set_romaji_visible(true);
+    ui.set_romaji_lines(slint::ModelRc::new(slint::VecModel::from(vec![
+        slint::SharedString::from(""),
+    ])));
+    snapshot(&ui, "romaji-empty-entries");
     ui.hide().unwrap();
 }

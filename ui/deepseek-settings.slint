@@ -1,0 +1,41 @@
+import { NanoActionButton } from "components.slint";
+import { I18n } from "i18n.slint";
+
+export component DeepSeekSettings inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> open;
+    in property <bool> key-configured;
+    in property <string> message;
+    in-out property <string> api-key;
+    in-out property <string> model;
+    callback command(string);
+    public function focus-editor() { key-input.focus(); }
+    visible: root.open;
+    background: #080e1baa;
+    TouchArea {} // Capture clicks outside the dialog without changing playback.
+    Rectangle {
+        x: 10px * root.s; y: (parent.height - self.height) / 2;
+        width: parent.width - 20px * root.s; height: 350px * root.s;
+        background: @linear-gradient(180deg, #f9fafc, #e5e9ee);
+        border-radius: 8px * root.s; border-width: 1px * root.s; border-color: #9ba6b2;
+        Text { x: 12px * root.s; y: 12px * root.s; width: parent.width - 24px * root.s; height: 27px * root.s; text: I18n.tr("DeepSeek Settings"); font-size: 16px * root.s; font-weight: 700; color: #23313e; }
+        Text { x: 12px * root.s; y: 43px * root.s; width: parent.width - 24px * root.s; height: 23px * root.s; text: I18n.tr("Japanese lyrics → romaji"); font-size: 11px * root.s; color: #647181; }
+        Text { x: 12px * root.s; y: 74px * root.s; width: parent.width - 24px * root.s; height: 18px * root.s; text: I18n.tr("API Key"); font-size: 12px * root.s; font-weight: 600; color: #36475b; }
+        Rectangle {
+            x: 12px * root.s; y: 95px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s;
+            background: #fff; border-radius: 4px * root.s; border-width: 1px * root.s; border-color: key-input.has-focus ? #4b96da : #b6bbc0;
+            if root.api-key == "": Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr(root.key-configured ? "Saved key configured" : "Enter API key"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
+            key-input := TextInput { enabled: root.open; x: 8px * root.s; width: parent.width - 16px * root.s; text <=> root.api-key; single-line: true; input-type: password; font-size: 12px * root.s; color: #23313e; vertical-alignment: center; }
+        }
+        Text { x: 12px * root.s; y: 133px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s; text: I18n.tr(root.key-configured ? "Leave blank to keep the saved key." : "Your key is required to generate romaji."); font-size: 10px * root.s; color: #647181; wrap: word-wrap; }
+        Text { x: 12px * root.s; y: 173px * root.s; width: parent.width - 24px * root.s; height: 18px * root.s; text: I18n.tr("Model"); font-size: 12px * root.s; font-weight: 600; color: #36475b; }
+        Rectangle {
+            x: 12px * root.s; y: 194px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s;
+            background: #fff; border-radius: 4px * root.s; border-width: 1px * root.s; border-color: model-input.has-focus ? #4b96da : #b6bbc0;
+            model-input := TextInput { enabled: root.open; x: 8px * root.s; width: parent.width - 16px * root.s; text <=> root.model; single-line: true; font-size: 12px * root.s; color: #23313e; vertical-alignment: center; }
+        }
+        Text { x: 12px * root.s; y: 236px * root.s; width: parent.width - 24px * root.s; height: 55px * root.s; text: root.message; font-size: 11px * root.s; color: #52647a; wrap: word-wrap; }
+        NanoActionButton { x: 12px * root.s; y: 305px * root.s; width: (parent.width - 32px * root.s) / 2; s: root.s; label: "Cancel"; clicked => { root.command("cancel"); } }
+        NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: 305px * root.s; width: (parent.width - 32px * root.s) / 2; s: root.s; primary: true; label: "Save"; clicked => { root.command("save"); } }
+    }
+}
