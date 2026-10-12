@@ -1600,3 +1600,74 @@ fn always_on_top_defaults_migrates_and_toggles_without_changing_playback() {
         assert_eq!(Settings::load(&path).unwrap().always_on_top, expected);
     }
 }
+
+#[test]
+fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_queue() {
+    use nano_music_player::library::playlists::Playlist;
+    let mut state = music_state();
+    let paths = vec![state.tracks[2].path.clone(), state.tracks[0].path.clone()];
+    state.playlists = vec![
+        Playlist {
+            id: 2,
+            name: "Zulu".into(),
+            tracks: paths.clone(),
+        },
+        Playlist {
+            id: 1,
+            name: "alpha".into(),
+            tracks: vec!["/missing.mp3".into()],
+        },
+    ];
+    state.navigation.open(Screen::Groups(Group::Playlists));
+    assert_eq!(
+        state
+            .rows()
+            .iter()
+            .map(|r| r.title.as_str())
+            .collect::<Vec<_>>(),
+        ["All Songs", "alpha", "Zulu"]
+    );
+    assert_eq!(state.selection_count(), 3);
+    state.navigation.select(2);
+    state.apply(Action::Activate);
+    assert!(matches!(
+        state.navigation.current().screen,
+        Screen::Songs(Filter::Playlist { id: 2, .. })
+    ));
+    assert_eq!(
+        state
+            .rows()
+            .iter()
+            .map(|r| r.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Third", "First"]
+    );
+    state.merge_library(vec![track(0, "Updated first", "Alice", "Shared", "Jazz")]);
+    assert_eq!(state.rows()[1].title, "Updated first");
+    state.navigation.select(0);
+    let effects = state.apply(Action::Activate);
+    assert!(matches!(
+        effects.first(),
+        Some(Effect::Audio(AudioCommand::Load { id: 2, .. }))
+    ));
+    assert_eq!(state.current, Some(2));
+    state.advance(true);
+    assert_eq!(
+        state.current,
+        Some(0),
+        "manual playlist order, not alphabetical order"
+    );
+    state.navigation.open(Screen::Songs(Filter::Playlist {
+        id: 1,
+        name: "alpha".into(),
+    }));
+    assert!(
+        state.rows().is_empty(),
+        "paths absent from the music library are retained but skipped"
+    );
+    assert_eq!(state.playlists[1].tracks, [PathBuf::from("/missing.mp3")]);
+    assert!(matches!(
+        state.apply(Action::NewPlaylist).as_slice(),
+        [Effect::NewPlaylist]
+    ));
+}

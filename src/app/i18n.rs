@@ -84,6 +84,64 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "プレイリスト名を入力",
     ),
     ("Choose Songs", "选择歌曲", "曲を選択"),
+    ("Add Playlist", "新建播放列表", "プレイリストを追加"),
+    ("Saving…", "正在保存…", "保存中…"),
+    (
+        "Loading music library…",
+        "正在加载音乐资料库…",
+        "ライブラリを読み込み中…",
+    ),
+    (
+        "Import music to choose songs.",
+        "导入音乐后即可选择歌曲。",
+        "音楽を読み込むと曲を選べます。",
+    ),
+    (
+        "Saving playlist…",
+        "正在保存播放列表…",
+        "プレイリストを保存中…",
+    ),
+    (
+        "Choose a playlist name",
+        "请输入播放列表名称",
+        "プレイリスト名を入力してください",
+    ),
+    (
+        "Playlist name must be 100 characters or fewer",
+        "播放列表名称不能超过 100 个字符",
+        "名前は100文字以内にしてください",
+    ),
+    (
+        "Choose at least one song",
+        "请至少选择一首歌曲",
+        "曲を1つ以上選択してください",
+    ),
+    (
+        "A playlist with this name already exists",
+        "已存在同名播放列表",
+        "同じ名前のプレイリストがあります",
+    ),
+    (
+        "Some selected songs are unavailable",
+        "部分选中的歌曲已不可用",
+        "選択した曲の一部が利用できません",
+    ),
+    (
+        "Could not save playlist. Try again.",
+        "无法保存播放列表，请重试。",
+        "保存できませんでした。もう一度お試しください。",
+    ),
+    (
+        "Could not load playlists",
+        "无法加载播放列表",
+        "プレイリストを読み込めませんでした",
+    ),
+    (" songs", " 首歌曲", " 曲"),
+    (
+        "Use a single-line playlist name",
+        "播放列表名称应为单行文本",
+        "プレイリスト名は1行で入力してください",
+    ),
     (
         "Playlist saved",
         "播放列表已保存",
@@ -716,6 +774,11 @@ pub fn has_translation(english: &str) -> bool {
 pub fn notice(language: Language, text: &str) -> String {
     if language == Language::English {
         return text.to_owned();
+    }
+    if let Some(count) = text.strip_suffix(" songs")
+        && count.parse::<usize>().is_ok()
+    {
+        return format!("{count}{}", translate(language, " songs"));
     }
     for prefix in ["Romaji generation failed: ", "Romaji storage failed: "] {
         if let Some(detail) = text.strip_prefix(prefix) {

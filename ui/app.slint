@@ -85,6 +85,9 @@ export component AppWindow inherits Window {
     in property <[PlaylistCandidate]> playlist-draft;
     in-out property <string> playlist-message;
     in property <bool> playlist-persisted;
+    in property <bool> playlist-library-loading: false;
+    in property <bool> playlist-saving: false;
+    in property <bool> playlist-list: false;
     out property <bool> playlist-reviewing: playlist-editor.reviewing;
     in property <int> active-lyric: -1;
     in property <bool> timed-lyrics;
@@ -139,12 +142,11 @@ export component AppWindow inherits Window {
         root.playlist-message = "Draft only · not saved";
         playlist-editor.reset-view();
         root.playlist-editor-open = true;
-        root.playlist-command("new", "");
         playlist-editor.focus-name();
     }
     public function playlist-action(name: string, id: string) {
+        if root.playlist-saving { return; }
         if name == "cancel" { root.playlist-editor-open = false; root.focus-screen(); }
-        if name == "create" { root.playlist-message = "Draft ready · saving comes next"; }
         root.playlist-command(name, id);
         if name == "toggle" { keyboard.focus(); }
     }
@@ -153,7 +155,7 @@ export component AppWindow inherits Window {
     MenuBar {
         Menu {
             title: I18n.tr("File");
-            MenuItem { title: I18n.tr("New Playlist…"); enabled: !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-playlist-editor(); } }
+            MenuItem { title: I18n.tr("New Playlist…"); enabled: !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("new_playlist"); } }
             MenuItem { title: I18n.tr("Import Music Folder…"); activated => { root.command("import_folder"); } }
             MenuItem { title: I18n.tr("Import / Replace Lyrics…"); activated => { root.command("import_lyrics"); } }
             MenuItem { title: I18n.tr("Search Library…"); activated => { root.command("search"); } }
@@ -190,6 +192,7 @@ export component AppWindow inherits Window {
                 return reject;
             }
             if root.playlist-editor-open {
+                if root.playlist-saving { return accept; }
                 if event.text == Key.Escape {
                     if playlist-editor.reviewing { playlist-editor.back-to-selection(); keyboard.focus(); }
                     else { root.playlist-action("cancel", ""); }
@@ -197,6 +200,18 @@ export component AppWindow inherits Window {
                 }
                 if event.text == Key.Return && playlist-editor.name-focused { keyboard.focus(); return accept; }
                 if playlist-editor.name-focused { return reject; }
+                if !event.repeat && (event.text.to-lowercase() == "h" || event.text == Key.LeftArrow) {
+                    if playlist-editor.reviewing { playlist-editor.back-to-selection(); keyboard.focus(); }
+                    else { root.playlist-action("cancel", ""); }
+                    return accept;
+                }
+                if !event.repeat && (event.text.to-lowercase() == "l" || event.text == Key.RightArrow) {
+                    if playlist-editor.reviewing { if root.playlist-name != "" && root.playlist-draft.length > 0 && !root.playlist-persisted { root.playlist-action("create", ""); } }
+                    else { playlist-editor.review-draft(); }
+                    return accept;
+                }
+                if event.text.to-lowercase() == "j" { playlist-editor.move-selection(1); return accept; }
+                if event.text.to-lowercase() == "k" { playlist-editor.move-selection(-1); return accept; }
                 if event.text == Key.UpArrow { playlist-editor.move-selection(-1); }
                 else if event.text == Key.DownArrow { playlist-editor.move-selection(1); }
                 else if event.text == Key.Space && !event.repeat { playlist-editor.toggle-selection(); }
@@ -243,10 +258,10 @@ export component AppWindow inherits Window {
             Rectangle {
                 x: 0px; y: 0px; height: 26px * root.s;
                 background: root.screen == 0 || root.screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
-                if !root.artwork-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
-                if root.artwork-list: Text { x: 20px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
-                if root.artwork-list: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
-                if root.artwork-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; mouse-cursor: pointer; clicked => { root.command("back"); keyboard.focus(); } }
+                if !root.artwork-list && !root.playlist-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
+                if root.artwork-list || root.playlist-list: Text { x: 20px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
+                if root.artwork-list || root.playlist-list: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
+                if root.artwork-list || root.playlist-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; mouse-cursor: pointer; clicked => { root.command("back"); keyboard.focus(); } }
                 if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.screen == 0 || root.screen == 2 ? #eee : #2a73be; }
                 Rectangle {
                     x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
@@ -255,7 +270,7 @@ export component AppWindow inherits Window {
                 }
             }
             Rectangle {
-                visible: root.screen != 0 && root.screen != 2 && !root.artwork-list;
+                visible: root.screen != 0 && root.screen != 2 && !root.artwork-list && !root.playlist-list;
                 y: 26px * root.s; height: 38px * root.s;
                 background: @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: #969ca1;
                 Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; overflow: elide; }
@@ -269,7 +284,9 @@ export component AppWindow inherits Window {
             library := LibraryView {
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
-                y: (root.artwork-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                y: (root.artwork-list || root.playlist-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                playlist-list: root.playlist-list;
+                new-playlist => { root.command("new_playlist"); keyboard.focus(); }
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 text-font-family: root.ui-font-family;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
@@ -309,6 +326,7 @@ export component AppWindow inherits Window {
             x: display.x; y: display.y; width: display.width; height: display.height;
             s: root.s; open: root.playlist-editor-open; name <=> root.playlist-name;
             candidates: root.playlist-candidates; draft: root.playlist-draft; persisted: root.playlist-persisted;
+            library-loading: root.playlist-library-loading; saving: root.playlist-saving;
             message: root.playlist-message;
             command(name, id) => { root.playlist-action(name, id); }
         }

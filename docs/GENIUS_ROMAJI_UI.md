@@ -1,6 +1,6 @@
 # Genius preview and romaji UI
 
-Status: all three UI phases verified. Manual playlist library-selection and persistence adapters are queued. UI ownership is limited to Slint, UI assets, `tests/ui.rs`, and UI documentation/previews, with narrow playlist translation additions agreed after the romaji backend commit. The parallel chat owns Rust actions, configuration, network requests, caching, and persistence.
+Status: all three original UI phases and the manual playlist integration are verified. Playlist selection, ordering, transactional saving, failures/retry and restart are connected to the real library. The combined macOS build is awaiting native delivery.
 
 ## Phase 1 — Genius interface preview (verified)
 
@@ -22,21 +22,23 @@ Status: all three UI phases verified. Manual playlist library-selection and pers
 
 AppWindow's dialog inputs: `deepseek-settings-open`, `deepseek-key-configured`, `deepseek-message`. Two-way values: `deepseek-api-key` (blank initially) and `deepseek-model` (default `deepseek-flash`). Callback: `deepseek-command` with `save` or `cancel`.
 
-Genius is an interface demonstration only. The future engine, analysis, ordered playlist persistence, and actual Play/Save are deferred as described in `GENIUS_PLAYLIST_RESEARCH.md`.
+Genius is an interface demonstration only. The future engine, analysis, and Genius-specific Play/Save wiring are deferred as described in `GENIUS_PLAYLIST_RESEARCH.md`.
 
-## Phase 3 — Manual playlist creation interface (verified; backend queued)
+## Phase 3 — Manual playlist creation (live integration)
 
-The user requested this next UI phase while romaji/Genius integration was underway. Added File → New Playlist, name entry, candidate checkboxes, selected-song count, an ordered review with Move Up/Move Down/Remove, Create/Cancel, and keyboard isolation. Arrow keys browse rows, Space emits selection, Enter leaves name editing or opens review, and Escape returns to selection/closes. Interface labels are English/Chinese/Japanese; names and metadata remain literal.
+Music → Playlists uses the compact title, blue Add toolbar and separated name/song-count rows from manual page 22. Add Playlist and File → New Playlist use the central semantic action. The editor accepts a name, shows alphabetically sorted actual library songs and checkboxes, and reviews the user's selection order. Move Up/Move Down and Remove update the live draft. Interface labels and song counts translate; playlist names and metadata remain literal.
 
-The library adapter is intentionally queued separately from the romaji-first backend scope. The live app's unconnected editor says song selection is coming next, with Review/Create disabled until candidate/draft models are supplied. Create reports an unsaved draft, never a saved success. Rendered previews use supplied example models and simulated callback results; they are interface demonstrations rather than evidence of playlist persistence.
+J/K or arrows browse while the name field is unfocused; Space selects songs. Enter leaves name editing, opens review or creates as appropriate; H/Left/Escape returns to selection then cancels. Underlying playback/romaji shortcuts are isolated. Music playback continues while drafting. Loading and empty-library states have distinct prompts. A frozen lightweight title/artist/path snapshot avoids decoding covers or copying artwork into the editor.
 
-### Playlist handoff contract
+Create validates a trimmed single-line name of at most 100 characters and at least one existing selected library file. Names are unique by Unicode lowercase key. A background worker saves paths in order inside one SQLite transaction. Controls lock while saving. Success closes the editor and opens the saved playlist; failures show a localized message and preserve the name/selection/order for retry. Cancellation never writes. Application shutdown waits for an explicit Create write to finish.
 
-`PlaylistCandidate`: `id: string` (audio path identity), `title: string`, `artist: string`, `selected: bool`. AppWindow inputs: `playlist-candidates`, `playlist-draft` (ordered), `playlist-persisted`. Two-way fields: `playlist-editor-open`, `playlist-name`, `playlist-message` (canonical UI key or literal message). Output: `playlist-reviewing`. Functions: `open-playlist-editor()`, `playlist-action(string, string)`. Callback: `playlist-command(command, id)` with `new`, `toggle`, `up`, `down`, `remove`, `create`, `cancel`.
+### Playlist model and storage
 
-The future adapter freezes a lightweight library snapshot at `new`, sorts candidates case-insensitively/deterministically, maintains selected path order, updates checkbox/draft models after each command, validates trimmed names and live local paths, and persists ordered paths only after an explicit Create. Set `playlist-persisted` and a saved message only after storage succeeds. Do not persist transient row indices. Preserve playback while editing, and retain the draft if saving fails. This adapter and playlist storage remain queued; Genius example rows never enter the manual candidate model.
+`PlaylistCandidate`: `id: string` (audio path identity), `title: string`, `artist: string`, `selected: bool`. AppWindow inputs: `playlist-candidates`, `playlist-draft` (ordered), `playlist-persisted`, `playlist-library-loading`, `playlist-saving`. Two-way fields: `playlist-editor-open`, `playlist-name`, `playlist-message`. Callback `playlist-command(command, id)` supports `toggle`, `up`, `down`, `remove`, `create`, `cancel`; the central NewPlaylist effect initializes `new` directly before opening to avoid reentrant controller borrowing.
 
-Verification: `cargo check`, full 93 tests (one manual benchmark ignored), formatting, strict Clippy, and whitespace checks pass. Inspected English picker/review and Japanese review, fixed compact-button text sizing and translated-header spacing, and checked immediate status translation. UI tests cover name input (including R), callback path identities, ordered supplied rows, focus after reordering, Remove/Create, unsaved status, all three languages, Escape and empty/unconnected state. Previews: `docs/previews/playlist-selection.png`, `playlist-review.png`. Backend adapter and live-library persistence are not claimed as implemented.
+The `playlists` and `playlist_tracks` tables coexist with the existing tracks/lyrics/romaji tables. Ordered paths and stable playlist IDs survive restart; metadata/library indices can change without changing identity. Saved playlists list alphabetically, while their song screens and playback queues preserve the saved order. Paths absent from the current music library stay stored and are skipped in the visible playable rows. All Songs remains available. No playlist editing/deletion or iTunes synchronization is claimed in this creation milestone.
+
+Storage tests cover old tables, Unicode/order/restart, missing files, duplicate names, validation and transaction rollback. State tests cover sorting and queue order after metadata refresh. Controller/rendered UI checks cover selection, name input, reorder/remove, cancellation, failure/retry, save/restart and the three interface languages. All 109 combined tests pass (three manual profiles ignored), along with formatting, compilation and strict all-target Clippy. Inspected the final list, picker and review previews in `docs/previews/playlist-list.png`, `playlist-selection.png` and `playlist-review.png`. Previews are test-fixture captures, separate from the user's library. Real Genius recommendations and saving Genius example rows remain unconnected.
 
 ## Shortcut refinement
 

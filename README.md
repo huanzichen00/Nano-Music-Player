@@ -60,6 +60,12 @@ Plain **R** shows/hides romaji only in the song interface (including volume sele
 
 Genius currently has an explicitly labeled interface preview with example songs. Create, Refresh, Play and Save demonstrate the flow; recommendation generation and playlist persistence are deferred. See [`docs/GENIUS_PLAYLIST_RESEARCH.md`](docs/GENIUS_PLAYLIST_RESEARCH.md) for the Apple research and feasibility assessment.
 
+## Playlists
+
+Open **Music → Playlists → Add Playlist** or **File → New Playlist…**. Enter a name, press Enter to leave the name field, and select songs with checkboxes or **J/K + Space**. Choose Review, arrange the order with Move Up/Move Down or Remove, then Create. Saved playlists appear in Music → Playlists and survive restarts; their playback queue follows your chosen order. Cancel leaves the library and playback unchanged. Saving happens in the background; a failed save retains the draft for retry.
+
+Names must be nonempty, single-line and at most 100 characters; duplicate names are rejected regardless of case. Missing paths remain stored and songs absent from the current library are skipped. Editing/deleting saved playlists and iTunes synchronization are not included yet.
+
 ## Configuration
 
 The first launch creates `shortcuts.json` (version 4); `settings.json` saves display preferences and interface language. **Settings → Language** selects English (default), 简体中文 or 日本語. **Settings → Font** selects Classic, Maple Mono or JetBrains Mono, with bundled licensed fonts and a persisted preference; see [font notes](docs/FONTS.md). Music metadata and lyrics keep their original text. On macOS the default directory is `~/Library/Application Support/Nano.Nano-Music-Player`; Windows and Linux use their native application configuration directories. `--config-dir` overrides this.
@@ -86,7 +92,7 @@ cargo clippy --all-targets -- -D warnings
 
 Tests include dispatcher/state regressions, small original MP3/M4A/FLAC/WAV fixtures, embedded lyrics, and headless Slint key/pointer events plus rendered screenshots. GUI test snapshots are written to the system temporary directory. Platform-specific audio output and gestures still benefit from native testing on each target OS.
 
-Settings includes customizable shortcuts, display mode, zoom, per-track lyrics and language. The remaining nonmusic Home icons currently open placeholders. Radio, clock, fitness, photos, podcasts and video playback are outside this implementation; Playlists currently exposes All Songs. The player layout follows the provided seventh-generation nano photos and the Apollomaniacs music guide. See [`docs/RESOURCES.md`](docs/RESOURCES.md) for sources, asset provenance and licenses.
+Settings includes customizable shortcuts, display mode, zoom, per-track lyrics and language. The remaining nonmusic Home icons currently open placeholders. Radio, clock, fitness, photos, podcasts and video playback are outside this implementation; Playlists includes All Songs and saved user-created lists. The player layout follows the provided seventh-generation nano photos and the Apollomaniacs music guide. See [`docs/RESOURCES.md`](docs/RESOURCES.md) for sources, asset provenance and licenses.
 
 Artists, Albums and global Songs sort alphabetically using case-insensitive keys with deterministic tie-breakers. Individual albums retain track-number order. Album and artist rows show representative cover thumbnails.
 

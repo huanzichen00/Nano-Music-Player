@@ -47,6 +47,7 @@ pub enum Effect {
     RomajiVisibilityChanged,
     ConfigureDeepSeek,
     GeniusPreview,
+    NewPlaylist,
     GenerateRomaji {
         id: usize,
     },
@@ -66,6 +67,7 @@ pub struct State {
     pub always_on_top: bool,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
+    pub playlists: Vec<crate::library::playlists::Playlist>,
     pub queue: Queue,
     pub current: Option<usize>,
     pub status: PlaybackStatus,
@@ -97,6 +99,7 @@ impl Default for State {
             always_on_top: true,
             navigation: Navigation::default(),
             tracks: Vec::new(),
+            playlists: Vec::new(),
             queue: Queue::default(),
             current: None,
             status: PlaybackStatus::Stopped,
@@ -265,10 +268,53 @@ impl State {
                 row("Search", Target::Action(Action::Search)),
                 row("Import Music…", Target::Action(Action::ImportFolder)),
             ],
-            Screen::Groups(Group::Playlists) => vec![to("All Songs", Screen::Songs(Filter::All))],
+            Screen::Groups(Group::Playlists) => {
+                let mut playlists: Vec<_> = self.playlists.iter().collect();
+                playlists.sort_by_cached_key(|p| (p.name.to_lowercase(), p.name.clone(), p.id));
+                let mut rows = vec![Row {
+                    title: "All Songs".into(),
+                    subtitle: format!("{} songs", self.tracks.len()),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::Songs(Filter::All)),
+                }];
+                rows.extend(playlists.into_iter().map(|playlist| Row {
+                    title: playlist.name.clone(),
+                    subtitle: format!("{} songs", playlist.tracks.len()),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::Songs(Filter::Playlist {
+                        id: playlist.id,
+                        name: playlist.name.clone(),
+                    })),
+                }));
+                rows
+            }
             Screen::Groups(group) => self.group_rows(group, None),
             Screen::Artist(artist) => self.group_rows(&Group::Albums, Some(artist)),
             Screen::Songs(_) | Screen::Search => {
+                if let Screen::Songs(Filter::Playlist { id, .. }) =
+                    &self.navigation.current().screen
+                {
+                    let tracks_by_path: std::collections::HashMap<_, _> = self
+                        .tracks
+                        .iter()
+                        .enumerate()
+                        .map(|(id, track)| (&track.path, (id, track)))
+                        .collect();
+                    return self
+                        .playlists
+                        .iter()
+                        .find(|playlist| playlist.id == *id)
+                        .into_iter()
+                        .flat_map(|playlist| &playlist.tracks)
+                        .filter_map(|path| tracks_by_path.get(path))
+                        .map(|(id, track)| Row {
+                            title: track.title.clone(),
+                            subtitle: track.artist.clone(),
+                            artwork_id: None,
+                            target: Target::Play(*id),
+                        })
+                        .collect();
+                }
                 let is_album = matches!(
                     self.navigation.current().screen,
                     Screen::Songs(Filter::Album { .. })
@@ -426,7 +472,7 @@ impl State {
                 }
             }
             Screen::NowPlaying => 7,
-            Screen::Groups(Group::Playlists) => 1,
+            Screen::Groups(Group::Playlists) => 1 + self.playlists.len(),
             Screen::Groups(group) => self
                 .tracks
                 .iter()
@@ -740,6 +786,7 @@ impl State {
                 self.always_on_top = !self.always_on_top;
                 return vec![Effect::WindowPreferencesChanged];
             }
+            NewPlaylist => return vec![Effect::NewPlaylist],
             ZoomIn | ZoomOut => {
                 self.zoom =
                     (self.zoom + if action == ZoomIn { 0.25 } else { -0.25 }).clamp(0.75, 3.0);

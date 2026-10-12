@@ -104,6 +104,33 @@ fn wait_for_library_artwork(ui: &AppWindow, controller: &RefCell<Controller>, ro
     }
 }
 
+fn wait_for_playlist_save(ui: &AppWindow, controller: &RefCell<Controller>) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while ui.get_playlist_saving() {
+        controller.borrow_mut().poll(ui);
+        assert!(
+            std::time::Instant::now() < deadline,
+            "playlist save timed out"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn choose_language(
+    ui: &AppWindow,
+    controller: &RefCell<Controller>,
+    language: nano_music_player::app::i18n::Language,
+) {
+    let mut controller = controller.borrow_mut();
+    controller
+        .state
+        .navigation
+        .open(nano_music_player::app::navigation::Screen::Languages);
+    controller.state.navigation.select(language.index());
+    controller.execute(ui, Action::Activate);
+    controller.execute(ui, Action::Back);
+}
+
 #[test]
 fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
@@ -911,35 +938,15 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     ])));
     snapshot(&ui, "romaji-empty-entries");
 
-    // Playlist UI uses supplied path identities and order, with no fake saving/backend.
-    use nano_music_player::ui::{I18n, PlaylistCandidate};
-    let playlist_events = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
-    let recorded = playlist_events.clone();
-    ui.on_playlist_command(move |name, id| {
-        recorded
-            .borrow_mut()
-            .push((name.to_string(), id.to_string()));
-    });
-    let song = |id: &str, title: &str| PlaylistCandidate {
-        id: id.into(),
-        title: title.into(),
-        artist: "Demo Artist".into(),
-        selected: true,
-    };
-    let first = song("/example/first.mp3", "夜の散歩");
-    let second = song("/example/second.mp3", "Quiet Streets");
-    let third = song("/example/third.mp3", "Morning Air");
-    ui.set_playlist_candidates(slint::ModelRc::new(slint::VecModel::from(vec![
-        first.clone(),
-        second.clone(),
-        third.clone(),
-    ])));
-    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(Vec::<
-        PlaylistCandidate,
-    >::new())));
+    // Playlist creation uses the controller, real fixture paths, and persistent storage.
+    use nano_music_player::{app::navigation::Filter, library::playlists};
+    for track in &controller.borrow().state.tracks {
+        std::fs::write(&track.path, include_bytes!("fixtures/quiet.wav")).unwrap();
+    }
     let romaji_before = controller.borrow().state.romaji_visible;
     let repeat_before = controller.borrow().state.repeat;
-    ui.invoke_open_playlist_editor();
+    ui.invoke_command("new_playlist".into());
+    controller.borrow_mut().poll(&ui);
     assert!(ui.get_playlist_editor_open());
     for letter in "Evening Mix".chars() {
         tap(&ui, letter.to_string());
@@ -953,62 +960,90 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, Key::Return); // Leave name editing for song selection.
     tap(&ui, Key::DownArrow);
     tap(&ui, " ");
-    assert_eq!(
-        playlist_events.borrow().last().unwrap(),
-        &("toggle".into(), second.id.to_string())
-    );
-    // Simulate the future adapter returning the selected rows in selection order.
-    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
-        second.clone(),
-        first.clone(),
-        third.clone(),
-    ])));
+    tap(&ui, Key::DownArrow);
+    tap(&ui, " ");
+    assert_eq!(ui.get_playlist_draft().row_count(), 2);
     snapshot(&ui, "playlist-select-preview");
     tap(&ui, Key::Return);
     assert!(ui.get_playlist_reviewing());
     snapshot(&ui, "playlist-review-preview");
     tap(&ui, Key::DownArrow);
-    click(&ui, 42.0, 343.0); // Move Up on the selected second row.
+    click(&ui, 42.0, 343.0); // Move the selected second song above the first.
     assert_eq!(
-        playlist_events.borrow().last().unwrap(),
-        &("up".into(), first.id.to_string())
+        ui.get_playlist_draft().row_data(0).unwrap().title,
+        "Test Song 01"
     );
-    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
-        first.clone(),
-        second.clone(),
-        third.clone(),
-    ])));
-    click(&ui, 114.0, 343.0); // The moved item remains selected.
     assert_eq!(
-        playlist_events.borrow().last().unwrap(),
-        &("down".into(), first.id.to_string())
+        ui.get_playlist_draft().row_data(1).unwrap().title,
+        "Test Song 00"
     );
-    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
-        second.clone(),
-        first.clone(),
-        third.clone(),
-    ])));
+    let removed = ui.get_playlist_draft().row_data(0).unwrap().id;
     click(&ui, 191.0, 343.0);
+    assert_eq!(ui.get_playlist_draft().row_count(), 1);
+    tap(&ui, Key::Escape);
+    ui.invoke_playlist_action("toggle".into(), removed);
+    tap(&ui, Key::Return);
+    tap(&ui, Key::DownArrow);
+    click(&ui, 42.0, 343.0);
     assert_eq!(
-        playlist_events.borrow().last().unwrap(),
-        &("remove".into(), first.id.to_string())
+        ui.get_playlist_draft().row_data(0).unwrap().title,
+        "Test Song 01"
     );
-    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(vec![
-        second.clone(),
-        third.clone(),
-    ])));
-    click(&ui, 178.0, 409.0);
-    assert_eq!(playlist_events.borrow().last().unwrap().0, "create");
-    assert!(!ui.get_playlist_persisted());
-    assert_eq!(ui.get_playlist_message(), "Draft ready · saving comes next");
     for language in [
         Language::SimplifiedChinese,
         Language::Japanese,
         Language::English,
     ] {
-        ui.global::<I18n>().set_language(language.index() as i32);
+        choose_language(&ui, &controller, language);
         assert_eq!(ui.get_playlist_name(), "Evening Mix");
         snapshot(&ui, &format!("playlist-review-{}", language.code()));
+    }
+    snapshot(&ui, "playlist-review-preview");
+    let queue_before_playlist = controller.borrow().state.queue.current();
+    click(&ui, 178.0, 409.0);
+    assert!(ui.get_playlist_saving());
+    tap(&ui, Key::Escape);
+    assert!(
+        ui.get_playlist_editor_open(),
+        "save cannot be cancelled after submission"
+    );
+    wait_for_playlist_save(&ui, &controller);
+    assert!(!ui.get_playlist_editor_open());
+    assert!(!ui.get_playlist_saving());
+    assert_eq!(controller.borrow().state.playlists.len(), 1);
+    assert_eq!(
+        controller.borrow().state.queue.current(),
+        queue_before_playlist
+    );
+    let saved = playlists::load(&directory.path().join("library.sqlite3")).unwrap();
+    assert_eq!(saved[0].name, "Evening Mix");
+    assert_eq!(saved[0].tracks.len(), 2);
+    assert!(matches!(
+        controller.borrow().state.navigation.current().screen,
+        Screen::Songs(Filter::Playlist { .. })
+    ));
+    snapshot(&ui, "playlist-saved-list");
+    // Opening the parent list renders the compact playlist rows with their note glyph.
+    ui.invoke_command("back".into());
+    controller.borrow_mut().poll(&ui);
+    snapshot(&ui, "playlist-list-preview");
+    for language in [
+        Language::SimplifiedChinese,
+        Language::Japanese,
+        Language::English,
+    ] {
+        choose_language(&ui, &controller, language);
+        assert_eq!(ui.get_rows().row_data(1).unwrap().title, "Evening Mix");
+        assert_eq!(
+            ui.get_rows().row_data(1).unwrap().subtitle,
+            match language {
+                Language::English => "2 songs",
+                Language::SimplifiedChinese => "2 首歌曲",
+                Language::Japanese => "2 曲",
+            }
+        );
+        assert_eq!(ui.get_playlist_name(), "Evening Mix");
+        snapshot(&ui, &format!("playlist-list-{}", language.code()));
     }
     tap(&ui, "r");
     assert_eq!(
@@ -1016,19 +1051,91 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         romaji_before,
         "playlist modal does not inherit the song-interface R shortcut"
     );
-    tap(&ui, Key::Escape);
-    assert!(!ui.get_playlist_reviewing());
+    ui.invoke_command("new_playlist".into());
+    controller.borrow_mut().poll(&ui);
+    assert!(ui.get_playlist_editor_open());
+    assert_eq!(controller.borrow().state.playlists.len(), 1);
+    let queue_before_cancel = controller.borrow().state.queue.current();
     tap(&ui, Key::Escape);
     assert!(!ui.get_playlist_editor_open());
-    ui.set_playlist_candidates(slint::ModelRc::new(slint::VecModel::from(Vec::<
-        PlaylistCandidate,
-    >::new())));
-    ui.set_playlist_draft(slint::ModelRc::new(slint::VecModel::from(Vec::<
-        PlaylistCandidate,
-    >::new())));
-    ui.invoke_open_playlist_editor();
-    snapshot(&ui, "playlist-unconnected");
-    ui.invoke_playlist_action("cancel".into(), "".into());
+    assert_eq!(
+        controller.borrow().state.queue.current(),
+        queue_before_cancel
+    );
+    assert_eq!(controller.borrow().state.playlists.len(), 1);
+
+    // Invalid names and storage failures retain the same editable draft for retry.
+    ui.invoke_command("new_playlist".into());
+    let candidate = ui.get_playlist_candidates().row_data(0).unwrap().id;
+    ui.invoke_playlist_action("toggle".into(), candidate.clone());
+    for (name, error) in [
+        (" ", "Choose a playlist name"),
+        ("EVENING MIX", "A playlist with this name already exists"),
+    ] {
+        ui.set_playlist_name(name.into());
+        ui.invoke_playlist_action("create".into(), "".into());
+        wait_for_playlist_save(&ui, &controller);
+        assert!(ui.get_playlist_editor_open());
+        assert_eq!(ui.get_playlist_name(), name);
+        assert_eq!(ui.get_playlist_draft().row_data(0).unwrap().id, candidate);
+        assert_eq!(ui.get_playlist_message(), error);
+    }
+    let database = directory.path().join("library.sqlite3");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_playlist_ui BEFORE INSERT ON playlist_tracks BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+    ui.set_playlist_name("Music".into());
+    ui.invoke_playlist_action("create".into(), "".into());
+    wait_for_playlist_save(&ui, &controller);
+    assert!(ui.get_playlist_editor_open());
+    assert_eq!(
+        ui.get_playlist_message(),
+        "Could not save playlist. Try again."
+    );
+    assert_eq!(playlists::load(&database).unwrap().len(), 1);
+    assert_eq!(ui.get_playlist_draft().row_data(0).unwrap().id, candidate);
+    connection
+        .execute_batch("DROP TRIGGER fail_playlist_ui")
+        .unwrap();
+    ui.invoke_playlist_action("create".into(), "".into());
+    wait_for_playlist_save(&ui, &controller);
+    assert!(!ui.get_playlist_editor_open());
+    let saved = playlists::load(&database).unwrap();
+    assert_eq!(saved.len(), 2);
+    let mut restarted = Controller::new(directory.path().to_path_buf());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while restarted.state.playlists.len() != 2 {
+        restarted.poll(&ui);
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(restarted.state.playlists, saved);
+    controller.borrow_mut().execute(&ui, Action::Back);
+    choose_language(&ui, &controller, Language::SimplifiedChinese);
+    assert_eq!(
+        ui.get_rows().row_data(2).unwrap().title,
+        "Music",
+        "playlist names remain literal even when matching UI keys"
+    );
+    choose_language(&ui, &controller, Language::English);
+    controller.borrow_mut().execute(&ui, Action::NowPlaying);
+
+    // Empty/loading states come from a fresh library rather than a disconnected adapter.
+    let empty_directory = tempfile::tempdir().unwrap();
+    let mut empty = Controller::new(empty_directory.path().to_path_buf());
+    empty.initialize(&ui);
+    empty.execute(&ui, Action::NewPlaylist);
+    assert!(ui.get_playlist_library_loading());
+    snapshot(&ui, "playlist-loading");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while ui.get_playlist_library_loading() {
+        empty.poll(&ui);
+        assert!(std::time::Instant::now() < deadline);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(ui.get_playlist_candidates().row_count(), 0);
+    snapshot(&ui, "playlist-empty");
+    ui.set_playlist_editor_open(false);
+    controller.borrow_mut().initialize(&ui);
 
     // Settings fonts apply immediately, persist, and retain metadata/lyrics verbatim.
     use nano_music_player::app::typography::Font;

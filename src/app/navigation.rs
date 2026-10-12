@@ -14,6 +14,10 @@ pub enum Filter {
         artist: Option<String>,
     },
     Genre(String),
+    Playlist {
+        id: i64,
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +50,7 @@ impl Screen {
             Self::Songs(Filter::All) => "Songs",
             Self::Songs(Filter::Album { name, .. }) => name,
             Self::Songs(Filter::Genre(name)) => name,
+            Self::Songs(Filter::Playlist { name, .. }) => name,
             Self::Search => "Search",
             Self::NowPlaying => "Now Playing",
             Self::Settings => "Settings",

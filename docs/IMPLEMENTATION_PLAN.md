@@ -1,6 +1,6 @@
 # Implementation plan
 
-Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; playlist draft UI verified; live playlist selection/saving is now being completed. Always-on-top and rounded Device Mode edges are verified, committed and included in the rebuilt running macOS app. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
+Status: original phases, romaji, Music Genius entry, Albums optimization and font selection verified; live playlist selection, ordering and transactional saving verified. The combined playlist build is awaiting native delivery. Always-on-top and rounded Device Mode edges are verified, committed and included in the rebuilt running macOS app. Existing work preserved in checkpoint `9d4fced` (58 tests pass).
 
 ## Inspection and design basis
 
@@ -51,11 +51,11 @@ Credentials: a separate atomically written `deepseek.json` with Unix mode 0600, 
 
 Acceptance: local HTTP tests cover API request shape, error statuses, truncated/malformed/oversized replies and redacted errors; generation tests cover repeated LRC lines, blanks, English, unchanged timestamps, invalid IDs, cancellation and later-batch failure without partial results. Restart/controller coverage checks cached display, persistent visibility, blank-key saves, invalid model rejection, cancelling the settings editor and annotation removal without changing source lyrics. Native Windows/Linux validation and live provider reading accuracy remain unverified. A real DeepSeek request requires the user's own key. No live provider call has been verified by this chat; the running app can save the user's key privately and initiate generation through Playback → Lyrics for Track → Generate Romaji.
 
-## Phase 7 — Manual playlist creation UI (verified; backend queued)
+## Phase 7 — Manual playlist creation UI (verified; extended by Phase 10)
 
 User requested a playlist creation interface after the romaji/Genius milestone. Added a declarative name/song-selection and ordered review interface, with reordering/removal callbacks and explicit unsaved state. Keep actual library-model population and ordered-path persistence queued as a separate backend phase; the live unconnected editor communicates that selection is coming next. Do not show saved success before persistence is implemented. The exact model/callback contract and rendered example previews are in `GENIUS_ROMAJI_UI.md`. This phase only changes UI, its narrow translation keys, tests and documentation.
 
-Acceptance: name editing suppresses playback shortcuts, candidate callbacks carry path identities, review preserves supplied order, reordering retains focused identity, Remove/Create emit the intended callbacks, unsaved status stays honest, labels translate while metadata/name remain literal, and empty/unconnected UI does not claim the existing music library is empty. Full formatting, compilation, 93 tests, strict Clippy and whitespace checks pass; rendered English/Japanese screens reviewed. Library selection and saving remain scheduled work.
+Acceptance: name editing suppresses playback shortcuts, candidate callbacks carry path identities, review preserves supplied order, reordering retains focused identity, Remove/Create emit the intended callbacks, unsaved status stays honest, labels translate while metadata/name remain literal, and empty/unconnected UI does not claim the existing music library is empty. Full formatting, compilation, 93 tests, strict Clippy and whitespace checks pass; rendered English/Japanese screens reviewed. Library selection and saving were subsequently completed in Phase 10.
 
 ## Phase 8 — Font selection (verified)
 
@@ -69,7 +69,7 @@ User requested always above other windows by default and rounded Device Mode edg
 
 Acceptance: default/new/old config pins the window, off/on persists across controller restart, settings and native menu remain consistent, pinning changes neither playback nor geometry, and mode switching retains the choice. Render all four device corners at multiple sizes to verify transparent exterior with opaque shell edges and unchanged artwork/control scaling. Native verification checks the rebuilt window floats above other application windows on macOS. Run formatting/compilation/relevant tests/strict lint, commit and package the combined build.
 
-## Phase 10 — Live playlist creation (in progress)
+## Phase 10 — Live playlist creation (verified; native delivery pending)
 
 Re-rendered and inspected manual page 22: compact Playlists title, blue Add toolbar and separated name/song-count rows. Connect the existing name/select/review editor to the actual music library and transactional SQLite storage. Keep All Songs available; list saved playlists by deterministic case-insensitive name and retain user-selected order inside each playlist. Use paths and stable playlist IDs rather than transient library indices. Add through Music → Playlists → Add Playlist or File → New Playlist; naming is a desktop extension to the manual's Add/Done flow. Preserve current playback while drafting and saving.
 
@@ -77,7 +77,9 @@ Acceptance: select/deselect, reorder/remove, keyboard/text focus isolation, vali
 
 ## Verification log and blockers
 
-- Live playlist storage: four SQLite tests and strict targeted Clippy pass. New tables preserve existing tracks, lyrics and romaji; ordered Unicode paths and names survive reload, duplicate names/invalid input reject, missing files remain recorded, and an injected mid-transaction failure rolls back without a partial playlist. Controller and UI integration are being tested next.
+- Live playlist integration: formatting, compilation, all 109 tests (three manual profiles ignored), strict all-target Clippy and whitespace checks pass. Rendered tests exercise real library selection/deselection, reorder/remove, modal keyboard isolation, saving lock, cancellation, duplicate/invalid names, injected database failure retaining the draft, retry and controller restart. State tests verify saved order and queue resolution after a library refresh. English/Chinese/Japanese song counts translate while names remain literal, including a playlist named Music. Loading and empty-library prompts are distinct. Inspected the final list, picker and ordered review captures; previews use a temporary fixture database. Native packaging/launch is the remaining delivery step.
+
+- Live playlist storage: four SQLite tests and strict targeted Clippy pass. New tables preserve existing tracks, lyrics and romaji; ordered Unicode paths and names survive reload, duplicate names/invalid input reject, missing files remain recorded, and an injected mid-transaction failure rolls back without a partial playlist. Storage foundation committed as `76ad542`.
 
 - Window polish: all 104 automated tests pass (three manual profiles ignored). Default/migrated pinning, persisted off/on/controller restart, unchanged playback/geometry and mode switching verified. Pixel tests check transparent outer corners and opaque shell interior at 0.75×/1.25×/2×; Screen Mode is fully opaque. Inspected the rendered rounded-device preview. Strict Clippy, formatting, compilation and whitespace checks pass. Commit `48c05ea` was packaged into the debug macOS bundle and launched with the normal configuration. Native capture confirms the rounded silhouette and Settings shows Always on Top enabled. AeroSpace detects the new window 86993 as floating via the saved targeted rule; the existing SQLite library still contains 42 tracks. The user is actively playing music in the rebuilt app, so further navigation was left to them.
 

@@ -50,6 +50,7 @@ pub enum Action {
     ToggleRomaji,
     ConfigureDeepSeek,
     JumpToLetter,
+    NewPlaylist,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +96,7 @@ impl Action {
             | Self::ZoomOut
             | Self::ShowShortcuts
             | Self::CloseShortcuts => Category::Application,
+            Self::NewPlaylist => Category::Application,
             Self::Settings
             | Self::Shortcuts
             | Self::RestoreShortcuts
@@ -153,6 +155,7 @@ impl Action {
             Self::DeviceMode => "Device Mode",
             Self::ScreenMode => "Screen Mode",
             Self::ToggleAlwaysOnTop => "Always on Top",
+            Self::NewPlaylist => "New Playlist…",
             Self::ZoomIn => "Zoom in",
             Self::ZoomOut => "Zoom out",
             Self::ShowShortcuts => "Keyboard shortcuts",
@@ -219,6 +222,7 @@ impl Action {
         Self::DeviceMode,
         Self::ScreenMode,
         Self::ToggleAlwaysOnTop,
+        Self::NewPlaylist,
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ShowShortcuts,
