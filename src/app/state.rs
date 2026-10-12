@@ -9,7 +9,7 @@ use crate::{
     library::Track,
 };
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::PathBuf,
 };
 
@@ -234,75 +234,8 @@ impl State {
                 row("Import Music…", Target::Action(Action::ImportFolder)),
             ],
             Screen::Groups(Group::Playlists) => vec![to("All Songs", Screen::Songs(Filter::All))],
-            Screen::Groups(group) => {
-                let names: BTreeSet<&str> = self
-                    .tracks
-                    .iter()
-                    .map(|t| match group {
-                        Group::Artists => t.artist.as_str(),
-                        Group::Albums => t.album.as_str(),
-                        _ => t.genre.as_str(),
-                    })
-                    .collect();
-                let mut rows: Vec<Row> = names
-                    .into_iter()
-                    .map(|name| {
-                        let mut row = to(
-                            name,
-                            match group {
-                                Group::Artists => Screen::Artist(name.to_owned()),
-                                Group::Albums => Screen::Songs(Filter::Album {
-                                    name: name.to_owned(),
-                                    artist: None,
-                                }),
-                                _ => Screen::Songs(Filter::Genre(name.to_owned())),
-                            },
-                        );
-                        if matches!(group, Group::Artists | Group::Albums) {
-                            row.artwork_id = self.representative_artwork(group, name, None);
-                        }
-                        if *group == Group::Albums {
-                            row.subtitle = self
-                                .tracks
-                                .iter()
-                                .filter(|track| track.album == name)
-                                .map(|track| track.artist.as_str())
-                                .collect::<BTreeSet<_>>()
-                                .into_iter()
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                        }
-                        row
-                    })
-                    .collect();
-                sort_rows(&mut rows);
-                rows
-            }
-            Screen::Artist(artist) => {
-                let mut rows: Vec<Row> = self
-                    .tracks
-                    .iter()
-                    .filter(|t| &t.artist == artist)
-                    .map(|t| t.album.as_str())
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .map(|name| {
-                        let mut row = to(
-                            name,
-                            Screen::Songs(Filter::Album {
-                                name: name.to_owned(),
-                                artist: Some(artist.clone()),
-                            }),
-                        );
-                        row.artwork_id =
-                            self.representative_artwork(&Group::Albums, name, Some(artist));
-                        row.subtitle.clone_from(artist);
-                        row
-                    })
-                    .collect();
-                sort_rows(&mut rows);
-                rows
-            }
+            Screen::Groups(group) => self.group_rows(group, None),
+            Screen::Artist(artist) => self.group_rows(&Group::Albums, Some(artist)),
             Screen::Songs(_) | Screen::Search => {
                 let is_album = matches!(
                     self.navigation.current().screen,
@@ -370,42 +303,57 @@ impl State {
         }
     }
 
-    fn representative_artwork(
-        &self,
-        group: &Group,
-        name: &str,
-        artist: Option<&String>,
-    ) -> Option<usize> {
-        let mut candidates: Vec<(usize, &Track)> = self
-            .tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, track)| match group {
-                Group::Artists => track.artist == name,
-                Group::Albums => track.album == name && artist.is_none_or(|a| &track.artist == a),
-                _ => false,
+    fn group_rows(&self, group: &Group, artist: Option<&str>) -> Vec<Row> {
+        let mut groups: BTreeMap<&str, GroupedTracks<'_>> = BTreeMap::new();
+        for (id, track) in self.tracks.iter().enumerate() {
+            if artist.is_some_and(|artist| track.artist != artist) {
+                continue;
+            }
+            let entry = groups.entry(group_name(track, group)).or_default();
+            if *group == Group::Albums {
+                entry.artists.insert(track.artist.as_str());
+            }
+            if matches!(group, Group::Artists | Group::Albums) && !track.artwork.is_empty() {
+                let key = (
+                    track.album.to_lowercase(),
+                    track.album.as_str(),
+                    track.title.to_lowercase(),
+                    track.title.as_str(),
+                    track.path.to_string_lossy(),
+                );
+                if entry
+                    .artwork
+                    .as_ref()
+                    .is_none_or(|(_, current)| key < *current)
+                {
+                    entry.artwork = Some((id, key));
+                }
+            }
+        }
+        let mut rows: Vec<_> = groups
+            .into_iter()
+            .map(|(name, entry)| Row {
+                title: name.to_owned(),
+                subtitle: if *group == Group::Albums {
+                    artist
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| entry.artists.into_iter().collect::<Vec<_>>().join(", "))
+                } else {
+                    String::new()
+                },
+                artwork_id: entry.artwork.map(|(id, _)| id),
+                target: Target::Screen(match group {
+                    Group::Artists => Screen::Artist(name.to_owned()),
+                    Group::Albums => Screen::Songs(Filter::Album {
+                        name: name.to_owned(),
+                        artist: artist.map(str::to_owned),
+                    }),
+                    _ => Screen::Songs(Filter::Genre(name.to_owned())),
+                }),
             })
             .collect();
-        candidates.sort_by(|(_, a), (_, b)| {
-            (
-                a.album.to_lowercase(),
-                a.album.as_str(),
-                a.title.to_lowercase(),
-                a.title.as_str(),
-                a.path.to_string_lossy(),
-            )
-                .cmp(&(
-                    b.album.to_lowercase(),
-                    b.album.as_str(),
-                    b.title.to_lowercase(),
-                    b.title.as_str(),
-                    b.path.to_string_lossy(),
-                ))
-        });
-        candidates
-            .iter()
-            .find(|(_, track)| !track.artwork.is_empty())
-            .map(|(id, _)| *id)
+        sort_rows(&mut rows);
+        rows
     }
 
     pub fn supports_letter_jump(&self) -> bool {
@@ -437,7 +385,7 @@ impl State {
     }
 
     pub fn selection_count(&self) -> usize {
-        match self.navigation.current().screen {
+        match &self.navigation.current().screen {
             Screen::Home => {
                 if self.home_page == 0 {
                     6
@@ -446,6 +394,20 @@ impl State {
                 }
             }
             Screen::NowPlaying => 7,
+            Screen::Groups(Group::Playlists) => 1,
+            Screen::Groups(group) => self
+                .tracks
+                .iter()
+                .map(|track| group_name(track, group))
+                .collect::<BTreeSet<_>>()
+                .len(),
+            Screen::Artist(artist) => self
+                .tracks
+                .iter()
+                .filter(|track| &track.artist == artist)
+                .map(|track| track.album.as_str())
+                .collect::<BTreeSet<_>>()
+                .len(),
             _ => self.rows().len(),
         }
     }
@@ -837,7 +799,21 @@ fn track_title_key(track: &Track) -> (String, &str, String) {
 }
 
 fn sort_rows(rows: &mut [Row]) {
-    rows.sort_by(|a, b| {
-        (a.title.to_lowercase(), a.title.as_str()).cmp(&(b.title.to_lowercase(), b.title.as_str()))
-    });
+    rows.sort_by_cached_key(|row| (row.title.to_lowercase(), row.title.clone()));
+}
+
+type ArtworkKey<'a> = (String, &'a str, String, &'a str, std::borrow::Cow<'a, str>);
+
+#[derive(Default)]
+struct GroupedTracks<'a> {
+    artists: BTreeSet<&'a str>,
+    artwork: Option<(usize, ArtworkKey<'a>)>,
+}
+
+fn group_name<'a>(track: &'a Track, group: &Group) -> &'a str {
+    match group {
+        Group::Artists => &track.artist,
+        Group::Albums => &track.album,
+        _ => &track.genre,
+    }
 }

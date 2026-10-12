@@ -3,7 +3,7 @@ use nano_music_player::{
     library::Track,
     ui::AppWindow,
 };
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use std::time::{Duration, Instant};
 
 fn initialize_platform() {
@@ -128,6 +128,17 @@ fn song_metadata_is_immediate_and_background_covers_follow_the_current_track() {
             nano_music_player::app::navigation::Group::Albums,
         ));
     controller.execute(&ui, Action::SelectPrevious);
+    // This fixture injects metadata directly, bypassing startup preview preparation.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while ui
+        .get_rows()
+        .iter()
+        .any(|row| row.artwork.size().width == 0)
+    {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+        controller.poll(&ui);
+    }
     controller.state.start(2);
     controller.execute(&ui, Action::NowPlaying);
     let preview_size = ui.get_artwork().size().width;

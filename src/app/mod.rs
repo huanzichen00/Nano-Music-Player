@@ -5,6 +5,7 @@ pub mod controller;
 pub mod i18n;
 pub mod navigation;
 pub mod state;
+mod thumbnails;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use slint::{ComponentHandle, Timer, TimerMode};

@@ -5,6 +5,7 @@ use super::{
     i18n::{self, Language, translate},
     navigation::{Filter, Group, Screen},
     state::{Effect, State, Target},
+    thumbnails::{self, Prepared, Thumbnails},
 };
 use crate::{
     audio::{
@@ -15,14 +16,8 @@ use crate::{
     library::{Track, romaji, scanner},
     ui::{AppWindow, I18n, LibraryRow, ListMetrics, ShortcutRow},
 };
-use slint::{ComponentHandle, ModelRc, VecModel};
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-    rc::Rc,
-    sync::mpsc::Receiver,
-};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
 
 pub struct Controller {
     pub state: State,
@@ -30,8 +25,8 @@ pub struct Controller {
     engine: Engine,
     directory: PathBuf,
     settings: Settings,
-    loading: Option<Receiver<Result<Vec<Track>, String>>>,
-    importing: Option<Receiver<scanner::ImportEvent>>,
+    loading: Option<Receiver<Result<Prepared<Vec<Track>>, String>>>,
+    importing: Option<Receiver<thumbnails::ImportEvent>>,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
     romaji_request: Option<romaji::Request>,
     romaji_store: romaji::Store,
@@ -49,7 +44,9 @@ pub struct Controller {
     last_notice: String,
     notice_since: std::time::Instant,
     letter_jump: Option<(std::time::Instant, Screen)>,
-    thumbnails: HashMap<usize, slint::Image>,
+    thumbnails: Thumbnails,
+    library_rows: Rc<VecModel<LibraryRow>>,
+    row_artwork: Vec<Option<usize>>,
     artwork: ArtworkLoader,
     artwork_resolution: u32,
     shortcut_edit: Option<Action>,
@@ -72,7 +69,7 @@ impl Controller {
                 state.notice = format!("{message}; using default shortcuts");
                 Keymap::default()
             });
-        let loading = Some(scanner::load(directory.join("library.sqlite3")));
+        let loading = Some(thumbnails::load(directory.join("library.sqlite3")));
         let romaji_store = romaji::Store::new(directory.join("library.sqlite3"));
         Self {
             state,
@@ -99,7 +96,9 @@ impl Controller {
             last_notice: String::new(),
             notice_since: std::time::Instant::now(),
             letter_jump: None,
-            thumbnails: HashMap::new(),
+            thumbnails: Thumbnails::default(),
+            library_rows: Rc::new(VecModel::default()),
+            row_artwork: Vec::new(),
             artwork: ArtworkLoader::default(),
             artwork_resolution: 0,
             shortcut_edit: None,
@@ -281,7 +280,7 @@ impl Controller {
                 }
                 Effect::Import => {
                     self.dialog_open = true;
-                    self.importing = Some(scanner::import(
+                    self.importing = Some(thumbnails::import(
                         self.directory.join("library.sqlite3"),
                         translate(self.state.language, "Import Music Folder…"),
                     ));
@@ -440,10 +439,11 @@ impl Controller {
         {
             self.loading = None;
             match result {
-                Ok(tracks) => {
-                    self.state.merge_library(tracks);
+                Ok(prepared) => {
+                    self.state.merge_library(prepared.value);
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
+                    self.thumbnails.seed(&self.state.tracks, prepared.previews);
                     self.artwork.clear();
                     self.last_track = None;
                     self.rows_dirty = true;
@@ -456,7 +456,7 @@ impl Controller {
             .as_ref()
             .and_then(|receiver| receiver.try_recv().ok())
         {
-            let scanner::ImportEvent::Completed(result) = event else {
+            let thumbnails::ImportEvent::Completed(result) = event else {
                 self.dialog_open = false;
                 self.state.notice = "Scanning music folders…".to_owned();
                 ui.invoke_focus_screen();
@@ -466,10 +466,12 @@ impl Controller {
             self.state.importing = false;
             self.dialog_open = false;
             match result {
-                Ok(Some(result)) => {
+                Ok(Some(prepared)) => {
+                    let result = prepared.value;
                     self.state.merge_library(result.tracks);
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
+                    self.thumbnails.seed(&self.state.tracks, prepared.previews);
                     self.artwork.clear();
                     self.rows_dirty = true;
                     self.last_track = None;
@@ -633,9 +635,9 @@ impl Controller {
                     | Screen::Songs(_)
                     | Screen::Search
             );
-            let rows = self
-                .state
-                .rows()
+            let source_rows = self.state.rows();
+            self.row_artwork = source_rows.iter().map(|row| row.artwork_id).collect();
+            let rows = source_rows
                 .into_iter()
                 .map(|row| LibraryRow {
                     title: if metadata_rows {
@@ -655,22 +657,7 @@ impl Controller {
                     },
                     artwork: row
                         .artwork_id
-                        .map(|id| {
-                            self.thumbnails
-                                .entry(id)
-                                .or_insert_with(|| {
-                                    decode_artwork(
-                                        &self.state.tracks[id].artwork,
-                                        ((ui.global::<ListMetrics>().get_artwork_row_height()
-                                            - 2.0
-                                                * ui.global::<ListMetrics>().get_artwork_padding())
-                                            * 3.0
-                                            * ui.window().scale_factor())
-                                        .ceil() as u32,
-                                    )
-                                })
-                                .clone()
-                        })
+                        .and_then(|id| self.thumbnails.cached(id))
                         .unwrap_or_default(),
                     show_artwork: matches!(
                         screen,
@@ -681,7 +668,8 @@ impl Controller {
                     chevron: !matches!(row.target, Target::Play(_) | Target::Language(_)),
                 })
                 .collect::<Vec<_>>();
-            ui.set_rows(ModelRc::new(VecModel::from(rows)));
+            self.library_rows = Rc::new(VecModel::from(rows));
+            ui.set_rows(self.library_rows.clone().into());
             self.last_query.clone_from(&self.state.query);
             self.rows_dirty = false;
             if screen_changed {
@@ -722,6 +710,7 @@ impl Controller {
             }
             self.last_selected = self.state.navigation.selected();
         }
+        self.refresh_thumbnails(ui, screen);
         self.last_screen = Some(screen.clone());
         let track = self.state.current.and_then(|id| self.state.tracks.get(id));
         let artwork_resolution = (240.0 * scale * ui.window().scale_factor()).ceil() as u32;
@@ -730,14 +719,18 @@ impl Controller {
             let artwork = track
                 .zip(self.state.current)
                 .map(|(track, id)| {
-                    let preview = self.thumbnails.get(&id).cloned().or_else(|| {
-                        self.thumbnails.iter().find_map(|(cached_id, image)| {
-                            self.state
-                                .tracks
-                                .get(*cached_id)
-                                .filter(|cached| cached.artwork == track.artwork)
-                                .map(|_| image.clone())
-                        })
+                    let preview = self.thumbnails.cached(id).or_else(|| {
+                        self.thumbnails
+                            .cached_images()
+                            .find_map(|(cached_id, image)| {
+                                self.state
+                                    .tracks
+                                    .get(cached_id)
+                                    .filter(|cached| {
+                                        image.size().width > 0 && cached.artwork == track.artwork
+                                    })
+                                    .map(|_| image.clone())
+                            })
                     });
                     self.artwork.seed_preview(id, preview);
                     self.artwork.request(id, &track.artwork, artwork_resolution)
@@ -795,6 +788,47 @@ impl Controller {
             self.last_lyric = active;
         }
         self.last_scale = scale;
+    }
+
+    fn refresh_thumbnails(&mut self, ui: &AppWindow, screen: &Screen) {
+        if self.thumbnails.poll() {
+            for (index, id) in self.row_artwork.iter().enumerate() {
+                if let Some(id) = id
+                    && let Some(mut row) = self.library_rows.row_data(index)
+                {
+                    // Release evicted large images even when a synthetic track has no preview.
+                    let image = self.thumbnails.cached(*id).unwrap_or_default();
+                    if row.artwork != image {
+                        row.artwork = image;
+                        self.library_rows.set_row_data(index, row);
+                    }
+                }
+            }
+        }
+        let resolution = ((ui.global::<ListMetrics>().get_artwork_row_height()
+            - 2.0 * ui.global::<ListMetrics>().get_artwork_padding())
+            * ui.get_display_scale()
+            * ui.window().scale_factor())
+        .ceil() as u32;
+        let ids = if matches!(
+            screen,
+            Screen::Groups(Group::Albums | Group::Artists) | Screen::Artist(_)
+        ) {
+            let height = ui.get_list_row_height().max(1.0);
+            let top = (-ui.get_list_scroll_y()).max(0.0);
+            let start = (top / height).floor() as usize;
+            let end = ((top + ui.get_list_viewport_height()) / height).ceil() as usize;
+            self.row_artwork
+                .iter()
+                .take(end.saturating_add(1))
+                .skip(start.saturating_sub(1))
+                .filter_map(|id| *id)
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        self.thumbnails
+            .set_visible(&self.state.tracks, &ids, resolution);
     }
 
     fn start_romaji(&mut self, ui: &AppWindow, id: usize) {
@@ -1086,20 +1120,4 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
 fn format_time(seconds: f64) -> String {
     let seconds = seconds.max(0.0) as u64;
     format!("{}:{:02}", seconds / 60, seconds % 60)
-}
-
-fn decode_artwork(bytes: &[u8], resolution: u32) -> slint::Image {
-    image::load_from_memory(bytes)
-        .ok()
-        .map(|image| {
-            let image = image.thumbnail(resolution, resolution).to_rgba8();
-            slint::Image::from_rgba8(
-                slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                    image.as_raw(),
-                    image.width(),
-                    image.height(),
-                ),
-            )
-        })
-        .unwrap_or_default()
 }

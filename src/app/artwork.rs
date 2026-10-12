@@ -250,6 +250,14 @@ fn jpeg_thumbnail(bytes: &[u8], resolution: u32) -> Option<image::RgbaImage> {
     Some(image.thumbnail(resolution, resolution).to_rgba8())
 }
 
+pub(super) fn decode_thumbnail(bytes: &[u8], resolution: u32) -> Option<image::RgbaImage> {
+    jpeg_thumbnail(bytes, resolution).or_else(|| {
+        image::load_from_memory(bytes)
+            .ok()
+            .map(|image| image.thumbnail(resolution, resolution).to_rgba8())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
