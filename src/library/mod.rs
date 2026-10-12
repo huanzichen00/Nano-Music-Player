@@ -1,5 +1,6 @@
 pub mod database;
 pub mod lyrics;
+pub mod romaji;
 pub mod scanner;
 
 use serde::{Deserialize, Serialize};

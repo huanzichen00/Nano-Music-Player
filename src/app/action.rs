@@ -43,6 +43,11 @@ pub enum Action {
     ImportLyrics,
     RemoveLyrics,
     AutomaticLyrics,
+    GenerateRomaji,
+    CancelRomaji,
+    RemoveRomaji,
+    ToggleRomaji,
+    ConfigureDeepSeek,
     JumpToLetter,
 }
 
@@ -78,6 +83,7 @@ impl Action {
             | Self::SeekBackward
             | Self::SeekForward
             | Self::ToggleLyrics => Category::Playback,
+            Self::ToggleRomaji => Category::Playback,
             Self::ToggleOverlay | Self::TrackList => Category::Playback,
             Self::ImportFolder
             | Self::Search
@@ -94,6 +100,10 @@ impl Action {
             | Self::ImportLyrics
             | Self::RemoveLyrics
             | Self::AutomaticLyrics => Category::Application,
+            Self::GenerateRomaji
+            | Self::CancelRomaji
+            | Self::RemoveRomaji
+            | Self::ConfigureDeepSeek => Category::Application,
             _ => Category::Navigation,
         }
     }
@@ -156,6 +166,11 @@ impl Action {
             Self::ImportLyrics => "Import / Replace Lyrics…",
             Self::RemoveLyrics => "Remove Lyrics",
             Self::AutomaticLyrics => "Use Automatic Lyrics",
+            Self::GenerateRomaji => "Generate Romaji",
+            Self::CancelRomaji => "Cancel Romaji Generation",
+            Self::RemoveRomaji => "Remove Romaji",
+            Self::ToggleRomaji => "Show / Hide Romaji",
+            Self::ConfigureDeepSeek => "DeepSeek API…",
             Self::TrackList => "Album track list",
             Self::JumpToLetter => "Jump to letter",
         }
@@ -193,6 +208,11 @@ impl Action {
         Self::ImportLyrics,
         Self::RemoveLyrics,
         Self::AutomaticLyrics,
+        Self::GenerateRomaji,
+        Self::CancelRomaji,
+        Self::RemoveRomaji,
+        Self::ToggleRomaji,
+        Self::ConfigureDeepSeek,
         Self::DeviceMode,
         Self::ScreenMode,
         Self::ZoomIn,

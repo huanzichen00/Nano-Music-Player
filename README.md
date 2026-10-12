@@ -25,7 +25,8 @@ On macOS, File, Playback, View and Help are native menus at the top of the scree
 | Playback | Space | Play / pause |
 | Playback | Cmd/Ctrl + Right / Left | Next / previous track |
 | Playback | Cmd/Ctrl + Up / Down | Volume; holding the keys repeats |
-| Playback | M / S / R | Mute / shuffle / cycle repeat Off, All, One |
+| Playback | M / S | Mute / shuffle |
+| Playback | R | Show / hide romaji on Now Playing; cycle repeat elsewhere |
 | Playback | N | Now Playing |
 | Playback | Y | Toggle lyrics on Now Playing |
 | Navigation | Up / Down or K / J | Move visible selection |
@@ -50,6 +51,14 @@ Use **File → Import / Replace Lyrics** or **Settings → Lyrics for Track** to
 Automatic discovery checks a same-name `.lrc` beside the audio first, then `.txt`, then embedded synchronized/plain tags. Extension matching is case-insensitive. Blank sidecars fall back to the next source. TXT remains literal, scrollable text.
 
 LRC supports repeated timestamps, decimal fractions, positive/negative offsets, UTF-8, UTF-16 and GBK sidecars. The current line follows the audio engine's playback position and scrolls into view. Seeking updates the highlight. Enhanced LRC word tags are reduced to text; highlighting is per line. Songs without lyrics or artwork still play normally and show an appropriate fallback. Unsupported SYLT timestamp units fall back to plain lyrics.
+
+**Settings → DeepSeek API…** accepts a masked API key and model name (default `deepseek-flash`). You can alternatively set `DEEPSEEK_API_KEY` before launching; this takes precedence and is never copied into the credential file. Opening the dialog leaves the key field empty, and saving an empty field retains the saved key. Credentials are kept separately in `deepseek.json` inside the configuration directory, with owner-only file permissions on macOS/Linux. This is a local plaintext file, and both it and temporary credential files are excluded from Git.
+
+Open **Lyrics for Track → Generate Romaji** for a song with Japanese lyrics. This explicit action sends its title, artist and existing Japanese lyric lines to the [DeepSeek API](https://api-docs.deepseek.com/api/create-chat-completion/); DeepSeek account usage applies. Generation runs in the background and adds smaller romaji beneath the original lines without changing lyric text or LRC timestamps. Repeated lines share one reading, and non-Japanese lines stay unchanged. Romaji persists in SQLite and works offline after generation. Editing the source text or timestamps hides outdated annotations until you regenerate.
+
+Plain **R** shows/hides romaji only in the song interface (including volume selection); **Show Romaji** in Settings persists this preference. Existing custom R bindings take precedence. **Cancel Romaji Generation** discards pending results and stops further batches; an HTTP request already in flight can finish within its 120-second timeout. **Remove Romaji** deletes the annotation while keeping original lyrics. Incomplete or invalid responses never replace a previous annotation. Kanji readings can be ambiguous, so generated readings should be checked. This pass romanizes existing lyrics; lyric fetching and translation are future work.
+
+Genius currently has an explicitly labeled interface preview with example songs. Create, Refresh, Play and Save demonstrate the flow; recommendation generation and playlist persistence are deferred. See [`docs/GENIUS_PLAYLIST_RESEARCH.md`](docs/GENIUS_PLAYLIST_RESEARCH.md) for the Apple research and feasibility assessment.
 
 ## Configuration
 

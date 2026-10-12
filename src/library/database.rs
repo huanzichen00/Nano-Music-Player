@@ -17,11 +17,65 @@ impl Database {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
         let connection = Connection::open(path).map_err(|e| e.to_string())?;
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| e.to_string())?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS tracks (path TEXT PRIMARY KEY, modified INTEGER NOT NULL, metadata BLOB NOT NULL);")
             .map_err(|e| e.to_string())?;
         connection.execute_batch("CREATE TABLE IF NOT EXISTS lyrics_override (audio_path TEXT PRIMARY KEY, source_path TEXT, lyrics BLOB, removed INTEGER NOT NULL DEFAULT 0);")
             .map_err(|e| e.to_string())?;
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS lyric_romaji (audio_path TEXT PRIMARY KEY, annotation BLOB NOT NULL);")
+            .map_err(|e| e.to_string())?;
         Ok(Self(connection))
+    }
+
+    pub fn load_romaji(
+        &self,
+    ) -> Result<std::collections::HashMap<std::path::PathBuf, super::romaji::Romaji>, String> {
+        let mut statement = self
+            .0
+            .prepare("SELECT audio_path, annotation FROM lyric_romaji")
+            .map_err(|e| e.to_string())?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut result = std::collections::HashMap::new();
+        for row in rows {
+            let (path, bytes) = row.map_err(|e| e.to_string())?;
+            // A damaged or obsolete annotation must never prevent the music library from opening.
+            if let Ok(romaji) = serde_json::from_slice::<super::romaji::Romaji>(&bytes)
+                && romaji.validate().is_ok()
+            {
+                result.insert(path.into(), romaji);
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn save_romaji(&self, audio: &Path, romaji: &super::romaji::Romaji) -> Result<(), String> {
+        romaji.validate()?;
+        self.0
+            .execute(
+                "INSERT OR REPLACE INTO lyric_romaji(audio_path, annotation) VALUES (?, ?)",
+                params![
+                    audio.to_string_lossy(),
+                    serde_json::to_vec(romaji).map_err(|e| e.to_string())?
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    pub fn remove_romaji(&self, audio: &Path) -> Result<(), String> {
+        self.0
+            .execute(
+                "DELETE FROM lyric_romaji WHERE audio_path = ?",
+                [audio.to_string_lossy()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     pub fn load(&self) -> Result<Vec<Track>, String> {

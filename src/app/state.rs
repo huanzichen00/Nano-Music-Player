@@ -8,7 +8,10 @@ use crate::{
     input::Surface,
     library::Track,
 };
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::PathBuf,
+};
 
 #[derive(Clone)]
 pub enum Target {
@@ -36,6 +39,15 @@ pub enum Effect {
     EditShortcut(Action),
     RestoreShortcuts,
     LanguageChanged,
+    RomajiVisibilityChanged,
+    ConfigureDeepSeek,
+    GenerateRomaji {
+        id: usize,
+    },
+    CancelRomaji,
+    RemoveRomaji {
+        id: usize,
+    },
     EditLyrics {
         id: usize,
         command: crate::library::scanner::LyricsCommand,
@@ -62,6 +74,9 @@ pub struct State {
     pub reference_open: bool,
     pub lyrics_visible: bool,
     pub overlay_visible: bool,
+    pub romaji_visible: bool,
+    pub romaji: HashMap<PathBuf, crate::library::romaji::Romaji>,
+    pub romaji_generating: Option<PathBuf>,
     pub importing: bool,
     pub notice: String,
 }
@@ -88,6 +103,9 @@ impl Default for State {
             reference_open: false,
             lyrics_visible: false,
             overlay_visible: false,
+            romaji_visible: true,
+            romaji: HashMap::new(),
+            romaji_generating: None,
             importing: false,
             notice: "Import a music folder to begin".to_owned(),
         }
@@ -140,6 +158,13 @@ impl State {
                     artwork_id: None,
                     target: Target::Screen(Screen::Languages),
                 },
+                Row {
+                    title: "Show Romaji".into(),
+                    subtitle: if self.romaji_visible { "On" } else { "Off" }.into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::ToggleRomaji),
+                },
+                row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
             ],
             Screen::Languages => Language::ALL
                 .into_iter()
@@ -169,6 +194,13 @@ impl State {
                     "Use Automatic Lyrics",
                     Target::Action(Action::AutomaticLyrics),
                 ),
+                row("Generate Romaji", Target::Action(Action::GenerateRomaji)),
+                row(
+                    "Cancel Romaji Generation",
+                    Target::Action(Action::CancelRomaji),
+                ),
+                row("Remove Romaji", Target::Action(Action::RemoveRomaji)),
+                row("Show / Hide Romaji", Target::Action(Action::ToggleRomaji)),
             ],
             Screen::Shortcuts => Action::CUSTOMIZABLE
                 .iter()
@@ -710,6 +742,22 @@ impl State {
                 self.lyrics_visible = !self.lyrics_visible;
                 self.overlay_visible = true;
                 self.navigation.open(Screen::NowPlaying);
+            }
+            ConfigureDeepSeek => return vec![Effect::ConfigureDeepSeek],
+            ToggleRomaji => {
+                self.romaji_visible = !self.romaji_visible;
+                return vec![Effect::RomajiVisibilityChanged];
+            }
+            CancelRomaji => return vec![Effect::CancelRomaji],
+            GenerateRomaji | RemoveRomaji => {
+                if let Some(id) = self.lyrics_target() {
+                    return vec![if action == GenerateRomaji {
+                        Effect::GenerateRomaji { id }
+                    } else {
+                        Effect::RemoveRomaji { id }
+                    }];
+                }
+                self.notice = "Choose a song first".into();
             }
             ToggleOverlay => {
                 self.overlay_visible = !self.overlay_visible;

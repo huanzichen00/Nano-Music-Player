@@ -85,6 +85,16 @@ impl Dispatcher {
             return Dispatch::Consumed;
         }
         let action = match (binding.action, context.surface) {
+            // Plain R uses the existing repeat binding outside the song interface.
+            // Customized bindings still win, and a remapped Repeat key stays Repeat.
+            (CycleRepeat, Surface::NowPlaying | Surface::NowPlayingVolume)
+                if press.key == Key::Letter('r') && press.modifiers == Modifiers::default() =>
+            {
+                ToggleRomaji
+            }
+            (ToggleRomaji, Surface::Home | Surface::Library | Surface::Placeholder) => {
+                return Dispatch::Consumed;
+            }
             (NavigateLeft, Surface::Home) => Left,
             (NavigateRight, Surface::Home) => Right,
             (NavigateLeft, _) => Back,
@@ -99,6 +109,9 @@ impl Dispatcher {
             (Right, Surface::Placeholder) => return Dispatch::Consumed,
             (action, _) => action,
         };
+        if context.reference_open && action == ToggleRomaji {
+            return Dispatch::Consumed;
+        }
         // A held Right arrow in a list must not open several nested screens.
         if press.repeat && !action.repeatable() {
             Dispatch::Consumed

@@ -12,11 +12,17 @@ use crate::{
         engine::{AudioEvent, Engine},
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
-    library::{Track, scanner},
+    library::{Track, romaji, scanner},
     ui::{AppWindow, I18n, LibraryRow, ListMetrics, ShortcutRow},
 };
 use slint::{ComponentHandle, ModelRc, VecModel};
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    rc::Rc,
+    sync::mpsc::Receiver,
+};
 
 pub struct Controller {
     pub state: State,
@@ -27,6 +33,10 @@ pub struct Controller {
     loading: Option<Receiver<Result<Vec<Track>, String>>>,
     importing: Option<Receiver<scanner::ImportEvent>>,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
+    romaji_request: Option<romaji::Request>,
+    romaji_store: romaji::Store,
+    romaji_touched: HashSet<PathBuf>,
+    lyrics_dirty: bool,
     dialog_open: bool,
     last_screen: Option<Screen>,
     last_query: String,
@@ -54,6 +64,7 @@ impl Controller {
             Settings::default()
         });
         state.language = settings.language;
+        state.romaji_visible = settings.romaji_visible;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
         let keymap =
@@ -62,6 +73,7 @@ impl Controller {
                 Keymap::default()
             });
         let loading = Some(scanner::load(directory.join("library.sqlite3")));
+        let romaji_store = romaji::Store::new(directory.join("library.sqlite3"));
         Self {
             state,
             dispatcher: Dispatcher::new(keymap),
@@ -71,6 +83,10 @@ impl Controller {
             loading,
             importing: None,
             lyrics_edit: None,
+            romaji_request: None,
+            romaji_store,
+            romaji_touched: HashSet::new(),
+            lyrics_dirty: true,
             dialog_open: false,
             last_screen: None,
             last_query: String::new(),
@@ -141,6 +157,13 @@ impl Controller {
         text_input: bool,
     ) -> bool {
         let key = Key::from_slint(event.text.as_str());
+        if ui.get_deepseek_settings_open() {
+            if key == Some(Key::Escape) {
+                self.deepseek_command(ui, "cancel");
+                return true;
+            }
+            return false;
+        }
         if let Some(action) = self.shortcut_edit {
             if event.repeat {
                 return true;
@@ -271,6 +294,51 @@ impl Controller {
                     self.sync(ui);
                     self.save_settings(ui);
                 }
+                Effect::RomajiVisibilityChanged => {
+                    self.rows_dirty = true;
+                    self.sync(ui);
+                    self.save_settings(ui);
+                }
+                Effect::ConfigureDeepSeek => {
+                    let settings =
+                        crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
+                    let message = settings.as_ref().err().cloned().unwrap_or_default();
+                    let settings = settings.unwrap_or_default();
+                    ui.set_deepseek_key_configured(settings.has_key());
+                    ui.set_deepseek_api_key("".into());
+                    ui.set_deepseek_model(settings.model.into());
+                    ui.set_deepseek_message(self.text(&message));
+                    ui.set_deepseek_settings_open(true);
+                }
+                Effect::GenerateRomaji { id } => self.start_romaji(ui, id),
+                Effect::CancelRomaji => {
+                    if self.romaji_request.take().is_some() {
+                        self.state.romaji_generating = None;
+                        self.state.notice = "Romaji generation cancelled".into();
+                    }
+                    self.sync(ui);
+                }
+                Effect::RemoveRomaji { id } => {
+                    if let Some(track) = self.state.tracks.get(id) {
+                        let path = track.path.clone();
+                        if self
+                            .romaji_request
+                            .as_ref()
+                            .is_some_and(|request| request.path == path)
+                        {
+                            self.romaji_request = None;
+                            self.state.romaji_generating = None;
+                        }
+                        self.romaji_touched.insert(path.clone());
+                        self.state.romaji.remove(&path);
+                        self.state.notice = match self.romaji_store.remove(path) {
+                            Ok(()) => "Romaji removed".into(),
+                            Err(error) => format!("Romaji storage failed: {error}"),
+                        };
+                        self.lyrics_dirty = true;
+                        self.sync(ui);
+                    }
+                }
                 Effect::Resize => {
                     self.rows_dirty = true;
                     self.resize(ui);
@@ -351,6 +419,7 @@ impl Controller {
         let size = ui.window().size().to_logical(ui.window().scale_factor());
         self.settings = Settings {
             language: self.state.language,
+            romaji_visible: self.state.romaji_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
             window_width: Some(size.width),
@@ -372,6 +441,7 @@ impl Controller {
             match result {
                 Ok(tracks) => {
                     self.state.merge_library(tracks);
+                    self.lyrics_dirty = true;
                     self.thumbnails.clear();
                     self.artwork.clear();
                     self.last_track = None;
@@ -397,6 +467,7 @@ impl Controller {
             match result {
                 Ok(Some(result)) => {
                     self.state.merge_library(result.tracks);
+                    self.lyrics_dirty = true;
                     self.thumbnails.clear();
                     self.artwork.clear();
                     self.rows_dirty = true;
@@ -432,6 +503,7 @@ impl Controller {
                         .find(|(_, track)| track.path == update.path)
                     {
                         track.lyrics = update.lyrics;
+                        self.lyrics_dirty = true;
                         if self.state.current == Some(id) {
                             self.state.lyrics_visible = !track.lyrics.is_empty();
                             self.state.overlay_visible = self.state.lyrics_visible;
@@ -446,6 +518,7 @@ impl Controller {
             self.rows_dirty = true;
             ui.invoke_focus_screen();
         }
+        self.poll_romaji(ui);
         while let Ok(event) = self.engine.events.try_recv() {
             match event {
                 AudioEvent::Progress {
@@ -515,7 +588,10 @@ impl Controller {
             self.notice_since = std::time::Instant::now();
         }
         ui.set_notice(
-            if self.notice_since.elapsed().as_secs() < 3 || self.state.importing {
+            if self.notice_since.elapsed().as_secs() < 3
+                || self.state.importing
+                || self.state.romaji_generating.is_some()
+            {
                 i18n::notice(self.state.language, &self.state.notice).into()
             } else {
                 "".into()
@@ -523,6 +599,7 @@ impl Controller {
         );
         ui.set_reference_open(self.state.reference_open);
         ui.set_lyrics_visible(self.state.lyrics_visible);
+        ui.set_romaji_visible(self.state.romaji_visible);
         ui.set_overlay_visible(self.state.overlay_visible);
         ui.set_track_count(if self.state.queue.order.is_empty() {
             "".into()
@@ -651,7 +728,19 @@ impl Controller {
         if track_changed || artwork_resolution != self.artwork_resolution {
             let artwork = track
                 .zip(self.state.current)
-                .map(|(track, id)| self.artwork.request(id, &track.artwork, artwork_resolution))
+                .map(|(track, id)| {
+                    let preview = self.thumbnails.get(&id).cloned().or_else(|| {
+                        self.thumbnails.iter().find_map(|(cached_id, image)| {
+                            self.state
+                                .tracks
+                                .get(*cached_id)
+                                .filter(|cached| cached.artwork == track.artwork)
+                                .map(|_| image.clone())
+                        })
+                    });
+                    self.artwork.seed_preview(id, preview);
+                    self.artwork.request(id, &track.artwork, artwork_resolution)
+                })
                 .unwrap_or_else(|| {
                     self.artwork.cancel();
                     slint::Image::default()
@@ -662,7 +751,7 @@ impl Controller {
             }
             self.artwork_resolution = artwork_resolution;
         }
-        if self.last_track != self.state.current {
+        if self.last_track != self.state.current || self.lyrics_dirty {
             ui.set_track_title(track.map_or("", |t| t.title.as_str()).into());
             ui.set_track_artist(track.map_or("", |t| t.artist.as_str()).into());
             ui.set_track_album(track.map_or("", |t| t.album.as_str()).into());
@@ -672,9 +761,26 @@ impl Controller {
                 }),
             )));
             ui.set_timed_lyrics(track.is_some_and(|t| !t.lyrics.timed.is_empty()));
+            let romaji = track.and_then(|track| {
+                self.state
+                    .romaji
+                    .get(&track.path)
+                    .filter(|romaji| romaji.matches(&track.lyrics))
+            });
+            ui.set_romaji_lines(ModelRc::new(VecModel::from(romaji.map_or_else(
+                Vec::new,
+                |romaji| {
+                    romaji
+                        .lines
+                        .iter()
+                        .map(|line| line.as_str().into())
+                        .collect()
+                },
+            ))));
             ui.set_lyric_scroll_y(0.0);
             self.last_lyric = None;
             self.last_track = self.state.current;
+            self.lyrics_dirty = false;
         }
         let active = track.and_then(|t| t.lyrics.active(self.state.position));
         ui.set_active_lyric(active.map_or(-1, |index| index as i32));
@@ -688,6 +794,138 @@ impl Controller {
             self.last_lyric = active;
         }
         self.last_scale = scale;
+    }
+
+    fn start_romaji(&mut self, ui: &AppWindow, id: usize) {
+        if self.romaji_request.is_some() {
+            self.state.notice = "Romaji generation is already running".into();
+            self.sync(ui);
+            return;
+        }
+        let result = (|| {
+            let track = self.state.tracks.get(id).ok_or("Choose a song first")?;
+            let settings =
+                crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"))?;
+            romaji::Request::start(
+                track.path.clone(),
+                track.lyrics.clone(),
+                track.title.clone(),
+                track.artist.clone(),
+                settings,
+            )
+        })();
+        match result {
+            Ok(request) => {
+                self.state.romaji_generating = Some(request.path.clone());
+                self.romaji_request = Some(request);
+                self.state.notice = "Generating romaji…".into();
+            }
+            Err(error) => self.state.notice = error,
+        }
+        self.sync(ui);
+    }
+
+    fn poll_romaji(&mut self, ui: &AppWindow) {
+        while let Ok(event) = self.romaji_store.events.try_recv() {
+            match event {
+                romaji::StoreEvent::Loaded(Ok(cache)) => {
+                    for (path, romaji) in cache {
+                        if !self.romaji_touched.contains(&path) {
+                            self.state.romaji.entry(path).or_insert(romaji);
+                        }
+                    }
+                    self.lyrics_dirty = true;
+                }
+                romaji::StoreEvent::Loaded(Err(error))
+                | romaji::StoreEvent::Written(Err(error)) => {
+                    self.state.notice = format!("Romaji storage failed: {error}");
+                }
+                romaji::StoreEvent::Written(Ok(())) => {}
+            }
+        }
+        while let Some(event) = self
+            .romaji_request
+            .as_ref()
+            .and_then(|request| request.events.try_recv().ok())
+        {
+            match event {
+                romaji::Event::Progress { done, total } => {
+                    self.state.notice = format!("Generating romaji… {done}/{total}");
+                }
+                romaji::Event::Completed(result) => {
+                    let Some(request) = self.romaji_request.take() else {
+                        break;
+                    };
+                    self.state.romaji_generating = None;
+                    let still_current =
+                        self.state.tracks.iter().any(|track| {
+                            track.path == request.path && track.lyrics == request.source
+                        });
+                    if !still_current {
+                        self.state.notice = "Lyrics changed; romaji result discarded".into();
+                        continue;
+                    }
+                    match result {
+                        Ok(romaji) => {
+                            self.romaji_touched.insert(request.path.clone());
+                            let saved =
+                                self.romaji_store.save(request.path.clone(), romaji.clone());
+                            self.state.romaji.insert(request.path.clone(), romaji);
+                            self.state.romaji_visible = true;
+                            self.lyrics_dirty = true;
+                            self.rows_dirty = true;
+                            self.state.notice = match saved {
+                                Ok(()) => "Romaji generated".into(),
+                                Err(error) => format!("Romaji storage failed: {error}"),
+                            };
+                            self.save_settings(ui);
+                        }
+                        Err(error) => {
+                            self.state.notice = format!("Romaji generation failed: {error}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn deepseek_command(&mut self, ui: &AppWindow, command: &str) {
+        if !ui.get_deepseek_settings_open() {
+            return;
+        }
+        match command {
+            "cancel" => {
+                ui.set_deepseek_api_key("".into());
+                ui.set_deepseek_settings_open(false);
+                ui.invoke_focus_screen();
+            }
+            "save" => {
+                let path = self.directory.join("deepseek.json");
+                let mut settings = crate::ai::DeepSeekSettings::load(&path).unwrap_or_default();
+                let key = ui.get_deepseek_api_key().trim().to_owned();
+                if !key.is_empty() {
+                    settings.api_key = key;
+                }
+                settings.model = ui.get_deepseek_model().trim().to_owned();
+                let result = if settings.has_key() {
+                    settings.save(&path)
+                } else {
+                    Err("Enter a DeepSeek API key".into())
+                };
+                match result {
+                    Ok(()) => {
+                        ui.set_deepseek_api_key("".into());
+                        ui.set_deepseek_key_configured(true);
+                        ui.set_deepseek_settings_open(false);
+                        self.state.notice = "DeepSeek settings saved".into();
+                        ui.invoke_focus_screen();
+                        self.sync(ui);
+                    }
+                    Err(error) => ui.set_deepseek_message(self.text(&error)),
+                }
+            }
+            _ => {}
+        }
     }
 
     fn sync_editor(&self, ui: &AppWindow) {
@@ -760,6 +998,13 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
             &key,
         )
         .into()
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_deepseek_command(move |command| {
+        if let Some(ui) = weak.upgrade() {
+            state.borrow_mut().deepseek_command(&ui, &command);
+        }
     });
     let weak = ui.as_weak();
     let state = controller.clone();

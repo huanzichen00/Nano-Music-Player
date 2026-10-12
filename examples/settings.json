@@ -3,5 +3,6 @@
   "device_mode": true,
   "window_width": null,
   "window_height": null,
-  "language": "english"
+  "language": "english",
+  "romaji_visible": true
 }

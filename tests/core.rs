@@ -1286,6 +1286,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     assert_eq!(default.window_width, None);
     let saved = Settings {
         language: nano_music_player::app::i18n::Language::English,
+        romaji_visible: false,
         zoom: 2.0,
         device_mode: false,
         window_width: Some(750.0),
@@ -1294,6 +1295,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     saved.save(&path).unwrap();
     let loaded = Settings::load(&path).unwrap();
     assert_eq!(loaded.zoom, 2.0);
+    assert!(!loaded.romaji_visible);
     assert!(!loaded.device_mode);
     assert_eq!(loaded.window_width, Some(750.0));
     assert_eq!(loaded.window_height, Some(900.0));
@@ -1301,6 +1303,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     fs::write(&path, r#"{"device_mode":false}"#).unwrap();
     let partial = Settings::load(&path).unwrap();
     assert_eq!(partial.zoom, 1.25);
+    assert!(partial.romaji_visible);
     assert!(!partial.device_mode);
     assert_eq!(partial.window_height, None);
 }

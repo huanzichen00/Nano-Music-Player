@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub language: super::i18n::Language,
+    pub romaji_visible: bool,
     pub zoom: f32,
     pub device_mode: bool,
     pub window_width: Option<f32>,
@@ -15,6 +16,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             language: super::i18n::Language::English,
+            romaji_visible: true,
             zoom: 1.25,
             device_mode: true,
             window_width: None,
