@@ -29,6 +29,7 @@ pub enum Screen {
     Shortcuts,
     Lyrics(usize),
     Languages,
+    Fonts,
     Placeholder(String),
 }
 
@@ -51,6 +52,7 @@ impl Screen {
             Self::Shortcuts => "Shortcuts",
             Self::Lyrics(_) => "Lyrics for Track",
             Self::Languages => "Language",
+            Self::Fonts => "Font",
         }
     }
 }

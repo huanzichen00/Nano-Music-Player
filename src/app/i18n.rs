@@ -111,6 +111,10 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("Genius Preview…", "Genius 预览…", "Genius プレビュー…"),
     ("Genius", "Genius", "Genius"),
+    ("Font", "字体", "フォント"),
+    ("Classic", "经典", "クラシック"),
+    ("Maple Mono", "Maple Mono", "Maple Mono"),
+    ("JetBrains Mono", "JetBrains Mono", "JetBrains Mono"),
     (
         "Preview · recommendations coming next",
         "预览 · 推荐功能即将推出",

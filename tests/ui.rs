@@ -1029,5 +1029,95 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     ui.invoke_open_playlist_editor();
     snapshot(&ui, "playlist-unconnected");
     ui.invoke_playlist_action("cancel".into(), "".into());
+
+    // Settings fonts apply immediately, persist, and retain metadata/lyrics verbatim.
+    use nano_music_player::app::typography::Font;
+    let track_before = controller.borrow().state.tracks[1].clone();
+    ui.invoke_command("settings".into());
+    ui.invoke_item_clicked(8);
+    assert_eq!(
+        controller.borrow().state.navigation.current().screen,
+        Screen::Fonts
+    );
+    snapshot(&ui, "font-settings");
+    for font in Font::ALL {
+        ui.invoke_item_clicked(font.index() as i32);
+        assert_eq!(ui.get_ui_font_family(), font.family());
+        assert_eq!(
+            Settings::load(&directory.path().join("settings.json"))
+                .unwrap()
+                .font,
+            font
+        );
+        assert_eq!(
+            controller.borrow().state.tracks[1].title,
+            track_before.title
+        );
+        assert_eq!(
+            controller.borrow().state.tracks[1].lyrics,
+            track_before.lyrics
+        );
+    }
+    tap(&ui, Key::Escape);
+    ui.invoke_item_clicked(8);
+    assert_eq!(ui.get_selected(), Font::JetBrainsMono.index() as i32);
+    let reopened = Controller::new(directory.path().to_path_buf());
+    assert_eq!(reopened.state.font, Font::JetBrainsMono);
+
+    ui.invoke_command("now_playing".into());
+    ui.set_keyboard_navigation(false);
+    ui.set_notice("".into());
+    ui.set_has_track(true);
+    ui.set_track_title("Font preview".into());
+    ui.set_overlay_visible(true);
+    ui.set_lyrics_visible(true);
+    ui.set_romaji_visible(false);
+    ui.set_active_lyric(0);
+    ui.set_lyric_scroll_y(0.0);
+    ui.set_lyric_lines(slint::ModelRc::new(slint::VecModel::from(
+        [
+            "s e a o n · Ss seas skies",
+            "静かな夜に · 安静的夜晚",
+            "Some stars shine softly",
+        ]
+        .map(slint::SharedString::from)
+        .to_vec(),
+    )));
+    let mut font_pixels = Vec::new();
+    for (name, font) in [
+        ("classic", Font::Classic),
+        ("maple", Font::MapleMono),
+        ("jetbrains", Font::JetBrainsMono),
+    ] {
+        ui.set_ui_font_family(font.family().into());
+        snapshot(&ui, &format!("lyrics-font-{name}"));
+        let rendered = ui.window().take_snapshot().unwrap();
+        let point = display_point(&ui, 10.0, 180.0);
+        let pixels_per_logical = ui.window().scale_factor();
+        let x = (point.x * pixels_per_logical).round() as usize;
+        let y = (point.y * pixels_per_logical).round() as usize;
+        let scale = ui.get_display_scale() * pixels_per_logical;
+        let width = (220.0 * scale).round() as usize;
+        let height = (104.0 * scale).round() as usize;
+        let bytes = rendered.as_bytes();
+        let stride = rendered.width() as usize * 4;
+        font_pixels.push(
+            (y..y + height)
+                .flat_map(|row| {
+                    bytes[row * stride + x * 4..row * stride + (x + width) * 4]
+                        .iter()
+                        .copied()
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_ne!(
+        font_pixels[0], font_pixels[1],
+        "bundled Maple must change rendered glyphs"
+    );
+    assert_ne!(
+        font_pixels[1], font_pixels[2],
+        "bundled fonts must render distinct glyphs"
+    );
     ui.hide().unwrap();
 }

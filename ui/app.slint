@@ -1,4 +1,10 @@
 import { HomeView } from "home.slint";
+import "fonts/maple-mono/MapleMono-Regular.ttf";
+import "fonts/maple-mono/MapleMono-SemiBold.ttf";
+import "fonts/maple-mono/MapleMono-Bold.ttf";
+import "fonts/jetbrains-mono/JetBrainsMono-Regular.ttf";
+import "fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf";
+import "fonts/jetbrains-mono/JetBrainsMono-Bold.ttf";
 import { LibraryView, LibraryRow, ListMetrics } from "library.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { ShortcutEditor } from "shortcut-editor.slint";
@@ -22,7 +28,8 @@ export component AppWindow inherits Window {
     no-frame: device-mode;
     resize-border-width: device-mode ? 5px : 0px;
     background: device-mode ? #419ab8 : #fff;
-    default-font-family: "Helvetica Neue";
+    default-font-family: root.ui-font-family;
+    in property <string> ui-font-family: "Helvetica Neue";
     in property <bool> device-mode: true;
     in property <int> screen;
     in property <string> screen-title;
@@ -266,6 +273,7 @@ export component AppWindow inherits Window {
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 y: (root.artwork-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
+                text-font-family: root.ui-font-family;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 edited(text) => { root.query-changed(text); }

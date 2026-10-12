@@ -57,7 +57,16 @@ User requested a playlist creation interface after the romaji/Genius milestone. 
 
 Acceptance: name editing suppresses playback shortcuts, candidate callbacks carry path identities, review preserves supplied order, reordering retains focused identity, Remove/Create emit the intended callbacks, unsaved status stays honest, labels translate while metadata/name remain literal, and empty/unconnected UI does not claim the existing music library is empty. Full formatting, compilation, 93 tests, strict Clippy and whitespace checks pass; rendered English/Japanese screens reviewed. Library selection and saving remain scheduled work.
 
+## Phase 8 — Font selection (verified)
+
+User requested Maple Mono and JetBrains Mono in Settings after noticing the lyric letter s. Add Settings → Font with Classic, Maple Mono and JetBrains Mono, an immediate whole-interface font choice and persisted enum with Classic defaults for old settings. Bundle unmodified regular/semibold/bold TTFs from their official stable releases, with the full SIL OFL licenses. Do not install fonts system-wide. Keep font names/metadata/lyrics literal; translate interface labels. Font rows preview each face, including Latin and CJK. Japanese/Chinese use system glyph fallback where the chosen font lacks coverage. No per-character size rules: each lyric line uses one font/size, active highlighting retains existing weights.
+
+Acceptance: switch via keyboard/pointer, persist/reopen selection, old settings migrate and invalid font values reject, different bundled fonts actually change rendered Latin glyphs without altering lyric text, wrapping/highlight/scroll and compact controls stay readable. Verify Classic/Maple/JetBrains lyric screenshots with s/e/a/o/n and Japanese/Chinese examples. Run formatting, compilation, tests and strict lint; commit, build and launch the combined app.
+
 ## Verification log and blockers
+
+- Fonts: full combined tests pass (103, three ignored manual profiles), formatting/compilation/strict Clippy/whitespace checks pass. Settings switching, persisted restart, old-config defaults, unchanged metadata/lyrics and distinct rendered lyric glyph regions verified. Inspected Classic/Maple/JetBrains previews with Latin s/e/a/o/n and CJK; licenses bundled. Native Windows/Linux validation remains unverified.
+
 
 - Albums entry: coordinated optimization commit `1f9cde4` publishes ready 96-pixel covers with loaded/imported tracks, then sharpens visible rows off-thread. On the read-only 42-track/six-album debug fixture, cold entry changed from 8,465 ms to 0.13–0.41 ms; first software-rendered frame takes 44.60–45.63 ms. Preparation is background startup/import work, distinct from entry latency. Full combined tests pass (102, three ignored manual profiles); strict Clippy and formatting pass. Synthetic direct-merge UI fixtures wait for workers before cover screenshots. See `LIBRARY_PERFORMANCE.md` for exact limits and measurements.
 

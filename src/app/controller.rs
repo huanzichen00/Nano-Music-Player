@@ -61,6 +61,7 @@ impl Controller {
             Settings::default()
         });
         state.language = settings.language;
+        state.font = settings.font;
         state.romaji_visible = settings.romaji_visible;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
@@ -293,6 +294,11 @@ impl Controller {
                     self.sync(ui);
                     self.save_settings(ui);
                 }
+                Effect::FontChanged => {
+                    self.rows_dirty = true;
+                    self.sync(ui);
+                    self.save_settings(ui);
+                }
                 Effect::RomajiVisibilityChanged => {
                     self.rows_dirty = true;
                     self.sync(ui);
@@ -419,6 +425,7 @@ impl Controller {
         let size = ui.window().size().to_logical(ui.window().scale_factor());
         self.settings = Settings {
             language: self.state.language,
+            font: self.state.font,
             romaji_visible: self.state.romaji_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
@@ -567,7 +574,7 @@ impl Controller {
             Screen::Settings => 5,
             Screen::Shortcuts => 6,
             Screen::Lyrics(_) => 7,
-            Screen::Languages => 8,
+            Screen::Languages | Screen::Fonts => 8,
             _ => 1,
         });
         ui.set_screen_title(match screen {
@@ -577,6 +584,7 @@ impl Controller {
             _ => self.text(screen.title()),
         });
         ui.set_device_mode(self.state.device_mode);
+        ui.set_ui_font_family(self.state.font.family().into());
         ui.set_selected(self.state.navigation.selected() as i32);
         ui.set_home_page(self.state.home_page as i32);
         ui.set_clock_text(chrono::Local::now().format("%-I:%M %p").to_string().into());
@@ -648,7 +656,11 @@ impl Controller {
                     subtitle: if let Target::Shortcut(action) = row.target {
                         self.text(&self.dispatcher.keymap.labels(action))
                     } else {
-                        if metadata_rows || matches!(screen, Screen::Lyrics(_) | Screen::Languages)
+                        if metadata_rows
+                            || matches!(
+                                screen,
+                                Screen::Lyrics(_) | Screen::Languages | Screen::Fonts
+                            )
                         {
                             row.subtitle.into()
                         } else {
@@ -665,7 +677,15 @@ impl Controller {
                             super::navigation::Group::Artists | super::navigation::Group::Albums
                         ) | Screen::Artist(_)
                     ),
-                    chevron: !matches!(row.target, Target::Play(_) | Target::Language(_)),
+                    chevron: !matches!(
+                        row.target,
+                        Target::Play(_) | Target::Language(_) | Target::Font(_)
+                    ),
+                    font_family: if let Target::Font(font) = row.target {
+                        font.family().into()
+                    } else {
+                        "".into()
+                    },
                 })
                 .collect::<Vec<_>>();
             self.library_rows = Rc::new(VecModel::from(rows));
@@ -692,6 +712,7 @@ impl Controller {
                     | Screen::Shortcuts
                     | Screen::Lyrics(_)
                     | Screen::Languages
+                    | Screen::Fonts
             ) {
                 let row_height = ui.get_list_row_height();
                 let row_y = self.state.navigation.selected() as f32 * row_height;

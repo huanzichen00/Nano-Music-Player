@@ -1281,11 +1281,16 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("config/settings.json");
     let default = Settings::load(&path).unwrap();
+    assert_eq!(
+        default.font,
+        nano_music_player::app::typography::Font::Classic
+    );
     assert_eq!(default.zoom, 1.25);
     assert!(default.device_mode);
     assert_eq!(default.window_width, None);
     let saved = Settings {
         language: nano_music_player::app::i18n::Language::English,
+        font: nano_music_player::app::typography::Font::Classic,
         romaji_visible: false,
         zoom: 2.0,
         device_mode: false,
@@ -1513,4 +1518,42 @@ fn music_genius_entry_opens_preview_without_changing_playback() {
         assert_eq!(state.position, 23.5);
         assert_eq!(state.queue.current(), queue);
     }
+}
+
+#[test]
+fn font_choices_migrate_persist_and_keep_settings_navigation() {
+    use nano_music_player::app::typography::Font;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.json");
+    fs::write(&path, r#"{"zoom":1.5,"device_mode":true}"#).unwrap();
+    let mut settings = Settings::load(&path).unwrap();
+    assert_eq!(settings.font, Font::Classic);
+    let mut state = music_state();
+    state.navigation.open(Screen::Settings);
+    let font_row = state
+        .rows()
+        .iter()
+        .position(|row| matches!(row.target, Target::Screen(Screen::Fonts)))
+        .unwrap();
+    state.navigation.select(font_row);
+    state.apply(Action::Activate);
+    assert_eq!(state.navigation.current().screen, Screen::Fonts);
+    for font in Font::ALL {
+        state.navigation.select(font.index());
+        assert!(matches!(
+            state.apply(Action::Activate).as_slice(),
+            [Effect::FontChanged]
+        ));
+        assert_eq!(state.font, font);
+        settings.font = font;
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).unwrap().font, font);
+    }
+    state.apply(Action::Back);
+    assert_eq!(state.navigation.current().screen, Screen::Settings);
+    assert_eq!(state.navigation.selected(), font_row);
+    state.apply(Action::Activate);
+    assert_eq!(state.navigation.selected(), Font::JetBrainsMono.index());
+    fs::write(&path, r#"{"font":"missing_font"}"#).unwrap();
+    assert!(Settings::load(&path).is_err());
 }

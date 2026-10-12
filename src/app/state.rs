@@ -2,6 +2,7 @@ use super::{
     action::Action,
     i18n::Language,
     navigation::{Filter, Group, Navigation, Screen},
+    typography::Font,
 };
 use crate::{
     audio::{PlaybackStatus, Repeat, engine::AudioCommand, queue::Queue},
@@ -20,6 +21,7 @@ pub enum Target {
     Action(Action),
     Shortcut(Action),
     Language(Language),
+    Font(Font),
     GeniusPreview,
 }
 
@@ -40,6 +42,7 @@ pub enum Effect {
     EditShortcut(Action),
     RestoreShortcuts,
     LanguageChanged,
+    FontChanged,
     RomajiVisibilityChanged,
     ConfigureDeepSeek,
     GeniusPreview,
@@ -58,6 +61,7 @@ pub enum Effect {
 
 pub struct State {
     pub language: Language,
+    pub font: Font,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
     pub queue: Queue,
@@ -87,6 +91,7 @@ impl Default for State {
     fn default() -> Self {
         Self {
             language: Language::English,
+            font: Font::Classic,
             navigation: Navigation::default(),
             tracks: Vec::new(),
             queue: Queue::default(),
@@ -167,7 +172,25 @@ impl State {
                     target: Target::Action(Action::ToggleRomaji),
                 },
                 row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
+                Row {
+                    title: "Font".into(),
+                    subtitle: self.font.label().into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::Fonts),
+                },
             ],
+            Screen::Fonts => Font::ALL
+                .into_iter()
+                .map(|font| Row {
+                    title: font.label().into(),
+                    subtitle: format!(
+                        "{}Aa Bb Cc Ss 0123 · 日本語 中文",
+                        if self.font == font { "✓ · " } else { "" }
+                    ),
+                    artwork_id: None,
+                    target: Target::Font(font),
+                })
+                .collect(),
             Screen::Languages => Language::ALL
                 .into_iter()
                 .map(|language| Row {
@@ -568,14 +591,22 @@ impl State {
                             match row.target.clone() {
                                 Target::Screen(screen) => {
                                     let languages = screen == Screen::Languages;
+                                    let fonts = screen == Screen::Fonts;
                                     self.navigation.open(screen);
                                     if languages {
                                         self.navigation.select(self.language.index());
+                                    }
+                                    if fonts {
+                                        self.navigation.select(self.font.index());
                                     }
                                 }
                                 Target::Language(language) => {
                                     self.language = language;
                                     return vec![Effect::LanguageChanged];
+                                }
+                                Target::Font(font) => {
+                                    self.font = font;
+                                    return vec![Effect::FontChanged];
                                 }
                                 Target::Action(action) => return self.apply(action),
                                 Target::GeniusPreview => return vec![Effect::GeniusPreview],
