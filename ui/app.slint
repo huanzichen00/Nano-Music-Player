@@ -55,15 +55,18 @@ export component AppWindow inherits Window {
     in-out property <length> previous-lyric-scroll-y;
     private property <bool> transition-active: false;
     private property <bool> transition-animating: false;
+    private property <int> active-transition-generation: 0;
     private property <length> current-screen-x: 0px;
     private property <length> previous-screen-x: 0px;
     transition-completion := Timer {
         interval: 230ms; running: false;
         triggered => {
-            root.transition-active = false;
-            root.transition-animating = false;
-            root.previous-rows = [];
             self.stop();
+            // A navigation event can publish new rows before its change handler
+            // runs. An expired completion must not clear that newer source view.
+            if root.active-transition-generation == root.screen-transition-generation {
+                root.cancel-screen-transition();
+            }
         }
     }
     private property <bool> previous-artwork-list: root.previous-screen == 1 && root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork;
@@ -74,11 +77,8 @@ export component AppWindow inherits Window {
     animate current-screen-x { duration: root.transition-animating ? 220ms : 0ms; easing: ease-in-out; }
     animate previous-screen-x { duration: root.transition-animating ? 220ms : 0ms; easing: ease-in-out; }
     changed screen-transition-generation => {
-        transition-completion.stop();
-        root.transition-active = false;
-        root.transition-animating = false;
-        root.current-screen-x = 0px;
-        root.previous-screen-x = 0px;
+        root.reset-screen-motion();
+        root.active-transition-generation = root.screen-transition-generation;
         if !root.smooth-slides || root.screen == 9 || root.previous-screen == 9 {
             root.previous-rows = [];
             return;
@@ -89,17 +89,13 @@ export component AppWindow inherits Window {
             root.current-screen-x = 0px;
             root.previous-screen-x = -root.transition-direction * display.width;
             transition-completion.start();
+            // stop/start can leave running true within one change-handler turn.
+            // Explicitly move the deadline to this navigation request.
+            transition-completion.restart();
         }
     }
     changed smooth-slides => {
-        if !root.smooth-slides {
-            transition-completion.stop();
-            root.transition-active = false;
-            root.transition-animating = false;
-            root.current-screen-x = 0px;
-            root.previous-screen-x = 0px;
-            root.previous-rows = [];
-        }
+        if !root.smooth-slides { root.cancel-screen-transition(); }
     }
     in property <bool> video-landscape;
     in property <bool> video-overlay: true;
@@ -211,14 +207,18 @@ export component AppWindow inherits Window {
         else { keyboard.focus(); }
     }
     public function focus-search() { library.focus-search(); }
-    public function cancel-screen-transition() {
+    function reset-screen-motion() {
         transition-completion.stop();
         root.transition-active = false;
         root.transition-animating = false;
         root.current-screen-x = 0px;
         root.previous-screen-x = 0px;
-        root.previous-rows = [];
         home.cancel-page-transition();
+        previous-home.cancel-page-transition();
+    }
+    public function cancel-screen-transition() {
+        root.reset-screen-motion();
+        root.previous-rows = [];
     }
     changed deepseek-settings-open => { root.focus-screen(); }
     public function open-genius-preview() {
@@ -382,7 +382,7 @@ export component AppWindow inherits Window {
             previous-home := HomeView {
                 visible: root.previous-screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
                 navigation-enabled: false;
-                page: root.previous-home-page; selected: root.previous-selected; page-direction: root.previous-home-transition-direction; smooth-slides: root.smooth-slides;
+                page: root.previous-home-page; selected: root.previous-selected; page-direction: root.previous-home-transition-direction; smooth-slides: false;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
             }
@@ -455,7 +455,7 @@ export component AppWindow inherits Window {
                 x: root.transition-active ? root.current-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
             home := HomeView {
                 visible: root.screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
-                navigation-enabled: root.screen == 0 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
+                navigation-enabled: root.screen == 0 && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 page: root.home-page; selected: root.selected; page-direction: root.home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
