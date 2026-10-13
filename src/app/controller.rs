@@ -44,6 +44,10 @@ enum PendingMedia {
 
 enum StatisticsCommand {
     Library(Vec<PathBuf>),
+    Renamed {
+        from: PathBuf,
+        to: PathBuf,
+    },
     Played {
         path: PathBuf,
         played_at: i64,
@@ -54,15 +58,6 @@ enum StatisticsCommand {
 enum StatisticsEvent {
     SmartPlaylists(HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>),
     Error(String),
-}
-
-struct PlaybackSession {
-    path: PathBuf,
-    duration: f64,
-    heard_seconds: f64,
-    last_position: Option<f64>,
-    last_tick: std::time::Instant,
-    counted: bool,
 }
 
 fn statistics_worker(database: PathBuf) -> (Sender<StatisticsCommand>, Receiver<StatisticsEvent>) {
@@ -82,6 +77,9 @@ fn statistics_worker(database: PathBuf) -> (Sender<StatisticsCommand>, Receiver<
                 StatisticsCommand::Library(paths) => {
                     current_paths = paths;
                     store.register_library_paths(&current_paths, chrono::Utc::now().timestamp())
+                }
+                StatisticsCommand::Renamed { from, to } => {
+                    store.rename_path(&from, &to).map(|_| ())
                 }
                 StatisticsCommand::Played {
                     path,
@@ -143,9 +141,13 @@ pub struct Controller {
     statistics_events: Receiver<StatisticsEvent>,
     library_monitor: Option<crate::library::library_monitor::Monitor>,
     library_scan_generation: u64,
-    playback_session: Option<PlaybackSession>,
+    root_generations: HashMap<PathBuf, u64>,
+    discovered_paths: std::collections::VecDeque<PathBuf>,
+    playback_session: Option<crate::library::statistics::ListeningSession>,
     prefetched: Option<(usize, usize, u64)>,
     prefetch_token: u64,
+    failed_prefetch: Option<(usize, usize)>,
+    listening_clock: std::time::Instant,
     loading: Option<Receiver<thumbnails::LoadEvent>>,
     library_ready: bool,
     playlist_loading: Option<Receiver<Result<Vec<playlists::Playlist>, String>>>,
@@ -285,9 +287,13 @@ impl Controller {
             statistics_events,
             library_monitor: None,
             library_scan_generation: 0,
+            root_generations: HashMap::new(),
+            discovered_paths: std::collections::VecDeque::new(),
             playback_session: None,
             prefetched: None,
             prefetch_token: 0,
+            failed_prefetch: None,
+            listening_clock: std::time::Instant::now(),
             loading,
             library_ready: false,
             playlist_loading: Some(receiver),
@@ -674,6 +680,15 @@ impl Controller {
         } else {
             None
         };
+        if matches!(
+            action,
+            Action::CycleReplayGain
+                | Action::CycleReplayGainPreamp
+                | Action::ToggleReplayGainClipping
+        ) {
+            self.cancel_gapless_prefetch();
+            self.failed_prefetch = None;
+        }
         let effects = self.state.apply(action);
         // Start audio immediately; focus effects still need the new screen to exist.
         let (audio, effects): (Vec<_>, Vec<_>) = effects
@@ -861,12 +876,19 @@ impl Controller {
                 }
             }
             AudioCommand::Seek(seconds) => {
+                self.media_marker = None;
+                self.failed_prefetch = None;
                 self.prefetched = None;
                 if let Some(session) = &mut self.playback_session {
-                    session.last_position = Some(seconds);
-                    session.last_tick = std::time::Instant::now();
+                    session.seek_reset(self.listening_clock.elapsed());
                 }
                 AudioCommand::Seek(seconds)
+            }
+            AudioCommand::Pause(paused) => {
+                if let Some(session) = &mut self.playback_session {
+                    session.set_paused(self.listening_clock.elapsed(), paused);
+                }
+                AudioCommand::Pause(paused)
             }
             other => other,
         };
@@ -876,7 +898,7 @@ impl Controller {
         ) {
             self.handoff += 1;
             self.pending_seek = None;
-            self.prefetched = None;
+            self.cancel_gapless_prefetch();
             self.pending_media = Some(PendingMedia::Music {
                 handoff: self.handoff,
                 command,
@@ -909,61 +931,73 @@ impl Controller {
             self.playback_session = None;
             return;
         };
-        self.playback_session = Some(PlaybackSession {
-            path: track.path.clone(),
-            duration: track.duration,
-            heard_seconds: 0.0,
-            last_position: None,
-            last_tick: std::time::Instant::now(),
-            counted: false,
-        });
+        let duration = (track.duration.is_finite() && track.duration > 0.0)
+            .then(|| std::time::Duration::from_secs_f64(track.duration));
+        let mut session =
+            crate::library::statistics::ListeningSession::new(track.path.clone(), duration);
+        session.set_paused(self.listening_clock.elapsed(), self.state.paused);
+        self.playback_session = Some(session);
+        self.failed_prefetch = None;
     }
 
-    fn update_playback_session(&mut self, id: usize, status: PlaybackStatus, position: f64) {
+    fn update_playback_session(
+        &mut self,
+        id: usize,
+        status: PlaybackStatus,
+        position: f64,
+        observed_at: std::time::Instant,
+    ) {
+        if !position.is_finite() || position < 0.0 {
+            return;
+        }
         let Some(track) = self.state.tracks.get(id) else {
             return;
         };
-        let Some(session) = self.playback_session.as_mut() else {
-            self.begin_playback_session(id);
-            return;
-        };
-        if session.path != track.path {
-            self.begin_playback_session(id);
-            return;
-        }
-        let now = std::time::Instant::now();
-        let delta_time = now.duration_since(session.last_tick).as_secs_f64();
-        let delta_position = session
-            .last_position
-            .map(|previous| position - previous)
-            .unwrap_or(0.0);
-        if status == PlaybackStatus::Playing
-            && delta_time > 0.0
-            && delta_position >= 0.0
-            && delta_position <= delta_time * 1.5 + 0.5
+        if self
+            .playback_session
+            .as_ref()
+            .is_none_or(|s| s.path() != track.path)
         {
-            // Bound missed UI polls and ignore forward/backward seek jumps.
-            session.heard_seconds += delta_time.min(1.0);
+            self.begin_playback_session(id);
         }
-        session.last_position = Some(position);
-        session.last_tick = now;
-        let threshold = if session.duration.is_finite() && session.duration > 0.0 {
-            (session.duration * 0.5).min(30.0).max(3.0)
-        } else {
-            30.0
-        };
-        if !session.counted && session.heard_seconds >= threshold {
-            session.counted = true;
+        let timestamp = observed_at.saturating_duration_since(self.listening_clock);
+        let play = self.playback_session.as_mut().and_then(|session| {
+            session.observe(
+                timestamp,
+                std::time::Duration::from_secs_f64(position),
+                status == PlaybackStatus::Playing && !self.state.paused,
+            )
+        });
+        self.record_qualified_play(play);
+    }
+
+    fn complete_playback_session(&mut self) {
+        let play = self
+            .playback_session
+            .as_mut()
+            .and_then(|session| session.complete(self.listening_clock.elapsed()));
+        self.record_qualified_play(play);
+    }
+
+    fn record_qualified_play(&self, play: Option<crate::library::statistics::QualifiedPlay>) {
+        if let Some(play) = play {
             let _ = self.statistics_commands.send(StatisticsCommand::Played {
-                path: session.path.clone(),
+                path: play.path,
                 played_at: chrono::Utc::now().timestamp(),
-                listened_seconds: session.heard_seconds.floor().max(0.0) as u32,
+                listened_seconds: play.listened.as_secs().min(u32::MAX as u64) as u32,
             });
         }
     }
 
     fn schedule_gapless_prefetch(&mut self) {
-        if self.pending_media.is_some() || self.state.video_active || !self.state.gapless_playback {
+        if self.pending_media.is_some()
+            || self.state.video_active
+            || !self.state.gapless_playback
+            || matches!(
+                self.state.status,
+                PlaybackStatus::Stopped | PlaybackStatus::Error
+            )
+        {
             self.cancel_gapless_prefetch();
             return;
         }
@@ -971,29 +1005,14 @@ impl Controller {
             self.cancel_gapless_prefetch();
             return;
         };
-        let queue = &self.state.queue;
-        let Some(position) = queue.order.iter().position(|id| *id == current) else {
+        let Some((_, next)) = self.state.gapless_successor() else {
             self.cancel_gapless_prefetch();
             return;
         };
-        let next = if self.state.repeat == crate::audio::Repeat::One {
-            Some(current)
-        } else if position + 1 < queue.order.len() {
-            queue.order.get(position + 1).copied()
-        } else if self.state.repeat == crate::audio::Repeat::All {
-            queue.order.first().copied()
-        } else {
-            None
-        };
-        let Some(next) = next.filter(|id| {
-            self.state
-                .tracks
-                .get(*id)
-                .is_some_and(|track| self.state.track_available(track))
-        }) else {
+        if self.failed_prefetch == Some((current, next)) {
             self.cancel_gapless_prefetch();
             return;
-        };
+        }
         if self
             .prefetched
             .is_some_and(|(from, to, _)| from == current && to == next)
@@ -1028,6 +1047,7 @@ impl Controller {
     fn send_video(&mut self, command: crate::video::engine::Command) {
         use crate::video::engine::Command;
         if let Command::Load { video, .. } = &command {
+            self.playback_session = None;
             self.media_marker = None;
             self.media_bridge.publish(None);
             self.pending_subtitle = Some(self.state.video_subtitles.get(&video.path));
@@ -1531,6 +1551,7 @@ impl Controller {
                     let Prepared { value, previews } = *prepared;
                     let artwork_changed = value.artwork != original.artwork;
                     if self.state.refresh_cached_track(&original, value) {
+                        self.media_marker = None;
                         self.lyrics_dirty = true;
                         if artwork_changed {
                             self.thumbnails.clear();
@@ -1575,6 +1596,12 @@ impl Controller {
             match result {
                 Ok(Some(prepared)) => {
                     let result = prepared.value;
+                    for root in result.roots {
+                        if !self.settings.monitor_roots.contains(&root) {
+                            self.settings.monitor_roots.push(root);
+                        }
+                    }
+                    let _ = self.settings.save(&self.directory.join("settings.json"));
                     self.state.merge_library(result.tracks);
                     self.start_deletion_monitor();
                     self.start_library_monitor();
@@ -1646,11 +1673,12 @@ impl Controller {
                     id,
                     status,
                     position,
+                    observed_at,
                 } if !self.state.video_active
                     && self.pending_media.is_none()
                     && self.state.current == Some(id) =>
                 {
-                    self.update_playback_session(id, status, position);
+                    self.update_playback_session(id, status, position, observed_at);
                     self.state.position = position;
                     self.state.status = if self.state.paused {
                         PlaybackStatus::Paused
@@ -1658,16 +1686,28 @@ impl Controller {
                         status
                     };
                 }
-                AudioEvent::Transitioned { from, to, token }
+                AudioEvent::Transitioned { from, to, token: _ }
                     if !self.state.video_active
                         && self.pending_media.is_none()
-                        && self.state.current == Some(from)
-                        && self.prefetched == Some((from, to, token)) =>
+                        && self.state.current == Some(from) =>
                 {
-                    let Some(track) = self.state.tracks.get(to) else {
+                    let Some(has_lyrics) = self.state.tracks.get(to).map(|t| !t.lyrics.is_empty())
+                    else {
                         continue;
                     };
+                    self.complete_playback_session();
                     self.prefetched = None;
+                    // The source may have started just before repeat/shuffle/gain intent
+                    // changed. Worker generation filtering makes this authoritative.
+                    let position = self
+                        .state
+                        .gapless_successor()
+                        .filter(|(_, next)| *next == to)
+                        .map(|(position, _)| position)
+                        .or_else(|| self.state.queue.order.iter().position(|id| *id == to));
+                    if let Some(position) = position {
+                        self.state.queue.position = position;
+                    }
                     self.state.current = Some(to);
                     self.state.position = 0.0;
                     self.state.status = if self.state.paused {
@@ -1675,7 +1715,7 @@ impl Controller {
                     } else {
                         PlaybackStatus::Playing
                     };
-                    self.state.lyrics_visible = !track.lyrics.is_empty();
+                    self.state.lyrics_visible = has_lyrics;
                     self.state.overlay_visible = self.state.lyrics_visible;
                     self.last_track = None;
                     self.lyrics_dirty = true;
@@ -1683,11 +1723,22 @@ impl Controller {
                     self.rows_dirty = true;
                     self.schedule_gapless_prefetch();
                 }
+                AudioEvent::PrefetchFailed { id, token, message }
+                    if self
+                        .prefetched
+                        .is_some_and(|(_, to, expected)| to == id && expected == token) =>
+                {
+                    if let Some((from, to, _)) = self.prefetched.take() {
+                        self.failed_prefetch = Some((from, to));
+                    }
+                    self.state.notice = format!("Could not prepare next track: {message}");
+                }
                 AudioEvent::Finished(id)
                     if !self.state.video_active
                         && self.pending_media.is_none()
                         && self.state.current == Some(id) =>
                 {
+                    self.complete_playback_session();
                     let effects = self.state.advance(false);
                     self.effects(ui, effects);
                 }
@@ -1783,6 +1834,13 @@ impl Controller {
     }
 
     fn start_deletion_monitor(&mut self) {
+        self.deletion_track_ids = self
+            .state
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(id, track)| (track.path.clone(), id))
+            .collect();
         if !self.settings.monitor_deleted_files {
             return;
         }
@@ -1801,12 +1859,14 @@ impl Controller {
             .into_iter()
             .collect();
         roots.extend(self.settings.monitor_roots.iter().cloned());
-        roots = roots
-            .into_iter()
-            .map(|root| crate::library::deletion_monitor::normalize(&root))
-            .collect();
-        roots.sort();
-        roots.dedup();
+        roots.sort_by_key(|root| root.components().count());
+        let mut minimal = Vec::<PathBuf>::new();
+        for root in roots {
+            if !minimal.iter().any(|parent| root.starts_with(parent)) {
+                minimal.push(root);
+            }
+        }
+        let roots = minimal;
         for root in &roots {
             if !self.settings.monitor_roots.contains(root) {
                 self.settings.monitor_roots.push(root.clone());
@@ -1819,7 +1879,7 @@ impl Controller {
             .iter()
             .enumerate()
             .map(|(id, track)| {
-                let normalized = crate::library::deletion_monitor::normalize(&track.path);
+                let normalized = track.path.clone();
                 self.deletion_track_ids.insert(normalized, id);
                 (track.path.clone(), self.state.track_available(track))
             })
@@ -1836,6 +1896,10 @@ impl Controller {
     }
 
     fn start_library_monitor(&mut self) {
+        // Respect the existing opt-out for watcher and background reconciliation jobs.
+        if !self.settings.monitor_deleted_files {
+            return;
+        }
         if self.deletion_worker.is_none() {
             self.deletion_worker = Some(thumbnails::FileWorker::new(
                 self.directory.join("library.sqlite3"),
@@ -1849,12 +1913,14 @@ impl Controller {
             .filter_map(|track| track.path.parent().map(PathBuf::from))
             .collect();
         roots.extend(self.settings.monitor_roots.iter().cloned());
-        roots = roots
-            .into_iter()
-            .map(|root| crate::library::deletion_monitor::normalize(&root))
-            .collect();
-        roots.sort();
-        roots.dedup();
+        roots.sort_by_key(|root| root.components().count());
+        let mut minimal = Vec::<PathBuf>::new();
+        for root in roots {
+            if !minimal.iter().any(|parent| root.starts_with(parent)) {
+                minimal.push(root);
+            }
+        }
+        let roots = minimal;
         if roots.is_empty() {
             return;
         }
@@ -1882,8 +1948,14 @@ impl Controller {
         while let Ok(event) = self.statistics_events.try_recv() {
             match event {
                 StatisticsEvent::SmartPlaylists(playlists) => {
-                    self.state.smart_playlists = playlists;
-                    self.rows_dirty = true;
+                    if self.state.smart_playlists != playlists {
+                        self.state.smart_playlists = playlists;
+                        self.rows_dirty |= matches!(
+                            self.state.navigation.current().screen,
+                            Screen::Groups(Group::Playlists)
+                                | Screen::Songs(Filter::SmartPlaylist(_))
+                        );
+                    }
                 }
                 StatisticsEvent::Error(error) => {
                     self.state.notice = format!("Playback statistics unavailable: {error}");
@@ -1895,7 +1967,10 @@ impl Controller {
     fn poll_library_monitor(&mut self) {
         let mut events = Vec::new();
         if let Some(monitor) = &self.library_monitor {
-            while let Ok(event) = monitor.events.try_recv() {
+            for _ in 0..256 {
+                let Ok(event) = monitor.events.try_recv() else {
+                    break;
+                };
                 events.push(event);
             }
         }
@@ -1906,14 +1981,21 @@ impl Controller {
                     self.queue_library_scan(path);
                 }
                 crate::library::library_monitor::LibraryEvent::Renamed { from, to } => {
+                    let _ = self.statistics_commands.send(StatisticsCommand::Renamed {
+                        from: from.clone(),
+                        to: to.clone(),
+                    });
+                    self.mark_library_missing(&from);
                     if let Some(worker) = self.deletion_worker.as_mut() {
                         worker.evict(from);
                     }
                     self.queue_library_scan(to);
                 }
-                crate::library::library_monitor::LibraryEvent::Removed(_) => {
-                    // The existing deletion watcher owns safe missing/restored transitions
-                    // and stops the active track when its source disappears.
+                crate::library::library_monitor::LibraryEvent::Removed(path) => {
+                    self.mark_library_missing(&path);
+                }
+                crate::library::library_monitor::LibraryEvent::RefreshRoot(root) => {
+                    self.queue_root_refresh(root);
                 }
                 crate::library::library_monitor::LibraryEvent::Error(error) => {
                     self.state.notice = format!("Library monitoring warning: {error}");
@@ -1922,9 +2004,61 @@ impl Controller {
         }
     }
 
+    fn queue_root_refresh(&mut self, root: PathBuf) {
+        self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
+        let generation = self.library_scan_generation;
+        self.root_generations.insert(root.clone(), generation);
+        let known = self
+            .state
+            .tracks
+            .iter()
+            .map(|track| track.path.clone())
+            .collect();
+        if let Some(worker) = &mut self.deletion_worker {
+            worker.reconcile(root, generation, known);
+        }
+    }
+
+    fn mark_library_missing(&mut self, path: &std::path::Path) {
+        if !self.settings.monitor_deleted_files {
+            return;
+        }
+        let identity = path.to_path_buf();
+        self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
+        self.deletion_generations
+            .insert(identity.clone(), self.library_scan_generation);
+        let id = self
+            .state
+            .tracks
+            .iter()
+            .position(|t| t.path.clone() == identity);
+        if let Some(id) = id {
+            let path = self.state.tracks[id].path.clone();
+            self.state.mark_track_available(&path, false);
+            self.cancel_gapless_prefetch();
+            if self.state.current == Some(id) {
+                self.handoff += 1;
+                let _ = self.engine.send(AudioCommand::Stop {
+                    handoff: self.handoff,
+                });
+                self.state.current = None;
+                self.state.status = PlaybackStatus::Stopped;
+                self.state.position = 0.0;
+                self.playback_session = None;
+                self.last_track = None;
+                self.lyrics_dirty = true;
+            }
+            self.rows_dirty = true;
+            self.update_smart_playlist_library();
+            if let Some(worker) = &mut self.deletion_worker {
+                worker.evict(path);
+            }
+        }
+    }
+
     fn queue_library_scan(&mut self, path: PathBuf) {
         self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
-        let identity = crate::library::deletion_monitor::normalize(&path);
+        let identity = path.clone();
         self.deletion_generations
             .insert(identity, self.library_scan_generation);
         if let Some(worker) = self.deletion_worker.as_mut() {
@@ -1958,12 +2092,10 @@ impl Controller {
                 continue;
             };
             let path = track.path.clone();
-            let generation = self
-                .deletion_generations
-                .entry(identity.clone())
-                .or_default();
-            *generation = generation.wrapping_add(1);
-            let current_generation = *generation;
+            self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
+            let current_generation = self.library_scan_generation;
+            self.deletion_generations
+                .insert(identity.clone(), current_generation);
             if available {
                 if !self.state.track_available(&self.state.tracks[id])
                     && let Some(worker) = self.deletion_worker.as_mut()
@@ -1985,6 +2117,8 @@ impl Controller {
                         self.lyrics_dirty = true;
                     }
                     self.rows_dirty = true;
+                    self.cancel_gapless_prefetch();
+                    self.update_smart_playlist_library();
                 }
                 if let Some(worker) = self.deletion_worker.as_mut() {
                     worker.evict(path);
@@ -1999,12 +2133,30 @@ impl Controller {
         }
         for event in worker_events {
             match event {
+                thumbnails::FileWorkEvent::Reconciled {
+                    root,
+                    generation,
+                    snapshot,
+                } => {
+                    if self.root_generations.get(&root).copied() == Some(generation) {
+                        for missing in snapshot.missing {
+                            if self
+                                .deletion_generations
+                                .get(&missing)
+                                .is_none_or(|latest| *latest <= generation)
+                            {
+                                self.mark_library_missing(&missing);
+                            }
+                        }
+                        self.discovered_paths.extend(snapshot.paths);
+                    }
+                }
                 thumbnails::FileWorkEvent::Restored {
                     generation,
                     prepared,
                 } => {
                     let thumbnails::Prepared { value, previews } = *prepared;
-                    let identity = crate::library::deletion_monitor::normalize(&value.path);
+                    let identity = value.path.clone();
                     let current_generation = self.deletion_generations.get(&identity).copied();
                     let id = self.deletion_track_ids.get(&identity).copied();
                     if current_generation == Some(generation)
@@ -2032,8 +2184,18 @@ impl Controller {
                     prepared,
                 } => {
                     let thumbnails::Prepared { value, previews } = *prepared;
-                    let identity = crate::library::deletion_monitor::normalize(&value.path);
+                    let identity = value.path.clone();
                     if self.deletion_generations.get(&identity).copied() == Some(generation) {
+                        if self
+                            .deletion_track_ids
+                            .get(&identity)
+                            .and_then(|id| self.state.tracks.get(*id))
+                            .is_some_and(|track| {
+                                *track == value && self.state.track_available(track)
+                            })
+                        {
+                            continue;
+                        }
                         self.state.merge_library(vec![value]);
                         self.thumbnails.clear();
                         self.thumbnails.seed(&self.state.tracks, previews);
@@ -2051,8 +2213,10 @@ impl Controller {
                     generation,
                     message,
                 } => {
-                    let identity = crate::library::deletion_monitor::normalize(&path);
-                    if self.deletion_generations.get(&identity).copied() == Some(generation) {
+                    let identity = path.clone();
+                    if self.deletion_generations.get(&identity).copied() == Some(generation)
+                        || self.root_generations.get(&path).copied() == Some(generation)
+                    {
                         self.state.notice = format!(
                             "Could not refresh restored file {}: {message}",
                             path.display()
@@ -2060,6 +2224,12 @@ impl Controller {
                     }
                 }
             }
+        }
+        for _ in 0..64 {
+            let Some(path) = self.discovered_paths.pop_front() else {
+                break;
+            };
+            self.queue_library_scan(path);
         }
         if let Some(worker) = self.deletion_worker.as_mut() {
             worker.flush();
@@ -4232,7 +4402,7 @@ mod deletion_controller_tests {
             .tracks
             .iter()
             .enumerate()
-            .map(|(id, track)| (crate::library::deletion_monitor::normalize(&track.path), id))
+            .map(|(id, track)| (track.path.clone(), id))
             .collect();
         let (monitor, events) = crate::library::deletion_monitor::Monitor::testing_channel();
         controller.deletion_events = Some(monitor);
@@ -4407,7 +4577,7 @@ mod deletion_controller_tests {
             .save(&track, 1)
             .unwrap();
         let (mut controller, events) = fixture_controller(directory.path(), vec![track]);
-        let identity = crate::library::deletion_monitor::normalize(&path);
+        let identity = path.clone();
         events
             .send(EventMessage::Removed(identity.clone()))
             .unwrap();
@@ -4429,7 +4599,7 @@ mod deletion_controller_tests {
 
         // An older successful refresh may finish after a newer removal event.
         // Its generation must not re-enable the slot.
-        let identity = crate::library::deletion_monitor::normalize(&path);
+        let identity = path.clone();
         controller.state.mark_track_available(&path, false);
         controller.deletion_generations.insert(identity.clone(), 10);
         controller

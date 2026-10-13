@@ -72,6 +72,18 @@ Open **Music → Playlists → Add Playlist** or **File → New Playlist…**. T
 
 Names must be nonempty, single-line and at most 100 characters; duplicate names are rejected regardless of case. Missing paths remain stored and songs absent from the current library are skipped. Editing/deleting saved playlists and iTunes synchronization are not included yet.
 
+## Playback, monitoring and smart playlists
+
+**Settings → Gapless Playback** queues the next eligible song on the same audio sink. Repeat, shuffle, seeking and queue changes invalidate unstarted successors; encoder delay/padding is trimmed where the decoder format provides it. This preserves continuous albums without adding crossfade.
+
+**ReplayGain** offers Off, Track and Album modes, a preamp and optional clipping prevention. Album mode falls back to track tags when album gain is absent; untagged songs keep their original level. Changes persist and apply to subsequent track loads, including the next gapless successor. User volume remains independent.
+
+On macOS, the player publishes metadata, duration, playback position and optional artwork to Now Playing and accepts play/pause, next/previous and seek commands. Stopping playback or handing audio to video clears music metadata. Physical media-key and Control Center behavior still needs manual hardware verification.
+
+Imported folders, including empty ones, remain monitored across restarts. Changes are debounced, metadata/database work runs in the background, and directory changes or lost notifications trigger background reconciliation. Unavailable volumes and incomplete scans preserve cached songs. Setting `monitor_deleted_files` to false disables automatic filesystem monitoring. Confirmed file rename events transfer statistics and retained history to the new path; backends that report only remove/add create a new path identity.
+
+**Music → Playlists** includes Recently Added, Most Played, Recently Played and Never Played. These computed views use available library paths and leave user playlists and Genius intact. Statistics persist in SQLite, with the latest 1,000 qualified plays in listening history. A session counts once after `max(3 seconds, min(30 seconds, half the duration))` of observed listening; unknown durations require 30 seconds. Tracks shorter than three seconds count only on natural completion after observing at least half their duration. Pauses, stalled positions and seeks add no listening time; restarting begins a new session.
+
 ## Configuration
 
 The first launch creates `shortcuts.json` (version 4); `settings.json` saves display preferences and interface language. **Settings → Language** selects English (default), 简体中文 or 日本語. **Settings → Font** selects Classic, Maple Mono or JetBrains Mono, with bundled licensed fonts and a persisted preference; see [font notes](docs/FONTS.md). Music metadata and lyrics keep their original text. On macOS the default directory is `~/Library/Application Support/Nano.Nano-Music-Player`; Windows and Linux use their native application configuration directories. `--config-dir` overrides this.

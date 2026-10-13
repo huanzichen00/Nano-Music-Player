@@ -1383,6 +1383,10 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         monitor_roots: vec![directory.path().join("music")],
         window_width: Some(750.0),
         window_height: Some(900.0),
+        gapless_playback: false,
+        replay_gain_mode: nano_music_player::audio::gain::GainMode::Album,
+        replay_gain_preamp_db: 3.0,
+        replay_gain_prevent_clipping: false,
     };
     saved.save(&path).unwrap();
     let loaded = Settings::load(&path).unwrap();
@@ -1393,6 +1397,13 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         loaded.translation_target,
         nano_music_player::translation::TargetLanguage::Japanese
     );
+    assert!(!loaded.gapless_playback);
+    assert_eq!(
+        loaded.replay_gain_mode,
+        nano_music_player::audio::gain::GainMode::Album
+    );
+    assert_eq!(loaded.replay_gain_preamp_db, 3.0);
+    assert!(!loaded.replay_gain_prevent_clipping);
     assert!(!loaded.device_mode);
     assert!(loaded.monitor_deleted_files);
     assert_eq!(loaded.monitor_roots, vec![directory.path().join("music")]);
@@ -1718,10 +1729,19 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
             .iter()
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
-        ["Add Playlist", "All Songs", "alpha", "Zulu"]
+        [
+            "Add Playlist",
+            "All Songs",
+            "Recently Added",
+            "Most Played",
+            "Recently Played",
+            "Never Played",
+            "alpha",
+            "Zulu"
+        ]
     );
-    assert_eq!(state.selection_count(), 4);
-    state.navigation.select(3);
+    assert_eq!(state.selection_count(), 8);
+    state.navigation.select(7);
     state.apply(Action::Activate);
     assert!(matches!(
         state.navigation.current().screen,
@@ -1770,7 +1790,7 @@ fn playlist_creation_and_all_songs_share_keyboard_selection() {
     let mut state = music_state();
     state.navigation.open(Screen::Groups(Group::Playlists));
     assert_eq!(state.navigation.selected(), 0);
-    assert_eq!(state.selection_count(), 2);
+    assert_eq!(state.selection_count(), 6);
     assert!(matches!(
         state.rows()[0].target,
         Target::Action(Action::NewPlaylist)

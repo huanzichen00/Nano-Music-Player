@@ -300,7 +300,23 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     assert_eq!(ui.get_previous_rows().row_count(), 0);
     controller.borrow_mut().execute(&ui, Action::Settings);
-    controller.borrow_mut().state.navigation.select(7);
+    let smooth_slides = controller
+        .borrow()
+        .state
+        .rows()
+        .iter()
+        .position(|row| {
+            matches!(
+                row.target,
+                nano_music_player::app::state::Target::Action(Action::ToggleSmoothSlides)
+            )
+        })
+        .unwrap();
+    controller
+        .borrow_mut()
+        .state
+        .navigation
+        .select(smooth_slides);
     controller.borrow_mut().execute(&ui, Action::Activate);
     assert!(!controller.borrow().state.smooth_slides);
     assert_eq!(
@@ -1347,9 +1363,14 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         Language::English,
     ] {
         choose_language(&ui, &controller, language);
-        assert_eq!(ui.get_rows().row_data(2).unwrap().title, "Evening Mix");
+        let saved_row = ui
+            .get_rows()
+            .iter()
+            .find(|row| row.title == "Evening Mix")
+            .unwrap();
+        assert_eq!(saved_row.title, "Evening Mix");
         assert_eq!(
-            ui.get_rows().row_data(2).unwrap().subtitle,
+            saved_row.subtitle,
             match language {
                 Language::English => "2 songs",
                 Language::SimplifiedChinese => "2 首歌曲",
@@ -1425,8 +1446,10 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert_eq!(restarted.state.playlists, saved);
     controller.borrow_mut().execute(&ui, Action::Back);
     choose_language(&ui, &controller, Language::SimplifiedChinese);
+    let literal_playlist = controller.borrow().state.rows().iter().position(|row|
+        matches!(&row.target, nano_music_player::app::state::Target::Screen(Screen::Songs(Filter::Playlist { name, .. })) if name == "Music")).unwrap();
     assert_eq!(
-        ui.get_rows().row_data(3).unwrap().title,
+        ui.get_rows().row_data(literal_playlist).unwrap().title,
         "Music",
         "playlist names remain literal even when matching UI keys"
     );
@@ -1491,7 +1514,19 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     use nano_music_player::app::typography::Font;
     let track_before = controller.borrow().state.tracks[1].clone();
     ui.invoke_command("settings".into());
-    ui.invoke_item_clicked(9);
+    let font_row = controller
+        .borrow()
+        .state
+        .rows()
+        .iter()
+        .position(|row| {
+            matches!(
+                row.target,
+                nano_music_player::app::state::Target::Screen(Screen::Fonts)
+            )
+        })
+        .unwrap();
+    ui.invoke_item_clicked(font_row as i32);
     assert_eq!(
         controller.borrow().state.navigation.current().screen,
         Screen::Fonts
@@ -1516,7 +1551,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         );
     }
     tap(&ui, Key::Escape);
-    ui.invoke_item_clicked(9);
+    ui.invoke_item_clicked(font_row as i32);
     assert_eq!(ui.get_selected(), Font::JetBrainsMono.index() as i32);
     let reopened = Controller::new(directory.path().to_path_buf());
     assert_eq!(reopened.state.font, Font::JetBrainsMono);
@@ -1582,7 +1617,19 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     ui.invoke_command("settings".into());
     for expected in [false, true] {
         let size = ui.window().size();
-        ui.invoke_item_clicked(10);
+        let always_on_top = controller
+            .borrow()
+            .state
+            .rows()
+            .iter()
+            .position(|row| {
+                matches!(
+                    row.target,
+                    nano_music_player::app::state::Target::Action(Action::ToggleAlwaysOnTop)
+                )
+            })
+            .unwrap();
+        ui.invoke_item_clicked(always_on_top as i32);
         assert_eq!(ui.get_keep_on_top(), expected);
         assert_eq!(ui.window().size(), size);
         assert_eq!(

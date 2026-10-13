@@ -14,6 +14,8 @@ use std::{
 pub struct ScanResult {
     pub tracks: Vec<Track>,
     pub warnings: Vec<String>,
+    /// Selected folder roots, including empty folders, retained for monitoring.
+    pub roots: Vec<PathBuf>,
 }
 
 pub enum ImportEvent {
@@ -31,70 +33,146 @@ pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
             let Some(folders) = folders else {
                 return Ok(None);
             };
-            let database = Database::open(&database_path)?;
-            let mut tracks = database.load()?;
-            let mut warnings = Vec::new();
-            for folder in folders {
-                for entry in walkdir::WalkDir::new(folder).follow_links(false) {
-                    let entry = match entry {
-                        Ok(entry) => entry,
-                        Err(error) => {
-                            warnings.push(error.to_string());
-                            continue;
-                        }
-                    };
-                    if !entry.file_type().is_file() {
-                        continue;
-                    }
-                    let path = entry.path();
-                    let extension = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .unwrap_or_default()
-                        .to_lowercase();
-                    if !matches!(
-                        extension.as_str(),
-                        "mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "aiff"
-                    ) {
-                        continue;
-                    }
-                    let modified = metadata_stamp(path);
-                    let mut track = if let Some(track) = database.cached(path, modified) {
-                        track
-                    } else {
-                        match read_track(path.to_path_buf()) {
-                            Ok(track) => {
-                                database.save(&track, modified)?;
-                                track
-                            }
-                            Err(error) => {
-                                warnings.push(format!("{}: {error}", path.display()));
-                                continue;
-                            }
-                        }
-                    };
-                    database.apply_lyrics(&mut track)?;
-                    if let Some(existing) = tracks.iter_mut().find(|t| t.path == track.path) {
-                        *existing = track;
-                    } else {
-                        tracks.push(track);
-                    }
-                }
-            }
-            tracks.sort_by_cached_key(|track| track.title.to_lowercase());
-            Ok(Some(ScanResult { tracks, warnings }))
+            scan_folders(&database_path, &folders).map(Some)
         })();
         let _ = sender.send(ImportEvent::Completed(result));
     });
     receiver
 }
 
+/// Scan selected folders on a caller-owned background thread.
+pub fn scan_folders(database_path: &Path, folders: &[PathBuf]) -> Result<ScanResult, String> {
+    let database = Database::open(&database_path)?;
+    let mut tracks = database.load()?;
+    let mut warnings = Vec::new();
+    let roots: Vec<_> = folders
+        .iter()
+        .map(|p| super::deletion_monitor::normalize(p))
+        .collect();
+    for folder in &roots {
+        for entry in walkdir::WalkDir::new(folder).follow_links(false) {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    warnings.push(error.to_string());
+                    continue;
+                }
+            };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let extension = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            if !matches!(
+                extension.as_str(),
+                "mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "aiff"
+            ) {
+                continue;
+            }
+            let modified = metadata_stamp(path);
+            let mut track = if let Some(track) = database.cached(path, modified) {
+                track
+            } else {
+                match read_track(path.to_path_buf()) {
+                    Ok(track) => {
+                        database.save(&track, modified)?;
+                        track
+                    }
+                    Err(error) => {
+                        warnings.push(format!("{}: {error}", path.display()));
+                        continue;
+                    }
+                }
+            };
+            database.apply_lyrics(&mut track)?;
+            if let Some(existing) = tracks.iter_mut().find(|t| t.path == track.path) {
+                *existing = track;
+            } else {
+                tracks.push(track);
+            }
+        }
+    }
+    tracks.sort_by_cached_key(|track| track.title.to_lowercase());
+    Ok(ScanResult {
+        tracks,
+        warnings,
+        roots,
+    })
+}
+
+#[derive(Debug)]
+pub struct RootReconciliation {
+    pub paths: Vec<PathBuf>,
+    pub missing: Vec<PathBuf>,
+}
+
+/// Reconcile a root off the UI thread. Never infer deletions from an unavailable
+/// root or an incomplete traversal (e.g. permissions or a disconnected volume).
+pub fn reconcile_root(root: &Path, known: &[PathBuf]) -> Result<RootReconciliation, String> {
+    if !root.is_dir() {
+        return Ok(RootReconciliation {
+            paths: Vec::new(),
+            missing: Vec::new(),
+        });
+    }
+    let mut paths = std::collections::BTreeSet::new();
+    for entry in walkdir::WalkDir::new(root).follow_links(false) {
+        let entry = entry.map_err(|error| error.to_string())?;
+        if entry.file_type().is_file() && super::deletion_monitor::is_audio(entry.path()) {
+            paths.insert(super::deletion_monitor::normalize(entry.path()));
+        }
+    }
+    if !root.is_dir() {
+        return Ok(RootReconciliation {
+            paths: Vec::new(),
+            missing: Vec::new(),
+        });
+    }
+    let mut missing = Vec::new();
+    for path in known
+        .iter()
+        .filter(|path| path.starts_with(root) && !paths.contains(*path))
+        .cloned()
+        .collect::<Vec<_>>()
+    {
+        // A no-symlink traversal can omit an existing playable path. Only
+        // confirmed absence is a removal; permission/device errors preserve it.
+        match path.metadata() {
+            Ok(metadata) if metadata.is_file() => {
+                paths.insert(path);
+            }
+            Ok(_) => missing.push(path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => missing.push(path),
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        }
+    }
+    if !root.is_dir() {
+        return Ok(RootReconciliation {
+            paths: Vec::new(),
+            missing: Vec::new(),
+        });
+    }
+    Ok(RootReconciliation {
+        paths: paths.into_iter().collect(),
+        missing,
+    })
+}
+
 /// Re-read and persist a single restored file using the same cache stamp as imports.
 /// Called on the deletion worker, never on the UI thread.
 pub fn refresh_track(database: &Database, path: &Path) -> Result<Track, String> {
-    let mut track = read_track(path.to_path_buf())?;
+    let stamp = metadata_stamp(path);
+    let mut track = if let Some(cached) = database.cached(path, stamp) {
+        cached
+    } else {
+        read_track(path.to_path_buf())?
+    };
     database.apply_lyrics(&mut track)?;
-    database.save(&track, metadata_stamp(path))?;
+    database.save(&track, stamp)?;
     Ok(track)
 }
 

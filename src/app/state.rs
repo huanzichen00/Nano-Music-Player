@@ -820,6 +820,7 @@ impl State {
                 seconds: self.video_position,
             });
         }
+        let seconds = if seconds.is_finite() { seconds } else { 0.0 };
         self.position = seconds.clamp(0.0, self.duration().max(0.0));
         Effect::Audio(AudioCommand::Seek(self.position))
     }
@@ -828,6 +829,35 @@ impl State {
         self.volume = volume.clamp(0.0, 1.0);
         self.muted = false;
         self.volume_effect()
+    }
+
+    /// Peek the next eligible queue slot without changing playback intent.
+    /// Uses the queue cursor so repeated entries retain their distinct positions.
+    pub fn gapless_successor(&self) -> Option<(usize, usize)> {
+        let current = self.current?;
+        if self.queue.current() != Some(current) {
+            return None;
+        }
+        if self.repeat == crate::audio::Repeat::One {
+            return self
+                .tracks
+                .get(current)
+                .filter(|t| self.track_available(t))
+                .map(|_| (self.queue.position, current));
+        }
+        let len = self.queue.order.len();
+        for step in 1..=len {
+            let raw = self.queue.position + step;
+            if raw >= len && self.repeat != crate::audio::Repeat::All {
+                break;
+            }
+            let position = raw % len;
+            let id = self.queue.order[position];
+            if self.tracks.get(id).is_some_and(|t| self.track_available(t)) {
+                return Some((position, id));
+            }
+        }
+        None
     }
 
     pub fn start(&mut self, id: usize) -> Vec<Effect> {

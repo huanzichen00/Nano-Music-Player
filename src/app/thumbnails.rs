@@ -43,9 +43,15 @@ struct FileWorkBatch {
     evict: BTreeSet<PathBuf>,
     refresh: BTreeMap<PathBuf, u64>,
     scan: BTreeMap<PathBuf, u64>,
+    roots: BTreeMap<PathBuf, (u64, Vec<PathBuf>)>,
 }
 
 pub(super) enum FileWorkEvent {
+    Reconciled {
+        root: PathBuf,
+        generation: u64,
+        snapshot: scanner::RootReconciliation,
+    },
     Restored {
         generation: u64,
         prepared: Box<Prepared<Track>>,
@@ -69,6 +75,7 @@ pub(super) struct FileWorker {
     pending_evict: BTreeSet<PathBuf>,
     pending_refresh: BTreeMap<PathBuf, u64>,
     pending_scan: BTreeMap<PathBuf, u64>,
+    pending_roots: BTreeMap<PathBuf, (u64, Vec<PathBuf>)>,
 }
 
 impl FileWorker {
@@ -81,6 +88,24 @@ impl FileWorker {
                     batch.evict.extend(next.evict);
                     batch.refresh.extend(next.refresh);
                     batch.scan.extend(next.scan);
+                    batch.roots.extend(next.roots);
+                }
+                for (root, (generation, known)) in batch.roots {
+                    let event = match scanner::reconcile_root(&root, &known) {
+                        Ok(snapshot) => FileWorkEvent::Reconciled {
+                            root,
+                            generation,
+                            snapshot,
+                        },
+                        Err(message) => FileWorkEvent::Error {
+                            path: root,
+                            generation,
+                            message,
+                        },
+                    };
+                    if event_sender.send(event).is_err() {
+                        return;
+                    }
                 }
                 let database_handle = match crate::library::database::Database::open(&database) {
                     Ok(database_handle) => Some(database_handle),
@@ -177,7 +202,13 @@ impl FileWorker {
             pending_evict: BTreeSet::new(),
             pending_refresh: BTreeMap::new(),
             pending_scan: BTreeMap::new(),
+            pending_roots: BTreeMap::new(),
         }
+    }
+
+    pub(super) fn reconcile(&mut self, root: PathBuf, generation: u64, known: Vec<PathBuf>) {
+        self.pending_roots.insert(root, (generation, known));
+        self.flush();
     }
 
     pub(super) fn evict(&mut self, path: PathBuf) {
@@ -200,6 +231,7 @@ impl FileWorker {
         if self.pending_evict.is_empty()
             && self.pending_refresh.is_empty()
             && self.pending_scan.is_empty()
+            && self.pending_roots.is_empty()
         {
             return;
         }
@@ -230,18 +262,22 @@ impl FileWorker {
         for path in scan.keys() {
             self.pending_scan.remove(path);
         }
+        let roots = std::mem::take(&mut self.pending_roots);
         match self.requests.try_send(FileWorkBatch {
             evict,
             refresh,
             scan,
+            roots,
         }) {
             Ok(()) => {}
             Err(TrySendError::Full(batch)) => {
+                self.pending_roots.extend(batch.roots);
                 self.pending_evict.extend(batch.evict);
                 self.pending_refresh.extend(batch.refresh);
                 self.pending_scan.extend(batch.scan);
             }
             Err(TrySendError::Disconnected(batch)) => {
+                self.pending_roots.extend(batch.roots);
                 self.pending_evict.extend(batch.evict);
                 self.pending_refresh.extend(batch.refresh);
                 self.pending_scan.extend(batch.scan);
