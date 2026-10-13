@@ -83,6 +83,7 @@ pub struct Controller {
     lyrics_dirty: bool,
     dialog_open: bool,
     last_screen: Option<Screen>,
+    last_navigation_depth: usize,
     last_query: String,
     rows_dirty: bool,
     last_track: Option<usize>,
@@ -112,6 +113,7 @@ impl Controller {
         state.language = settings.language;
         state.font = settings.font;
         state.always_on_top = settings.always_on_top;
+        state.smooth_slides = settings.smooth_slides;
         state.romaji_visible = settings.romaji_visible;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
@@ -176,6 +178,7 @@ impl Controller {
             lyrics_dirty: true,
             dialog_open: false,
             last_screen: None,
+            last_navigation_depth: 1,
             last_query: String::new(),
             rows_dirty: true,
             last_track: None,
@@ -777,6 +780,7 @@ impl Controller {
             language: self.state.language,
             font: self.state.font,
             always_on_top: self.state.always_on_top,
+            smooth_slides: self.state.smooth_slides,
             romaji_visible: self.state.romaji_visible,
             translation_target: self.settings.translation_target,
             zoom: self.state.zoom,
@@ -934,6 +938,36 @@ impl Controller {
         let current_screen = self.state.navigation.current().screen.clone();
         let screen = &current_screen;
         let screen_changed = self.last_screen.as_ref() != Some(screen);
+        let home_page = self.state.home_page as i32;
+        if matches!(screen, Screen::Home) && ui.get_home_page() != home_page {
+            ui.set_home_transition_direction(if home_page > ui.get_home_page() {
+                1
+            } else {
+                -1
+            });
+        }
+        let navigation_depth = self.state.navigation.depth();
+        let transition_direction = if navigation_depth >= self.last_navigation_depth {
+            1
+        } else {
+            -1
+        };
+        ui.set_smooth_slides(self.state.smooth_slides);
+        if !self.state.smooth_slides {
+            ui.invoke_cancel_screen_transition();
+        }
+        ui.set_transition_direction(transition_direction);
+        if screen_changed && self.last_screen.is_some() {
+            ui.set_previous_screen(ui.get_screen());
+            ui.set_previous_screen_title(ui.get_screen_title());
+            ui.set_previous_selected(ui.get_selected());
+            ui.set_previous_home_page(ui.get_home_page());
+            ui.set_previous_home_transition_direction(ui.get_home_transition_direction());
+            ui.set_previous_rows(ui.get_rows());
+            ui.set_previous_playlist_list(ui.get_playlist_list());
+            ui.set_previous_list_scroll_y(ui.get_list_scroll_y());
+            ui.set_previous_lyric_scroll_y(ui.get_lyric_scroll_y());
+        }
         let landscape = self.state.landscape_video();
         ui.set_video_landscape(landscape);
         if landscape != self.last_landscape {
@@ -1157,7 +1191,11 @@ impl Controller {
             self.last_selected = self.state.navigation.selected();
         }
         self.refresh_thumbnails(ui, screen);
+        if screen_changed && self.last_screen.is_some() {
+            ui.set_screen_transition_generation(ui.get_screen_transition_generation() + 1);
+        }
         self.last_screen = Some(screen.clone());
+        self.last_navigation_depth = navigation_depth;
         let track = self.state.current.and_then(|id| self.state.tracks.get(id));
         let artwork_resolution = (240.0 * scale * ui.window().scale_factor()).ceil() as u32;
         let track_changed = self.last_track != self.state.current;

@@ -294,6 +294,17 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "ローマ字の表示 / 非表示",
     ),
     ("Show Romaji", "显示罗马音", "ローマ字を表示"),
+    ("Smooth Slides", "平滑滑动", "スムーズなスライド"),
+    (
+        "On · Screens slide in the navigation direction",
+        "开 · 屏幕按导航方向滑动",
+        "オン · 画面がナビゲーション方向にスライドします",
+    ),
+    (
+        "Off · Screens slide in the navigation direction",
+        "关 · 屏幕按导航方向滑动",
+        "オフ · 画面がナビゲーション方向にスライドします",
+    ),
     ("DeepSeek API…", "DeepSeek API…", "DeepSeek API…"),
     ("Generating romaji…", "正在生成罗马音…", "ローマ字を生成中…"),
     ("Romaji generated", "罗马音已生成", "ローマ字を生成しました"),
@@ -1045,6 +1056,25 @@ mod tests {
     fn representative_translations_and_fallback() {
         assert_eq!(translate(Language::SimplifiedChinese, "Settings"), "设置");
         assert_eq!(translate(Language::Japanese, "Lyrics"), "歌詞");
+        assert_eq!(
+            translate(Language::English, "Smooth Slides"),
+            "Smooth Slides"
+        );
+        assert_eq!(
+            translate(Language::SimplifiedChinese, "Smooth Slides"),
+            "平滑滑动"
+        );
+        assert_eq!(
+            translate(Language::Japanese, "Smooth Slides"),
+            "スムーズなスライド"
+        );
+        assert_eq!(
+            translate(
+                Language::SimplifiedChinese,
+                "On · Screens slide in the navigation direction"
+            ),
+            "开 · 屏幕按导航方向滑动"
+        );
         assert_eq!(
             translate(Language::Japanese, "runtime metadata"),
             "runtime metadata"

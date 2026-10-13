@@ -7,6 +7,8 @@ pub struct Settings {
     pub language: super::i18n::Language,
     pub font: super::typography::Font,
     pub always_on_top: bool,
+    #[serde(default = "smooth_slides_default")]
+    pub smooth_slides: bool,
     pub romaji_visible: bool,
     #[serde(default)]
     pub translation_target: crate::translation::TargetLanguage,
@@ -22,6 +24,7 @@ impl Default for Settings {
             language: super::i18n::Language::English,
             font: super::typography::Font::Classic,
             always_on_top: true,
+            smooth_slides: true,
             romaji_visible: true,
             translation_target: crate::translation::TargetLanguage::English,
             zoom: 1.25,
@@ -30,6 +33,10 @@ impl Default for Settings {
             window_height: None,
         }
     }
+}
+
+fn smooth_slides_default() -> bool {
+    true
 }
 
 impl Settings {

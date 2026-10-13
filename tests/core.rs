@@ -1287,11 +1287,13 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     );
     assert_eq!(default.zoom, 1.25);
     assert!(default.device_mode);
+    assert!(default.smooth_slides);
     assert_eq!(default.window_width, None);
     let saved = Settings {
         language: nano_music_player::app::i18n::Language::English,
         font: nano_music_player::app::typography::Font::Classic,
         always_on_top: true,
+        smooth_slides: false,
         romaji_visible: false,
         translation_target: nano_music_player::translation::TargetLanguage::Japanese,
         zoom: 2.0,
@@ -1302,6 +1304,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     saved.save(&path).unwrap();
     let loaded = Settings::load(&path).unwrap();
     assert_eq!(loaded.zoom, 2.0);
+    assert!(!loaded.smooth_slides);
     assert!(!loaded.romaji_visible);
     assert_eq!(
         loaded.translation_target,

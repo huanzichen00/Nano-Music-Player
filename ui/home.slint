@@ -1,14 +1,89 @@
 import { AppIcon } from "components.slint";
 import { I18n } from "i18n.slint";
 
-export component HomeView inherits Rectangle {
+component HomeIconPage inherits Rectangle {
     in property <float> s;
     in property <int> selected;
     in property <int> page;
     callback activated(int);
+    background: transparent;
+    for item[index] in [
+        {label: "Music", icon: @image-url("../assets/generated/music.png"), tint: #ef990a},
+        {label: "Videos", icon: @image-url("../assets/generated/videos.png"), tint: #187dd9},
+        {label: "Fitness", icon: @image-url("../assets/generated/fitness.png"), tint: #c52527},
+        {label: "Podcasts", icon: @image-url("../assets/generated/podcasts.png"), tint: #9540c6},
+        {label: "Photos", icon: @image-url("../assets/generated/photos.png"), tint: #1c9dcb},
+        {label: "Radio", icon: @image-url("../assets/generated/radio.png"), tint: #596473},
+    ]: AppIcon {
+        visible: root.page == 0; s: root.s; full-artwork: true;
+        x: (18px + mod(index, 2) * 112px) * root.s;
+        y: (24px + floor(index / 2) * 115px) * root.s;
+        label: I18n.tr(item.label); icon: item.icon; tint: item.tint; selected: root.selected == index;
+        clicked => { root.activated(index); }
+    }
+    for item[index] in [
+        {label: "Clock", icon: @image-url("../assets/icons/clock.svg"), tint: #777, full: false},
+        {label: "Settings", icon: @image-url("../assets/original/settings.png"), tint: #aaa, full: true},
+    ]: AppIcon {
+        visible: root.page == 1; s: root.s; full-artwork: item.full;
+        x: (18px + index * 112px) * root.s; y: 24px * root.s;
+        label: I18n.tr(item.label); icon: item.icon; tint: item.tint; selected: root.selected == index;
+        clicked => { root.activated(index); }
+    }
+}
+
+export component HomeView inherits Rectangle {
+    in property <float> s;
+    in property <int> selected;
+    in property <int> page;
+    in property <int> page-direction: 1;
+    in property <bool> smooth-slides: true;
+    private property <int> rendered-page: 0;
+    private property <int> outgoing-page: 0;
+    private property <bool> page-sliding: false;
+    private property <float> page-progress: 1.0;
+    private property <bool> page-transition-active: false;
+    out property <length> page-slide-offset: root.page-transition-active ? root.page-direction * (1.0 - root.page-progress) * root.width : 0px;
+    out property <length> page-outgoing-offset: root.page-transition-active ? -root.page-direction * root.page-progress * root.width : 0px;
+    animate page-progress { duration: root.page-sliding && root.smooth-slides ? 220ms : 0ms; easing: ease-in-out; }
+    changed page => {
+        root.outgoing-page = root.rendered-page;
+        root.rendered-page = root.page;
+        if root.smooth-slides {
+            root.page-sliding = false;
+            root.page-progress = 0.0;
+            root.page-transition-active = true;
+            root.page-sliding = true;
+            root.page-progress = 1.0;
+        } else {
+            root.page-transition-active = false;
+            root.page-sliding = false;
+            root.page-progress = 1.0;
+        }
+    }
+    changed page-progress => {
+        if root.page-transition-active && root.page-progress >= 1.0 {
+            root.page-transition-active = false;
+            root.page-sliding = false;
+        }
+    }
+    changed smooth-slides => {
+        if !root.smooth-slides {
+            root.page-transition-active = false;
+            root.page-sliding = false;
+            root.page-progress = 1.0;
+        }
+    }
+    callback activated(int);
     callback swipe(bool);
+    public function cancel-page-transition() {
+        root.page-transition-active = false;
+        root.page-sliding = false;
+        root.page-progress = 1.0;
+    }
     background: @linear-gradient(155deg, #779487, #334d45 70%, #253a37);
     clip: true;
+
     Rectangle {
         x: -80px * root.s; y: 170px * root.s; width: 350px * root.s; height: 360px * root.s;
         border-radius: 175px * root.s;
@@ -28,34 +103,24 @@ export component HomeView inherits Rectangle {
         }
         pointer-event(event) => { if event.kind == PointerEventKind.up && abs(self.mouse-x - self.pressed-x) > 24px * root.s { root.swipe(self.mouse-x < self.pressed-x); } }
     }
-    for item[index] in [
-        {label: "Music", icon: @image-url("../assets/generated/music.png"), tint: #ef990a},
-        {label: "Videos", icon: @image-url("../assets/generated/videos.png"), tint: #187dd9},
-        {label: "Fitness", icon: @image-url("../assets/generated/fitness.png"), tint: #c52527},
-        {label: "Podcasts", icon: @image-url("../assets/generated/podcasts.png"), tint: #9540c6},
-        {label: "Photos", icon: @image-url("../assets/generated/photos.png"), tint: #1c9dcb},
-        {label: "Radio", icon: @image-url("../assets/generated/radio.png"), tint: #596473},
-    ]: AppIcon {
-        visible: root.page == 0; s: root.s; full-artwork: true;
-        x: (18px + mod(index, 2) * 112px) * root.s;
-        y: (24px + floor(index / 2) * 115px) * root.s;
-        label: I18n.tr(item.label); icon: item.icon; tint: item.tint; selected: root.selected == index;
-        clicked => { root.activated(index); }
+    if root.page-transition-active: HomeIconPage {
+        x: -root.page-direction * root.page-progress * root.width; y: 0px;
+        width: parent.width; height: parent.height; s: root.s;
+        page: root.outgoing-page; selected: root.selected;
+        activated(index) => { root.activated(index); }
     }
-    for item[index] in [
-        {label: "Clock", icon: @image-url("../assets/icons/clock.svg"), tint: #777, full: false},
-        {label: "Settings", icon: @image-url("../assets/original/settings.png"), tint: #aaa, full: true},
-    ]: AppIcon {
-        visible: root.page == 1; s: root.s; full-artwork: item.full; x: (18px + index * 112px) * root.s; y: 24px * root.s;
-        label: I18n.tr(item.label); icon: item.icon; tint: item.tint; selected: root.selected == index;
-        clicked => { root.activated(index); }
+    HomeIconPage {
+        x: root.page-transition-active ? root.page-direction * (1.0 - root.page-progress) * root.width : 0px;
+        y: 0px; width: parent.width; height: parent.height; s: root.s;
+        page: root.rendered-page; selected: root.selected;
+        activated(index) => { root.activated(index); }
     }
     Rectangle {
         y: 377px * root.s; height: 30px * root.s; background: transparent;
         for page in 2: Rectangle {
             x: (108px + page * 16px) * root.s; y: 5px * root.s;
             width: 6px * root.s; height: self.width; border-radius: self.width / 2;
-            background: root.page == page ? white : #fff5;
+            background: root.rendered-page == page ? white : #fff5;
         }
         TouchArea { pointer-event(event) => { if event.kind == PointerEventKind.up && abs(self.mouse-x - self.pressed-x) > 24px * root.s { root.swipe(self.mouse-x < self.pressed-x); } } }
     }

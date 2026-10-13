@@ -68,6 +68,7 @@ pub struct State {
     pub language: Language,
     pub font: Font,
     pub always_on_top: bool,
+    pub smooth_slides: bool,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
     pub videos: Vec<crate::video::library::Video>,
@@ -109,6 +110,7 @@ impl Default for State {
             language: Language::English,
             font: Font::Classic,
             always_on_top: true,
+            smooth_slides: true,
             navigation: Navigation::default(),
             tracks: Vec::new(),
             videos: Vec::new(),
@@ -214,6 +216,16 @@ impl State {
                     subtitle: if self.romaji_visible { "On" } else { "Off" }.into(),
                     artwork_id: None,
                     target: Target::Action(Action::ToggleRomaji),
+                },
+                Row {
+                    title: "Smooth Slides".into(),
+                    subtitle: if self.smooth_slides {
+                        "On · Screens slide in the navigation direction".into()
+                    } else {
+                        "Off · Screens slide in the navigation direction".into()
+                    },
+                    artwork_id: None,
+                    target: Target::Action(Action::ToggleSmoothSlides),
                 },
                 row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
                 Row {
@@ -1037,6 +1049,10 @@ impl State {
             }
             ToggleAlwaysOnTop => {
                 self.always_on_top = !self.always_on_top;
+                return vec![Effect::WindowPreferencesChanged];
+            }
+            ToggleSmoothSlides => {
+                self.smooth_slides = !self.smooth_slides;
                 return vec![Effect::WindowPreferencesChanged];
             }
             NewPlaylist => return vec![Effect::NewPlaylist],

@@ -37,6 +37,66 @@ export component AppWindow inherits Window {
     in property <string> ui-font-family: "Helvetica Neue";
     in property <bool> device-mode: true;
     in property <int> screen;
+    in property <bool> smooth-slides: true;
+    in property <int> transition-direction: 1;
+    in property <int> screen-transition-generation: 0;
+    in property <int> previous-screen;
+    in property <string> previous-screen-title;
+    in property <int> previous-selected;
+    in property <int> previous-home-page;
+    in property <int> previous-home-transition-direction: 1;
+    in-out property <[LibraryRow]> previous-rows;
+    in property <bool> previous-playlist-list;
+    in-out property <length> previous-list-scroll-y;
+    in-out property <length> previous-lyric-scroll-y;
+    private property <bool> transition-active: false;
+    private property <bool> transition-animating: false;
+    private property <length> current-screen-x: 0px;
+    private property <length> previous-screen-x: 0px;
+    transition-completion := Timer {
+        interval: 230ms; running: false;
+        triggered => {
+            root.transition-active = false;
+            root.transition-animating = false;
+            root.previous-rows = [];
+            self.stop();
+        }
+    }
+    private property <bool> previous-artwork-list: root.previous-screen == 1 && root.previous-rows.length > 0 && root.previous-rows[0].show-artwork;
+    out property <length> transition-offset: root.transition-active ? root.current-screen-x : 0px;
+    out property <length> previous-transition-offset: root.transition-active ? root.previous-screen-x : 0px;
+    out property <length> home-transition-offset: home.page-slide-offset;
+    out property <length> home-outgoing-transition-offset: home.page-outgoing-offset;
+    animate current-screen-x { duration: root.transition-animating ? 220ms : 0ms; easing: ease-in-out; }
+    animate previous-screen-x { duration: root.transition-animating ? 220ms : 0ms; easing: ease-in-out; }
+    changed screen-transition-generation => {
+        transition-completion.stop();
+        root.transition-active = false;
+        root.transition-animating = false;
+        root.current-screen-x = 0px;
+        root.previous-screen-x = 0px;
+        if !root.smooth-slides || root.screen == 9 || root.previous-screen == 9 {
+            root.previous-rows = [];
+            return;
+        } else {
+            root.current-screen-x = root.transition-direction * display.width;
+            root.transition-active = true;
+            root.transition-animating = true;
+            root.current-screen-x = 0px;
+            root.previous-screen-x = -root.transition-direction * display.width;
+            transition-completion.start();
+        }
+    }
+    changed smooth-slides => {
+        if !root.smooth-slides {
+            transition-completion.stop();
+            root.transition-active = false;
+            root.transition-animating = false;
+            root.current-screen-x = 0px;
+            root.previous-screen-x = 0px;
+            root.previous-rows = [];
+        }
+    }
     in property <bool> video-landscape;
     in property <bool> video-overlay: true;
     in property <image> video-frame;
@@ -46,6 +106,7 @@ export component AppWindow inherits Window {
     in property <string> screen-title;
     in property <int> selected;
     in property <int> home-page;
+    in property <int> home-transition-direction: 1;
     in property <string> clock-text;
     in property <bool> playing;
     in property <bool> has-track;
@@ -136,6 +197,15 @@ export component AppWindow inherits Window {
         else { keyboard.focus(); }
     }
     public function focus-search() { library.focus-search(); }
+    public function cancel-screen-transition() {
+        transition-completion.stop();
+        root.transition-active = false;
+        root.transition-animating = false;
+        root.current-screen-x = 0px;
+        root.previous-screen-x = 0px;
+        root.previous-rows = [];
+        home.cancel-page-transition();
+    }
     changed deepseek-settings-open => { root.focus-screen(); }
     public function open-genius-preview() {
         if root.genius-preview-open { return; }
@@ -279,9 +349,85 @@ export component AppWindow inherits Window {
             y: root.device-mode ? (parent.height - (296px * 76.5 / 39.6) * root.s) / 2 + 36px * root.s : (parent.height - self.height) / 2;
             width: 240px * root.s; height: 432px * root.s; clip: true; background: #fff;
             border-width: 1px * root.s; border-color: #101010;
-            HomeView {
+            Rectangle {
+                visible: root.transition-active;
+                x: root.transition-active ? root.previous-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
+            previous-home := HomeView {
+                visible: root.previous-screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                page: root.previous-home-page; selected: root.previous-selected; page-direction: root.previous-home-transition-direction; smooth-slides: root.smooth-slides;
+                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                swipe(next) => { root.home-swipe(next); }
+            }
+            Rectangle {
+                x: 0px; y: 0px; height: 26px * root.s;
+                background: root.previous-screen == 0 || root.previous-screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
+                if !root.previous-artwork-list && !root.previous-playlist-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.previous-screen == 0 || root.previous-screen == 2 ? white : #333; horizontal-alignment: center; }
+                if root.previous-screen == 2: Rectangle {
+                    x: 0px; y: 0px; width: 65px * root.s; height: parent.height;
+                    Image { x: 6px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: white; }
+                    Text { x: 17px * root.s; width: parent.width - self.x; text: I18n.tr("Back"); font-size: 11px * root.s; color: white; vertical-alignment: center; overflow: elide; }
+                    TouchArea { enabled: false; clicked => { root.command("back"); keyboard.focus(); } }
+                }
+                if root.previous-artwork-list || root.previous-playlist-list: Text { x: 20px * root.s; width: 164px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
+                if root.previous-artwork-list || root.previous-playlist-list: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
+                if root.previous-artwork-list || root.previous-playlist-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
+                if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.previous-screen == 0 || root.previous-screen == 2 ? #eee : #2a73be; }
+                Rectangle {
+                    x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
+                    border-color: #888; border-width: 1px * root.s; background: transparent;
+                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.previous-screen == 0 || root.previous-screen == 2 ? #e1e9f4 : #7a994c; }
+                }
+            }
+            Rectangle {
+                visible: root.previous-screen != 0 && root.previous-screen != 2 && !root.previous-artwork-list && !root.previous-playlist-list;
+                y: 26px * root.s; height: 38px * root.s;
+                background: @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: #969ca1;
+                Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; overflow: elide; }
+                Rectangle {
+                    x: 5px * root.s; y: 6px * root.s; width: 39px * root.s; height: 26px * root.s;
+                    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: @linear-gradient(180deg, #d9e0e5, #99a3af);
+                    Image { source: @image-url("../assets/icons/chevron-left.svg"); colorize: #fff; x: 14px * root.s; y: 6px * root.s; width: 10px * root.s; height: 14px * root.s; }
+                    TouchArea { clicked => { root.command("back"); keyboard.focus(); } }
+                }
+            }
+            previous-library := LibraryView {
+                visible: root.previous-screen == 1 || root.previous-screen == 3 || root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8;
+                enabled: false;
+                y: (root.previous-artwork-list || root.previous-playlist-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                playlist-list: root.previous-playlist-list;
+                compact-title: root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8; rows: root.previous-rows; selected: root.previous-selected; search: root.previous-screen == 3;
+                text-font-family: root.ui-font-family;
+                search-text <=> root.search-text; scroll-y <=> root.previous-list-scroll-y;
+                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open { keyboard.focus(); } }
+                edited(text) => { root.query-changed(text); }
+            }
+            if root.previous-screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.previous-screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
+            previous-now-playing := NowPlayingView {
+                visible: root.previous-screen == 2; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                navigation-enabled: false;
+                selected: root.previous-selected; selection-visible: root.keyboard-navigation; playing: root.playing; has-track: root.has-track;
+                title: root.track-title; artist: root.track-artist; album: root.track-album; artwork: root.artwork;
+                volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
+                shuffle: root.shuffle; repeat-mode: root.repeat-mode;
+                overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.lyric-lines; active-lyric: root.active-lyric;
+                romaji-lines: root.romaji-lines; romaji-visible: root.romaji-visible;
+                translated-lines: root.translated-lines; translation-visible: root.translation-visible;
+                lyric-scroll-y <=> root.previous-lyric-scroll-y;
+                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                toggle-overlay => { root.command("toggle_overlay"); keyboard.focus(); }
+                genius-requested => { root.open-genius-preview(); }
+                seek-changed(value) => { root.seek-changed(value); }
+                volume-changed(value) => { root.volume-changed(value); }
+                back => { root.command("back"); keyboard.focus(); }
+            }
+                // Keep the outgoing view live but shield its controls while it slides away.
+                TouchArea {}
+            }
+            Rectangle {
+                x: root.transition-active ? root.current-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
+            home := HomeView {
                 visible: root.screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
-                page: root.home-page; selected: root.selected;
+                page: root.home-page; selected: root.selected; page-direction: root.home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
             }
@@ -346,6 +492,7 @@ export component AppWindow inherits Window {
                 seek-changed(value) => { root.seek-changed(value); }
                 volume-changed(value) => { root.volume-changed(value); }
                 back => { root.command("back"); keyboard.focus(); }
+            }
             }
         }
         video-device := VideoDeviceFrame {

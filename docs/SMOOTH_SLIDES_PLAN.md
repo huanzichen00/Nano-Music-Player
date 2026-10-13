@@ -41,23 +41,27 @@ Navigation state policy: each accepted request has a monotonically increasing tr
 
 ### 3. Settings and transition integration
 
-After shared ownership is released, integrate the preference, translations, and transition host. Capture source/destination screen identity and direction once per navigation request; preserve screen selection, scroll offsets, lyrics/highlighting, playback position, and media ownership. Handle rapid sequences, Back during motion, Home, and video orientation changes without stale content.
+Implemented in the production UI. The controller compares semantic `Screen` identity, so navigation between views that share the same Slint presentation code (for example Music and Albums) still starts a transition. For each request it latches the outgoing screen title, rows, selection, Home page, list scroll, and lyric scroll. The source and destination remain live Slint views during the overlap; no bitmap snapshots are retained. A new request captures the latest destination as its source and restarts the motion. Turning the setting off calls the public cancellation function and commits immediately.
 
-Acceptance: setting persistence and safe migration pass; off means immediate navigation and cancels current motion. Animation uses the shared logical coordinate scale in both display modes and all zoom levels.
+The host animates both live views with Slint position animations inside the scaled display clip. Home uses two live icon pages and animates both incoming and outgoing pages; direction is derived from the old and new Home page so keyboard navigation matches swipes. Video playback entry, exit, and orientation handoffs bypass the slide host because its display has a separate rotated view. Modal overlays remain above it. Previous library rows are released when a transition completes or is canceled.
+
+Acceptance: settings persistence and the missing-key default are covered by core tests; UI regression coverage checks forward, Back, same-presentation-class library navigation, an interrupted library transition, Home in both directions, and disabling motion mid-flight. Logical-coordinate scaling is implemented through the display's dimensions and clip. Native backend timing, multiple zoom levels, and every video orientation change have not been visually verified.
 
 ### 4. Verification and delivery
 
-Run formatting, build, tests, strict lint, rendered UI checks, and actual pointer/keyboard behavior checks after integration. Inspect visual output in both display modes, at multiple zooms, and around video portrait/landscape changes. Update this plan with measured evidence and limitations.
+Production integration is present. Run formatting, focused tests, strict lint, and rendered UI checks before delivery. The UI test checks transition offsets for Home, Settings, and library navigation. The software-renderer snapshot helper did not capture the in-flight composition even when those offsets were nonzero, so it is not evidence of the production animation frame. The isolated prototype's separate software-rendered mid-forward image was inspected. Device/Screen mode and video orientation checks remain limited to the existing broader UI regression; native backend animation timing has not been measured.
 
-Acceptance: no regression in library entry latency, no accumulated frame snapshots, no duplicate action on interruption, and no changed playback/lyrics state. Reduced-motion limitations are recorded accurately.
+Acceptance: no bitmap snapshots, no duplicate navigation observed during the tested interruption, and Smooth Slides off cancels active motion. No album-list entry latency benchmark has been run, so the plan makes no measured latency claim. Reduced-motion integration is not provided because no supported platform signal has been verified.
 
 ## Current status
 
 - Phase 1: isolated Slint prototype compiles with 1.18.1 and its software-renderer runtime harness passes forward/back direction, rapid request, immediate disable, and post-disable stale-animation checks. Inspected a captured mid-forward frame: the outgoing screen is left of the entering screen and viewport clipping is correct. Runtime evidence is under `tests/isolated-motion`; those files are not part of the app build.
+- Phases 2–3: production settings, translations, live view transition host, semantic navigation generation, and symmetric Home-page motion are implemented. UI regression coverage includes same-class library navigation, Back during motion, and cancellation when disabling the setting. UI regression snapshots are generated under the system temporary `nano-qa` directory, but the snapshot helper currently does not capture the active production transition composition.
+- The source and destination are duplicated live Slint views only during the short overlap. Playback state stays in the application model; no media or playback state is copied into the transition host.
 - The supplied manual PDF has malformed cross-reference entries but remains readable through Poppler recovery. Its interaction diagrams inform screen and gesture interpretation; the app's existing behavior remains the source for shortcut compatibility.
-- Reduced-motion behavior is not yet verified against a platform API.
+- Reduced-motion behavior is not integrated or verified against a platform API. Native backend timing, zoom variants, and a dedicated album-list latency benchmark remain unverified.
 
-## Review notes for the in-progress Genius/translation integration
+## Related UI constraints
 
 - `800adc5` adds a real Genius preview modal and translation target menu actions. Keep these modal views above the screen-transition host; opening/closing them should not be interpreted as app-screen navigation.
 - Now Playing now lays out each lyric row from the preferred heights of the original, translated, and romaji text. A transition must preserve `lyric-scroll-y` and let those live measured rows render; do not flatten them into a snapshot.

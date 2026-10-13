@@ -89,6 +89,9 @@ impl Default for Navigation {
 }
 
 impl Navigation {
+    pub fn depth(&self) -> usize {
+        self.stack.len()
+    }
     pub fn current(&self) -> &Entry {
         &self.stack[self.stack.len() - 1]
     }

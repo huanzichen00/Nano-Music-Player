@@ -193,14 +193,116 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     ui.invoke_focus_screen();
     controller.borrow_mut().poll(&ui);
     snapshot(&ui, "home");
-    scroll(&ui, 60.0, 80.0, -80.0, 0.0);
+    ui.window().dispatch_event(WindowEvent::PointerScrolled {
+        position: display_point(&ui, 60.0, 80.0),
+        delta_x: -80.0,
+        delta_y: 0.0,
+    });
     assert_eq!(
         ui.get_home_page(),
         1,
         "horizontal scroll over an icon changes Home page"
     );
-    scroll(&ui, 60.0, 80.0, 80.0, 0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(60));
+    assert!(
+        ui.get_home_transition_offset() > 0.0,
+        "leftward swipe enters the next page from the right"
+    );
+    assert!(ui.get_home_outgoing_transition_offset() < 0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    ui.window().dispatch_event(WindowEvent::PointerScrolled {
+        position: display_point(&ui, 60.0, 80.0),
+        delta_x: 80.0,
+        delta_y: 0.0,
+    });
     assert_eq!(ui.get_home_page(), 0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(80));
+    assert!(
+        ui.get_home_transition_offset() < 0.0,
+        "rightward Home swipe brings the prior page in from the left"
+    );
+    assert!(ui.get_home_outgoing_transition_offset() > 0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    controller.borrow_mut().state.navigation.select(5);
+    controller.borrow_mut().poll(&ui);
+    tap(&ui, Key::RightArrow);
+    assert_eq!(ui.get_home_page(), 1);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(60));
+    assert!(ui.get_home_transition_offset() > 0.0);
+    assert!(ui.get_home_outgoing_transition_offset() < 0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    assert_eq!(ui.get_previous_rows().row_count(), 0);
+    tap(&ui, Key::LeftArrow);
+    assert_eq!(ui.get_home_page(), 0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(60));
+    assert!(ui.get_home_transition_offset() < 0.0);
+    assert!(ui.get_home_outgoing_transition_offset() > 0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    controller.borrow_mut().execute(&ui, Action::Settings);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(60));
+    assert!(
+        ui.get_transition_offset() > 0.0,
+        "forward navigation enters from the right"
+    );
+    assert!(ui.get_previous_transition_offset() < 0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    controller.borrow_mut().execute(&ui, Action::Back);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(60));
+    assert!(
+        ui.get_transition_offset() < 0.0,
+        "Back navigation enters from the left"
+    );
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    controller.borrow_mut().state.navigation.select(0);
+    controller.borrow_mut().execute(&ui, Action::Activate); // Selects Music from Home.
+    controller.borrow_mut().state.navigation.select(3); // Albums inside Music.
+    controller.borrow_mut().execute(&ui, Action::Activate);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(110));
+    assert_eq!(ui.get_previous_screen(), 1);
+    assert_eq!(ui.get_previous_screen_title(), "Music");
+    assert_eq!(
+        ui.get_screen(),
+        1,
+        "Music and Albums share the same presentation class"
+    );
+    assert!(
+        ui.get_transition_offset() > 0.0,
+        "semantic navigation identity starts the library-to-library transition"
+    );
+    assert!(ui.get_previous_rows().row_count() > ui.get_rows().row_count());
+    snapshot(&ui, "slide-music-albums");
+    controller.borrow_mut().execute(&ui, Action::Back);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(60));
+    assert_eq!(ui.get_previous_screen_title(), "Albums");
+    assert_eq!(ui.get_screen_title(), "Music");
+    assert!(
+        ui.get_transition_offset() < 0.0,
+        "a new Back request retargets an in-flight library transition"
+    );
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    assert_eq!(ui.get_previous_rows().row_count(), 0);
+    controller.borrow_mut().execute(&ui, Action::Settings);
+    controller.borrow_mut().state.navigation.select(7);
+    controller.borrow_mut().execute(&ui, Action::Activate);
+    assert!(!controller.borrow().state.smooth_slides);
+    assert_eq!(
+        ui.get_transition_offset(),
+        0.0,
+        "turning Smooth Slides off cancels the active transition"
+    );
+    assert!(
+        !nano_music_player::app::config::Settings::load(&directory.path().join("settings.json"))
+            .unwrap()
+            .smooth_slides
+    );
+    controller.borrow_mut().execute(&ui, Action::Back);
+    assert_eq!(
+        ui.get_transition_offset(),
+        0.0,
+        "disabled slides switch screens immediately"
+    );
+    controller.borrow_mut().execute(&ui, Action::Home);
     tap(&ui, "j");
     assert_eq!(ui.get_selected(), 2);
     tap(&ui, "k");
@@ -1319,7 +1421,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     use nano_music_player::app::typography::Font;
     let track_before = controller.borrow().state.tracks[1].clone();
     ui.invoke_command("settings".into());
-    ui.invoke_item_clicked(8);
+    ui.invoke_item_clicked(9);
     assert_eq!(
         controller.borrow().state.navigation.current().screen,
         Screen::Fonts
@@ -1344,7 +1446,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         );
     }
     tap(&ui, Key::Escape);
-    ui.invoke_item_clicked(8);
+    ui.invoke_item_clicked(9);
     assert_eq!(ui.get_selected(), Font::JetBrainsMono.index() as i32);
     let reopened = Controller::new(directory.path().to_path_buf());
     assert_eq!(reopened.state.font, Font::JetBrainsMono);
@@ -1410,7 +1512,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     ui.invoke_command("settings".into());
     for expected in [false, true] {
         let size = ui.window().size();
-        ui.invoke_item_clicked(9);
+        ui.invoke_item_clicked(10);
         assert_eq!(ui.get_keep_on_top(), expected);
         assert_eq!(ui.window().size(), size);
         assert_eq!(

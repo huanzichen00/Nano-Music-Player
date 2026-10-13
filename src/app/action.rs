@@ -28,6 +28,7 @@ pub enum Action {
     DeviceMode,
     ScreenMode,
     ToggleAlwaysOnTop,
+    ToggleSmoothSlides,
     ZoomIn,
     ZoomOut,
     ShowShortcuts,
@@ -94,6 +95,7 @@ impl Action {
             | Self::DeviceMode
             | Self::ScreenMode
             | Self::ToggleAlwaysOnTop
+            | Self::ToggleSmoothSlides
             | Self::ZoomIn
             | Self::ZoomOut
             | Self::ShowShortcuts
@@ -158,6 +160,7 @@ impl Action {
             Self::DeviceMode => "Device Mode",
             Self::ScreenMode => "Screen Mode",
             Self::ToggleAlwaysOnTop => "Always on Top",
+            Self::ToggleSmoothSlides => "Smooth Slides",
             Self::NewPlaylist => "New Playlist…",
             Self::ZoomIn => "Zoom in",
             Self::ZoomOut => "Zoom out",
