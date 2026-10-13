@@ -69,6 +69,38 @@ fn wait(
     );
 }
 
+fn wait_finished(engine: &Engine, generation: u64) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        while let Ok(event) = engine.events.try_recv() {
+            if matches!(event, Event::Finished(found) if found == generation) {
+                return;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "missing Finished event for generation {generation}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_stopped(engine: &Engine, handoff: u64) {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        while let Ok(event) = engine.events.try_recv() {
+            if matches!(event, Event::Stopped { handoff: found } if found == handoff) {
+                return;
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "missing Stopped event for handoff {handoff}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 #[ignore = "Requires libmpv and ffmpeg; generates and decodes an original fixture"]
 fn native_import_transport_generations_and_errors() {
@@ -165,6 +197,14 @@ fn native_import_transport_generations_and_errors() {
             seconds: 3.0,
         })
         .unwrap();
+    engine
+        .send(Command::Subtitle {
+            generation: 1,
+            preference: super::subtitles::SubtitlePreference::External(
+                dir.path().join("stale-session-must-ignore.ass"),
+            ),
+        })
+        .unwrap();
     thread::sleep(Duration::from_millis(160));
     let progress = engine.take_progress().unwrap();
     assert_eq!(progress.status, Status::Paused);
@@ -183,7 +223,7 @@ fn native_import_transport_generations_and_errors() {
         })
         .unwrap();
     wait(&engine, |p| p.status == Status::Finished);
-    assert!(matches!(engine.events.try_recv(), Ok(Event::Finished(2))));
+    wait_finished(&engine, 2);
     // EOF unloads the native file. Replay and seeking after EOF open fresh sessions.
     engine
         .send(Command::Load {
@@ -206,7 +246,7 @@ fn native_import_transport_generations_and_errors() {
     wait(&engine, |p| {
         p.generation == 3 && p.status == Status::Finished
     });
-    assert!(matches!(engine.events.try_recv(), Ok(Event::Finished(3))));
+    wait_finished(&engine, 3);
     engine
         .send(Command::Load {
             generation: 4,
@@ -221,10 +261,7 @@ fn native_import_transport_generations_and_errors() {
     });
     assert_eq!(engine.take_frame().unwrap().generation, 4);
     engine.send(Command::Stop { handoff: 42 }).unwrap();
-    assert!(matches!(
-        engine.events.recv_timeout(Duration::from_secs(2)),
-        Ok(Event::Stopped { handoff: 42 })
-    ));
+    wait_stopped(&engine, 42);
     assert!(engine.take_frame().is_none());
     assert!(engine.take_progress().is_none());
     let mut missing = video;
