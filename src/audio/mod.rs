@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod gain;
 pub mod queue;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
