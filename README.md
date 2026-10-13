@@ -72,6 +72,12 @@ Open **Music → Playlists → Add Playlist** or **File → New Playlist…**. T
 
 Names must be nonempty, single-line and at most 100 characters; duplicate names are rejected regardless of case. Missing paths remain stored and songs absent from the current library are skipped. Editing/deleting saved playlists and iTunes synchronization are not included yet.
 
+## Song ratings
+
+On Now Playing, tap the artwork to reveal controls, then tap the album track-list button. The five bullets above the album songs become stars as you tap or drag to set a rating from zero to five, following the iPod nano guide (page 23). Drag to the left of the first bullet, or press **0**, to clear it; **1–5** sets stars while this strip is visible. Custom shortcuts keep precedence, and text entry retains normal behavior.
+
+The small title above the stars identifies the song being rated. It stays pinned if playback moves to the next song; reopening the track list targets the newly playing song. Ratings save locally in SQLite, survive restarts and metadata rescans, and follow confirmed file rename events. Saving runs in the background, and queued changes finish on close. Failed saves restore the last confirmed rating and show a notice. Audio tags remain unchanged. iTunes synchronization is outside this desktop player's scope.
+
 ## Playback, monitoring and smart playlists
 
 **Settings → Gapless Playback** queues the next eligible song on the same audio sink. Repeat, shuffle, seeking and queue changes invalidate unstarted successors; encoder delay/padding is trimmed where the decoder format provides it. This preserves continuous albums without adding crossfade.

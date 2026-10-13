@@ -6,7 +6,7 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -267,6 +267,10 @@ impl StatisticsStore {
                     played_at INTEGER NOT NULL,
                     listened_seconds INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS track_ratings (
+                    path TEXT PRIMARY KEY,
+                    stars INTEGER NOT NULL CHECK(stars BETWEEN 0 AND 5)
+                );
                 CREATE INDEX IF NOT EXISTS listening_history_played_at
                     ON listening_history(played_at DESC, id DESC);",
             )
@@ -275,6 +279,35 @@ impl StatisticsStore {
             connection,
             history_limit: DEFAULT_HISTORY_LIMIT,
         })
+    }
+
+    /// User ratings are independent of imported metadata and playback counts.
+    /// Zero is an explicit clear and survives rescans without modifying audio tags.
+    pub fn set_rating(&self, path: &Path, stars: u8) -> Result<(), String> {
+        if stars > 5 {
+            return Err("Rating must be between 0 and 5".into());
+        }
+        self.connection.execute(
+            "INSERT INTO track_ratings(path, stars) VALUES (?, ?) ON CONFLICT(path) DO UPDATE SET stars = excluded.stars",
+            params![path.to_string_lossy(), stars],
+        ).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    pub fn ratings(&self) -> Result<HashMap<PathBuf, u8>, String> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT path, stars FROM track_ratings")
+            .map_err(|e| e.to_string())?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    PathBuf::from(row.get::<_, String>(0)?),
+                    row.get::<_, u8>(1)?,
+                ))
+            })
+            .map_err(|e| e.to_string())?
+            .map(|row| row.map_err(|e| e.to_string()))
+            .collect()
     }
 
     /// Set the first-seen time for previously unknown paths. Re-scans and metadata
@@ -360,9 +393,21 @@ impl StatisticsStore {
         transaction
             .execute(
                 "DELETE FROM playback_statistics WHERE path = ?",
-                [from_text],
+                [from_text.as_ref()],
             )
             .map_err(|error| error.to_string())?;
+        // A confirmed rename carries the source's explicit rating (including
+        // zero) with the song; an unrated source leaves a destination rating alone.
+        transaction.execute(
+            "INSERT INTO track_ratings(path, stars) SELECT ?, stars FROM track_ratings WHERE path = ?
+             ON CONFLICT(path) DO UPDATE SET stars = excluded.stars", params![to_text, from_text],
+        ).map_err(|e| e.to_string())?;
+        transaction
+            .execute(
+                "DELETE FROM track_ratings WHERE path = ?",
+                [from_text.as_ref()],
+            )
+            .map_err(|e| e.to_string())?;
         transaction.commit().map_err(|error| error.to_string())
     }
 

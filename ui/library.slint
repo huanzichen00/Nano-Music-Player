@@ -1,4 +1,5 @@
 import { I18n } from "i18n.slint";
+import { RatingControl } from "rating.slint";
 export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwork: image, show-artwork: bool, font-family: string }
 export struct GeniusRow { title: string, artist: string, path: string }
 
@@ -52,8 +53,14 @@ export component LibraryView inherits Rectangle {
     in property <bool> playlist-list: false;
     in property <bool> playlist-content: false;
     in property <bool> shuffle-list: false;
+    in property <bool> rating-visible;
+    in property <bool> rating-enabled;
+    in property <int> rating;
+    in property <string> rating-title;
+    callback rating-changed(int);
+    private property <length> rating-header-height: root.rating-visible ? 48px * root.s : 0px;
     private property <int> prefix-count: root.playlist-content ? 2 : root.playlist-list || root.shuffle-list ? 1 : 0;
-    out property <length> header-height: ((root.search ? 44px : (root.playlist-list || root.playlist-content ? 32px : 0px)) + (root.shuffle-list ? 32px : 0px)) * root.s;
+    out property <length> header-height: root.rating-header-height + ((root.search ? 44px : (root.playlist-list || root.playlist-content ? 32px : 0px)) + (root.shuffle-list ? 32px : 0px)) * root.s;
     callback edit-playlist();
     callback back;
     in property <bool> enabled: true;
@@ -66,8 +73,14 @@ export component LibraryView inherits Rectangle {
     callback edited(string);
     public function focus-search() { input.focus(); }
     background: #fff;
+    RatingControl {
+        x: 0px; y: 0px; width: root.width; height: root.rating-header-height;
+        visible: root.rating-visible; enabled: root.enabled && root.rating-enabled;
+        s: root.s; title: root.rating-title; value: root.rating;
+        changed(value) => { root.rating-changed(value); }
+    }
     LibraryBackArea {
-        x: 0px; y: 0px; width: root.width; height: root.height;
+        x: 0px; y: root.rating-header-height; width: root.width; height: root.height - self.y;
         s: root.s; enabled: root.enabled && !(root.search && input.has-focus);
         back => { root.back(); }
         // Existing list controls are children of the gesture area. Its recognizer
@@ -111,8 +124,8 @@ export component LibraryView inherits Rectangle {
         }
     }
     Flickable {
-        y: root.header-height;
-        height: root.height - self.y; width: root.width;
+        y: root.header-height - root.rating-header-height;
+        height: root.height - root.rating-header-height - self.y; width: root.width;
         content-height: max(self.height, (root.rows.length - root.prefix-count) * root.row-height);
         content-y <=> root.scroll-y;
         for row[index] in root.rows: Rectangle {

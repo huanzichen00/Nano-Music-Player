@@ -88,6 +88,10 @@ pub struct State {
     pub video_importing: bool,
     pub playlists: Vec<crate::library::playlists::Playlist>,
     pub smart_playlists: HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>,
+    pub ratings: HashMap<PathBuf, u8>,
+    pub ratings_ready: bool,
+    /// The song whose rating is shown above its album track list.
+    pub album_rating_path: Option<PathBuf>,
     pub gapless_playback: bool,
     pub replay_gain_mode: crate::audio::gain::GainMode,
     pub replay_gain_preamp_db: f32,
@@ -137,6 +141,9 @@ impl Default for State {
             video_importing: false,
             playlists: Vec::new(),
             smart_playlists: HashMap::new(),
+            ratings: HashMap::new(),
+            ratings_ready: false,
+            album_rating_path: None,
             gapless_playback: true,
             replay_gain_mode: crate::audio::gain::GainMode::Off,
             replay_gain_preamp_db: 0.0,
@@ -762,6 +769,25 @@ impl State {
         self.navigation.select(selected);
     }
 
+    /// Ratings are shown only in the album list opened through Now Playing.
+    /// Pin the displayed song so a gapless handoff cannot redirect an in-flight edit.
+    pub fn rating_target(&self) -> Option<&Track> {
+        if self.video_active {
+            return None;
+        }
+        let Screen::Songs(Filter::Album { name, artist }) = &self.navigation.current().screen
+        else {
+            return None;
+        };
+        let path = self.album_rating_path.as_ref()?;
+        self.tracks.iter().find(|track| {
+            &track.path == path
+                && &track.album == name
+                && artist.as_ref().is_none_or(|artist| &track.artist == artist)
+                && self.track_available(track)
+        })
+    }
+
     pub fn lyrics_target(&self) -> Option<usize> {
         match self.navigation.current().screen {
             Screen::Lyrics(id) => Some(id),
@@ -1003,6 +1029,9 @@ impl State {
 
     pub fn apply(&mut self, action: Action) -> Vec<Effect> {
         use Action::*;
+        if matches!(action, Back | Home | Settings | Search | NowPlaying) {
+            self.album_rating_path = None;
+        }
         if self.video_active {
             match action {
                 TogglePlay => {
@@ -1475,6 +1504,7 @@ impl State {
             }
             TrackList => {
                 if let Some(track) = self.current.and_then(|id| self.tracks.get(id)) {
+                    self.album_rating_path = Some(track.path.clone());
                     self.navigation.open(Screen::Songs(Filter::Album {
                         name: track.album.clone(),
                         artist: Some(track.artist.clone()),

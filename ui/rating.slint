@@ -1,0 +1,52 @@
+import { I18n } from "i18n.slint";
+
+// PDF p.23: filled stars replace the five rating bullets. This control sits
+// outside horizontal Back recognition so dragging a rating cannot leave the list.
+export component RatingControl inherits Rectangle {
+    in property <float> s;
+    in property <string> title;
+    in property <int> value;
+    in property <bool> enabled: true;
+    callback changed(int);
+    height: 48px * root.s;
+    background: @linear-gradient(180deg, #fafafa, #ededed);
+    accessible-role: slider;
+    accessible-label: I18n.tr("Song rating") + ": " + root.title;
+    accessible-enabled: root.enabled;
+    accessible-value: root.value;
+    accessible-value-minimum: 0;
+    accessible-value-maximum: 5;
+    accessible-value-step: 1;
+    accessible-action-set-value(v) => { if root.enabled && v.is-float() { root.changed(clamp(round(v.to-float()), 0, 5)); } }
+    accessible-action-increment => { if root.enabled { root.changed(min(5, root.value + 1)); } }
+    accessible-action-decrement => { if root.enabled { root.changed(max(0, root.value - 1)); } }
+    Text {
+        x: 8px * root.s; y: 2px * root.s; width: parent.width - 16px * root.s; height: 16px * root.s;
+        text: root.title; font-size: 11px * root.s; color: #737a82; horizontal-alignment: center; overflow: elide;
+    }
+    for index in 5: Rectangle {
+        x: parent.width / 2 - 75px * root.s + index * 30px * root.s;
+        y: 20px * root.s; width: 30px * root.s; height: 24px * root.s;
+        if index < root.value: Image {
+            x: 7px * root.s; y: 3px * root.s; width: 16px * root.s; height: 16px * root.s;
+            source: @image-url("../assets/icons/rating-star.svg"); colorize: root.enabled ? #87919d : #abb1b8; image-fit: contain;
+        }
+        if index >= root.value: Rectangle {
+            x: 13px * root.s; y: 9px * root.s; width: 4px * root.s; height: 4px * root.s;
+            border-radius: 2px * root.s; background: #a7adb4;
+        }
+    }
+    Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #c9cdd2; }
+    touch := TouchArea {
+        enabled: root.enabled;
+        x: parent.width / 2 - 105px * root.s; y: 18px * root.s;
+        width: 180px * root.s; height: 29px * root.s;
+        // The cell to the left of the first bullet clears the rating.
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                root.changed(clamp(floor(self.mouse-x / (30px * root.s)), 0, 5));
+            }
+        }
+        moved => { if self.pressed { root.changed(clamp(floor(self.mouse-x / (30px * root.s)), 0, 5)); } }
+    }
+}

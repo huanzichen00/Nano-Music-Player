@@ -51,6 +51,9 @@ export component AppWindow inherits Window {
     in property <bool> previous-playlist-list;
     in property <bool> previous-playlist-content;
     in property <bool> previous-shuffle-list;
+    in property <bool> previous-rating-visible;
+    in property <string> previous-rating-title;
+    in property <int> previous-rating;
     in-out property <length> previous-list-scroll-y;
     in-out property <length> previous-lyric-scroll-y;
     private property <bool> transition-active: false;
@@ -119,6 +122,11 @@ export component AppWindow inherits Window {
     in property <bool> has-track;
     in property <string> track-path;
     in property <string> track-title;
+    in property <bool> rating-visible;
+    in property <bool> rating-enabled;
+    in property <string> rating-target-path;
+    in property <string> rating-title;
+    in property <int> rating;
     in property <string> track-artist;
     in property <string> track-album;
     in property <image> artwork;
@@ -203,6 +211,7 @@ export component AppWindow inherits Window {
     callback item-clicked(int);
     callback query-changed(string);
     callback volume-changed(float);
+    callback rating-changed(string, int);
     callback seek-changed(float);
     callback home-swipe(bool);
     public function focus-screen() {
@@ -423,6 +432,7 @@ export component AppWindow inherits Window {
                 enabled: false;
                 y: (root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 playlist-list: root.previous-playlist-list; playlist-content: root.previous-playlist-content; shuffle-list: root.previous-shuffle-list;
+                rating-visible: root.previous-rating-visible; rating-title: root.previous-rating-title; rating: root.previous-rating;
                 compact-title: root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8; rows: root.previous-rows; selected: root.previous-selected; search: root.previous-screen == 3;
                 text-font-family: root.ui-font-family;
                 search-text <=> root.search-text; scroll-y <=> root.previous-list-scroll-y;
@@ -497,6 +507,9 @@ export component AppWindow inherits Window {
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 y: (root.artwork-list || root.playlist-list || root.playlist-content ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
+                rating-visible: root.rating-visible; rating-enabled: root.rating-enabled;
+                rating-title: root.rating-title; rating: root.rating;
+                rating-changed(value) => { root.rating-changed(root.rating-target-path, value); keyboard.focus(); }
                 edit-playlist => { root.command("edit_playlist"); keyboard.focus(); }
                 back => { root.command("back"); keyboard.focus(); }
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;

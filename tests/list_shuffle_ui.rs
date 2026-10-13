@@ -1,6 +1,7 @@
 use nano_music_player::{
     app::{
         action::Action,
+        config::Settings,
         controller::{Controller, connect},
         navigation::{Filter, Group, Screen},
     },
@@ -32,6 +33,14 @@ fn shuffle_header_pointer_keyboard_and_cover_geometry_use_the_same_model() {
     )))
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
+    // Deliberately missing fixture files must remain in this geometry test.
+    // The background watcher would otherwise race the assertions and remove them.
+    Settings {
+        monitor_deleted_files: false,
+        ..Default::default()
+    }
+    .save(&directory.path().join("settings.json"))
+    .unwrap();
     let ui = AppWindow::new().unwrap();
     let controller = Rc::new(RefCell::new(Controller::new(directory.path().to_owned())));
     controller.borrow_mut().state.tracks = ["Song A", "Song B"]

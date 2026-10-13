@@ -41,6 +41,12 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Song rating", "歌曲评分", "曲の評価"),
+    (
+        "Could not save rating",
+        "无法保存评分",
+        "評価を保存できませんでした",
+    ),
     ("Recently Added", "最近添加", "最近追加した曲"),
     ("Most Played", "播放次数最多", "再生回数の多い曲"),
     ("Recently Played", "最近播放", "最近再生した曲"),

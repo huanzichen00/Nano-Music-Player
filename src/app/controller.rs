@@ -44,6 +44,12 @@ enum PendingMedia {
 
 enum StatisticsCommand {
     Library(Vec<PathBuf>),
+    Rate {
+        path: PathBuf,
+        stars: u8,
+        request: u64,
+    },
+    Shutdown,
     Renamed {
         from: PathBuf,
         to: PathBuf,
@@ -56,14 +62,27 @@ enum StatisticsCommand {
 }
 
 enum StatisticsEvent {
+    RatingsLoaded(HashMap<PathBuf, u8>),
+    RatingSaved {
+        path: PathBuf,
+        stars: u8,
+        request: u64,
+        result: Result<(), String>,
+    },
     SmartPlaylists(HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>),
     Error(String),
 }
 
-fn statistics_worker(database: PathBuf) -> (Sender<StatisticsCommand>, Receiver<StatisticsEvent>) {
+fn statistics_worker(
+    database: PathBuf,
+) -> (
+    Sender<StatisticsCommand>,
+    Receiver<StatisticsEvent>,
+    std::thread::JoinHandle<()>,
+) {
     let (commands, receiver) = std::sync::mpsc::channel();
     let (events, event_receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
+    let worker = std::thread::spawn(move || {
         let store = match crate::library::statistics::StatisticsStore::open(&database) {
             Ok(store) => store,
             Err(error) => {
@@ -71,15 +90,42 @@ fn statistics_worker(database: PathBuf) -> (Sender<StatisticsCommand>, Receiver<
                 return;
             }
         };
+        match store.ratings() {
+            Ok(ratings) => {
+                let _ = events.send(StatisticsEvent::RatingsLoaded(ratings));
+            }
+            Err(error) => {
+                let _ = events.send(StatisticsEvent::Error(error));
+            }
+        }
         let mut current_paths = Vec::new();
         while let Ok(command) = receiver.recv() {
             let result = match command {
+                StatisticsCommand::Shutdown => break,
+                StatisticsCommand::Rate {
+                    path,
+                    stars,
+                    request,
+                } => {
+                    let result = store.set_rating(&path, stars);
+                    let _ = events.send(StatisticsEvent::RatingSaved {
+                        path,
+                        stars,
+                        request,
+                        result,
+                    });
+                    continue;
+                }
                 StatisticsCommand::Library(paths) => {
                     current_paths = paths;
                     store.register_library_paths(&current_paths, chrono::Utc::now().timestamp())
                 }
                 StatisticsCommand::Renamed { from, to } => {
-                    store.rename_path(&from, &to).map(|_| ())
+                    store.rename_path(&from, &to).and_then(|_| {
+                        let ratings = store.ratings()?;
+                        let _ = events.send(StatisticsEvent::RatingsLoaded(ratings));
+                        Ok(())
+                    })
                 }
                 StatisticsCommand::Played {
                     path,
@@ -114,7 +160,7 @@ fn statistics_worker(database: PathBuf) -> (Sender<StatisticsCommand>, Receiver<
             }
         }
     });
-    (commands, event_receiver)
+    (commands, event_receiver, worker)
 }
 
 pub struct Controller {
@@ -139,6 +185,9 @@ pub struct Controller {
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
     statistics_commands: Sender<StatisticsCommand>,
     statistics_events: Receiver<StatisticsEvent>,
+    statistics_writer: Option<std::thread::JoinHandle<()>>,
+    pending_ratings: HashMap<PathBuf, (u64, u8)>,
+    rating_request: u64,
     library_monitor: Option<crate::library::library_monitor::Monitor>,
     library_scan_generation: u64,
     root_generations: HashMap<PathBuf, u64>,
@@ -237,7 +286,8 @@ impl Controller {
                 Keymap::default()
             });
         let database = directory.join("library.sqlite3");
-        let (statistics_commands, statistics_events) = statistics_worker(database.clone());
+        let (statistics_commands, statistics_events, statistics_writer) =
+            statistics_worker(database.clone());
         let (sender, receiver) = std::sync::mpsc::channel();
         let (library_sender, library_receiver) = std::sync::mpsc::sync_channel(2);
         std::thread::spawn(move || {
@@ -285,6 +335,9 @@ impl Controller {
             media_marker: None,
             statistics_commands,
             statistics_events,
+            statistics_writer: Some(statistics_writer),
+            pending_ratings: HashMap::new(),
+            rating_request: 0,
             library_monitor: None,
             library_scan_generation: 0,
             root_generations: HashMap::new(),
@@ -650,6 +703,22 @@ impl Controller {
             return true;
         }
         match self.dispatcher.dispatch(&press, context) {
+            Dispatch::Ignored
+                if !text_input
+                    && !self.dialog_open
+                    && !self.state.reference_open
+                    && press.modifiers == Modifiers::default()
+                    && !press.repeat =>
+            {
+                if let Key::Digit(digit @ '0'..='5') = press.key
+                    && let Some(path) = self.state.rating_target().map(|track| track.path.clone())
+                {
+                    self.set_rating(ui, &path, (digit as u8) - b'0');
+                    true
+                } else {
+                    false
+                }
+            }
             Dispatch::Ignored => false,
             Dispatch::Consumed => true,
             Dispatch::Action(action) => {
@@ -1944,9 +2013,84 @@ impl Controller {
             .send(StatisticsCommand::Library(paths));
     }
 
+    pub fn set_rating(&mut self, ui: &AppWindow, path: &std::path::Path, stars: u8) {
+        if stars > 5
+            || !self.state.ratings_ready
+            || self
+                .state
+                .rating_target()
+                .is_none_or(|track| track.path != path)
+            || self.dialog_open
+            || self.state.reference_open
+            || ui.get_playlist_editor_open()
+            || ui.get_genius_preview_open()
+            || ui.get_shortcut_editor_open()
+            || ui.get_deepseek_settings_open()
+        {
+            return;
+        }
+        let old = self.state.ratings.get(path).copied().unwrap_or(0);
+        if old == stars {
+            return;
+        }
+        self.rating_request = self.rating_request.wrapping_add(1);
+        // Preserve the last confirmed value across a burst of drag updates.
+        let previous = self
+            .pending_ratings
+            .get(path)
+            .map_or(old, |(_, previous)| *previous);
+        let request = self.rating_request;
+        self.pending_ratings
+            .insert(path.to_path_buf(), (request, previous));
+        self.state.ratings.insert(path.to_path_buf(), stars);
+        if self
+            .statistics_commands
+            .send(StatisticsCommand::Rate {
+                path: path.to_path_buf(),
+                stars,
+                request,
+            })
+            .is_err()
+        {
+            self.pending_ratings.remove(path);
+            self.state.ratings.insert(path.to_path_buf(), previous);
+            self.state.notice = "Could not save rating".into();
+        }
+        self.sync(ui);
+    }
+
     fn poll_statistics(&mut self) {
         while let Ok(event) = self.statistics_events.try_recv() {
             match event {
+                StatisticsEvent::RatingsLoaded(mut ratings) => {
+                    for path in self.pending_ratings.keys() {
+                        if let Some(stars) = self.state.ratings.get(path) {
+                            ratings.insert(path.clone(), *stars);
+                        }
+                    }
+                    self.state.ratings = ratings;
+                    self.state.ratings_ready = true;
+                }
+                StatisticsEvent::RatingSaved {
+                    path,
+                    stars,
+                    request,
+                    result,
+                } => {
+                    if let Some((expected, previous)) = self.pending_ratings.get(&path).copied() {
+                        if request == expected {
+                            self.pending_ratings.remove(&path);
+                            if result.is_err() {
+                                self.state.ratings.insert(path, previous);
+                                self.state.notice = "Could not save rating".into();
+                            }
+                        } else if request < expected && result.is_ok() {
+                            if let Some(pending) = self.pending_ratings.get_mut(&path) {
+                                pending.1 = stars;
+                            }
+                        }
+                    }
+                }
                 StatisticsEvent::SmartPlaylists(playlists) => {
                     if self.state.smart_playlists != playlists {
                         self.state.smart_playlists = playlists;
@@ -1981,6 +2125,12 @@ impl Controller {
                     self.queue_library_scan(path);
                 }
                 crate::library::library_monitor::LibraryEvent::Renamed { from, to } => {
+                    if let Some(stars) = self.state.ratings.remove(&from) {
+                        self.state.ratings.insert(to.clone(), stars);
+                    }
+                    if self.state.album_rating_path.as_ref() == Some(&from) {
+                        self.state.album_rating_path = Some(to.clone());
+                    }
                     let _ = self.statistics_commands.send(StatisticsCommand::Renamed {
                         from: from.clone(),
                         to: to.clone(),
@@ -2274,6 +2424,9 @@ impl Controller {
             ui.set_previous_playlist_list(ui.get_playlist_list());
             ui.set_previous_playlist_content(ui.get_playlist_content());
             ui.set_previous_shuffle_list(ui.get_shuffle_list());
+            ui.set_previous_rating_visible(ui.get_rating_visible());
+            ui.set_previous_rating_title(ui.get_rating_title());
+            ui.set_previous_rating(ui.get_rating());
             ui.set_previous_list_scroll_y(ui.get_list_scroll_y());
             ui.set_previous_lyric_scroll_y(ui.get_lyric_scroll_y());
         }
@@ -2322,6 +2475,21 @@ impl Controller {
             _ => self.text(screen.title()),
         });
         ui.set_device_mode(self.state.device_mode);
+        let rating_target = self.state.rating_target();
+        ui.set_rating_visible(rating_target.is_some());
+        ui.set_rating_enabled(self.state.ratings_ready);
+        ui.set_rating_target_path(
+            rating_target
+                .map_or_else(String::new, |t| t.path.to_string_lossy().into_owned())
+                .into(),
+        );
+        ui.set_rating_title(rating_target.map_or("", |t| t.title.as_str()).into());
+        ui.set_rating(
+            rating_target
+                .and_then(|t| self.state.ratings.get(&t.path))
+                .copied()
+                .unwrap_or(0) as i32,
+        );
         ui.set_playlist_list(matches!(screen, Screen::Groups(Group::Playlists)));
         ui.set_playlist_content(matches!(screen, Screen::Songs(Filter::Playlist { .. })));
         ui.set_shuffle_list(self.state.supports_list_shuffle());
@@ -3687,6 +3855,11 @@ impl Controller {
 
 impl Drop for Controller {
     fn drop(&mut self) {
+        // Drain queued user ratings/statistics before process exit.
+        let _ = self.statistics_commands.send(StatisticsCommand::Shutdown);
+        if let Some(worker) = self.statistics_writer.take() {
+            let _ = worker.join();
+        }
         // Finish an explicit Create before shutdown, so a successful write survives restart.
         if let Some(worker) = self.playlist_writer.take() {
             let _ = worker.join();
@@ -3859,6 +4032,17 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 state.state.navigation.select(index as usize);
                 state.execute(&ui, Action::Activate);
             }
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_rating_changed(move |path, stars| {
+        if let Some(ui) = weak.upgrade()
+            && (0..=5).contains(&stars)
+        {
+            state
+                .borrow_mut()
+                .set_rating(&ui, std::path::Path::new(path.as_str()), stars as u8);
         }
     });
     let weak = ui.as_weak();
