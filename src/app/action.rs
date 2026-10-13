@@ -55,6 +55,10 @@ pub enum Action {
     JumpToLetter,
     NewPlaylist,
     EditPlaylist,
+    CycleReplayGain,
+    CycleReplayGainPreamp,
+    ToggleReplayGainClipping,
+    ToggleGaplessPlayback,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +107,12 @@ impl Action {
             | Self::ZoomOut
             | Self::ShowShortcuts
             | Self::CloseShortcuts => Category::Application,
-            Self::NewPlaylist | Self::EditPlaylist => Category::Application,
+            Self::NewPlaylist
+            | Self::EditPlaylist
+            | Self::CycleReplayGain
+            | Self::CycleReplayGainPreamp
+            | Self::ToggleReplayGainClipping
+            | Self::ToggleGaplessPlayback => Category::Application,
             Self::Settings
             | Self::Shortcuts
             | Self::RestoreShortcuts
@@ -167,6 +176,10 @@ impl Action {
             Self::ToggleSmoothSlides => "Smooth Slides",
             Self::NewPlaylist => "New Playlist…",
             Self::EditPlaylist => "Edit Playlist…",
+            Self::CycleReplayGain => "ReplayGain: Off / Track / Album",
+            Self::CycleReplayGainPreamp => "ReplayGain Preamp",
+            Self::ToggleReplayGainClipping => "ReplayGain Clipping Prevention",
+            Self::ToggleGaplessPlayback => "Gapless Playback",
             Self::ZoomIn => "Zoom in",
             Self::ZoomOut => "Zoom out",
             Self::ShowShortcuts => "Keyboard shortcuts",

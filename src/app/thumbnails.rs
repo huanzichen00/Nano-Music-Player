@@ -42,10 +42,15 @@ pub(super) enum ImportEvent {
 struct FileWorkBatch {
     evict: BTreeSet<PathBuf>,
     refresh: BTreeMap<PathBuf, u64>,
+    scan: BTreeMap<PathBuf, u64>,
 }
 
 pub(super) enum FileWorkEvent {
     Restored {
+        generation: u64,
+        prepared: Box<Prepared<Track>>,
+    },
+    Scanned {
         generation: u64,
         prepared: Box<Prepared<Track>>,
     },
@@ -63,6 +68,7 @@ pub(super) struct FileWorker {
     events: Receiver<FileWorkEvent>,
     pending_evict: BTreeSet<PathBuf>,
     pending_refresh: BTreeMap<PathBuf, u64>,
+    pending_scan: BTreeMap<PathBuf, u64>,
 }
 
 impl FileWorker {
@@ -74,11 +80,19 @@ impl FileWorker {
                 while let Ok(next) = request_receiver.try_recv() {
                     batch.evict.extend(next.evict);
                     batch.refresh.extend(next.refresh);
+                    batch.scan.extend(next.scan);
                 }
                 let database_handle = match crate::library::database::Database::open(&database) {
                     Ok(database_handle) => Some(database_handle),
                     Err(error) => {
                         for (path, generation) in &batch.refresh {
+                            let _ = event_sender.send(FileWorkEvent::Error {
+                                path: path.clone(),
+                                generation: *generation,
+                                message: error.clone(),
+                            });
+                        }
+                        for (path, generation) in &batch.scan {
                             let _ = event_sender.send(FileWorkEvent::Error {
                                 path: path.clone(),
                                 generation: *generation,
@@ -123,6 +137,37 @@ impl FileWorker {
                             }
                         }
                     }
+                    for (path, generation) in batch.scan {
+                        match scanner::refresh_track(&database_handle, &path) {
+                            Ok(track) => {
+                                let prepared = Prepared {
+                                    previews: prepare(std::slice::from_ref(&track), &previews),
+                                    value: track,
+                                };
+                                if event_sender
+                                    .send(FileWorkEvent::Scanned {
+                                        generation,
+                                        prepared: Box::new(prepared),
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            Err(message) => {
+                                if event_sender
+                                    .send(FileWorkEvent::Error {
+                                        path,
+                                        generation,
+                                        message,
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -131,6 +176,7 @@ impl FileWorker {
             events,
             pending_evict: BTreeSet::new(),
             pending_refresh: BTreeMap::new(),
+            pending_scan: BTreeMap::new(),
         }
     }
 
@@ -144,9 +190,17 @@ impl FileWorker {
         self.flush();
     }
 
+    pub(super) fn scan(&mut self, path: PathBuf, generation: u64) {
+        self.pending_scan.insert(path, generation);
+        self.flush();
+    }
+
     pub(super) fn flush(&mut self) {
         const BATCH_LIMIT: usize = 128;
-        if self.pending_evict.is_empty() && self.pending_refresh.is_empty() {
+        if self.pending_evict.is_empty()
+            && self.pending_refresh.is_empty()
+            && self.pending_scan.is_empty()
+        {
             return;
         }
         let evict: BTreeSet<_> = self
@@ -161,21 +215,36 @@ impl FileWorker {
             .take(BATCH_LIMIT)
             .map(|(path, generation)| (path.clone(), *generation))
             .collect();
+        let scan: BTreeMap<_, _> = self
+            .pending_scan
+            .iter()
+            .take(BATCH_LIMIT)
+            .map(|(path, generation)| (path.clone(), *generation))
+            .collect();
         for path in &evict {
             self.pending_evict.remove(path);
         }
         for path in refresh.keys() {
             self.pending_refresh.remove(path);
         }
-        match self.requests.try_send(FileWorkBatch { evict, refresh }) {
+        for path in scan.keys() {
+            self.pending_scan.remove(path);
+        }
+        match self.requests.try_send(FileWorkBatch {
+            evict,
+            refresh,
+            scan,
+        }) {
             Ok(()) => {}
             Err(TrySendError::Full(batch)) => {
                 self.pending_evict.extend(batch.evict);
                 self.pending_refresh.extend(batch.refresh);
+                self.pending_scan.extend(batch.scan);
             }
             Err(TrySendError::Disconnected(batch)) => {
                 self.pending_evict.extend(batch.evict);
                 self.pending_refresh.extend(batch.refresh);
+                self.pending_scan.extend(batch.scan);
             }
         }
     }

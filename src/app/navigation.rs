@@ -18,6 +18,7 @@ pub enum Filter {
         id: i64,
         name: String,
     },
+    SmartPlaylist(crate::library::statistics::SmartPlaylist),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +56,7 @@ impl Screen {
             Self::Songs(Filter::Album { name, .. }) => name,
             Self::Songs(Filter::Genre(name)) => name,
             Self::Songs(Filter::Playlist { name, .. }) => name,
+            Self::Songs(Filter::SmartPlaylist(kind)) => kind.label(),
             Self::Search => "Search",
             Self::NowPlaying => "Now Playing",
             Self::Settings => "Settings",

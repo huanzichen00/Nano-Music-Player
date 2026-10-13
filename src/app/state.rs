@@ -87,6 +87,11 @@ pub struct State {
     pub video_overlay: bool,
     pub video_importing: bool,
     pub playlists: Vec<crate::library::playlists::Playlist>,
+    pub smart_playlists: HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>,
+    pub gapless_playback: bool,
+    pub replay_gain_mode: crate::audio::gain::GainMode,
+    pub replay_gain_preamp_db: f32,
+    pub replay_gain_prevent_clipping: bool,
     pub queue: Queue,
     pub current: Option<usize>,
     pub status: PlaybackStatus,
@@ -131,6 +136,11 @@ impl Default for State {
             video_overlay: true,
             video_importing: false,
             playlists: Vec::new(),
+            smart_playlists: HashMap::new(),
+            gapless_playback: true,
+            replay_gain_mode: crate::audio::gain::GainMode::Off,
+            replay_gain_preamp_db: 0.0,
+            replay_gain_prevent_clipping: true,
             queue: Queue::default(),
             current: None,
             status: PlaybackStatus::Stopped,
@@ -263,6 +273,40 @@ impl State {
                     target: Target::Action(Action::ToggleRomaji),
                 },
                 Row {
+                    title: "Gapless Playback".into(),
+                    subtitle: if self.gapless_playback { "On" } else { "Off" }.into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::ToggleGaplessPlayback),
+                },
+                Row {
+                    title: "ReplayGain".into(),
+                    subtitle: match self.replay_gain_mode {
+                        crate::audio::gain::GainMode::Off => "Off",
+                        crate::audio::gain::GainMode::Track => "Track",
+                        crate::audio::gain::GainMode::Album => "Album",
+                    }
+                    .into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::CycleReplayGain),
+                },
+                Row {
+                    title: "ReplayGain Preamp".into(),
+                    subtitle: format!("{:+.0} dB", self.replay_gain_preamp_db),
+                    artwork_id: None,
+                    target: Target::Action(Action::CycleReplayGainPreamp),
+                },
+                Row {
+                    title: "Prevent Clipping".into(),
+                    subtitle: if self.replay_gain_prevent_clipping {
+                        "On"
+                    } else {
+                        "Off"
+                    }
+                    .into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::ToggleReplayGainClipping),
+                },
+                Row {
                     title: "Smooth Slides".into(),
                     subtitle: if self.smooth_slides {
                         "On · Screens slide in the navigation direction".into()
@@ -381,6 +425,15 @@ impl State {
                         target: Target::Screen(Screen::Songs(Filter::All)),
                     },
                 ];
+                rows.extend(crate::library::statistics::SmartPlaylist::ALL.map(|kind| {
+                    let count = self.smart_playlists.get(&kind).map_or(0, Vec::len);
+                    Row {
+                        title: kind.label().into(),
+                        subtitle: format!("{count} songs"),
+                        artwork_id: None,
+                        target: Target::Screen(Screen::Songs(Filter::SmartPlaylist(kind))),
+                    }
+                }));
                 rows.extend(playlists.into_iter().map(|playlist| Row {
                     title: playlist.name.clone(),
                     subtitle: format!(
@@ -420,6 +473,30 @@ impl State {
                         .find(|playlist| playlist.id == *id)
                         .into_iter()
                         .flat_map(|playlist| &playlist.tracks)
+                        .filter_map(|path| tracks_by_path.get(path))
+                        .map(|(id, track)| Row {
+                            title: track.title.clone(),
+                            subtitle: track.artist.clone(),
+                            artwork_id: None,
+                            target: Target::Play(*id),
+                        })
+                        .collect();
+                }
+                if let Screen::Songs(Filter::SmartPlaylist(kind)) =
+                    &self.navigation.current().screen
+                {
+                    let tracks_by_path: HashMap<_, _> = self
+                        .tracks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, track)| self.track_available(track))
+                        .map(|(id, track)| (&track.path, (id, track)))
+                        .collect();
+                    return self
+                        .smart_playlists
+                        .get(kind)
+                        .into_iter()
+                        .flatten()
                         .filter_map(|path| tracks_by_path.get(path))
                         .map(|(id, track)| Row {
                             title: track.title.clone(),
@@ -595,7 +672,9 @@ impl State {
             }
             Screen::NowPlaying => 7,
             Screen::VideoPlaying => 5,
-            Screen::Groups(Group::Playlists) => 2 + self.playlists.len(),
+            Screen::Groups(Group::Playlists) => {
+                2 + crate::library::statistics::SmartPlaylist::ALL.len() + self.playlists.len()
+            }
             Screen::Groups(group) => {
                 self.tracks
                     .iter()
@@ -1263,6 +1342,30 @@ impl State {
                 return vec![Effect::WindowPreferencesChanged];
             }
             NewPlaylist => return vec![Effect::NewPlaylist],
+            CycleReplayGain => {
+                self.replay_gain_mode = match self.replay_gain_mode {
+                    crate::audio::gain::GainMode::Off => crate::audio::gain::GainMode::Track,
+                    crate::audio::gain::GainMode::Track => crate::audio::gain::GainMode::Album,
+                    crate::audio::gain::GainMode::Album => crate::audio::gain::GainMode::Off,
+                };
+                return vec![Effect::WindowPreferencesChanged];
+            }
+            CycleReplayGainPreamp => {
+                self.replay_gain_preamp_db = if self.replay_gain_preamp_db >= 6.0 {
+                    -6.0
+                } else {
+                    self.replay_gain_preamp_db + 3.0
+                };
+                return vec![Effect::WindowPreferencesChanged];
+            }
+            ToggleReplayGainClipping => {
+                self.replay_gain_prevent_clipping = !self.replay_gain_prevent_clipping;
+                return vec![Effect::WindowPreferencesChanged];
+            }
+            ToggleGaplessPlayback => {
+                self.gapless_playback = !self.gapless_playback;
+                return vec![Effect::WindowPreferencesChanged];
+            }
             EditPlaylist => {
                 if let Screen::Songs(Filter::Playlist { id, .. }) = self.navigation.current().screen
                 {

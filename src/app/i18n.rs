@@ -41,6 +41,18 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Recently Added", "最近添加", "最近追加した曲"),
+    ("Most Played", "播放次数最多", "再生回数の多い曲"),
+    ("Recently Played", "最近播放", "最近再生した曲"),
+    ("Never Played", "从未播放", "未再生の曲"),
+    ("Gapless Playback", "无缝播放", "ギャップレス再生"),
+    ("ReplayGain", "ReplayGain 音量均衡", "ReplayGain 音量調整"),
+    (
+        "ReplayGain Preamp",
+        "ReplayGain 前置增益",
+        "ReplayGain プリアンプ",
+    ),
+    ("Prevent Clipping", "防止削波", "クリッピングを防止"),
     ("Shuffle", "随机播放", "シャッフル"),
     (
         "Shuffle this list",

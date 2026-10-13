@@ -24,7 +24,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::mpsc::Receiver,
+    sync::mpsc::{Receiver, Sender},
 };
 
 // Closing a preview drops its receiver, but a blocking provider call may still be alive.
@@ -40,6 +40,83 @@ enum PendingMedia {
         handoff: u64,
         command: crate::video::engine::Command,
     },
+}
+
+enum StatisticsCommand {
+    Library(Vec<PathBuf>),
+    Played {
+        path: PathBuf,
+        played_at: i64,
+        listened_seconds: u32,
+    },
+}
+
+enum StatisticsEvent {
+    SmartPlaylists(HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>),
+    Error(String),
+}
+
+struct PlaybackSession {
+    path: PathBuf,
+    duration: f64,
+    heard_seconds: f64,
+    last_position: Option<f64>,
+    last_tick: std::time::Instant,
+    counted: bool,
+}
+
+fn statistics_worker(database: PathBuf) -> (Sender<StatisticsCommand>, Receiver<StatisticsEvent>) {
+    let (commands, receiver) = std::sync::mpsc::channel();
+    let (events, event_receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let store = match crate::library::statistics::StatisticsStore::open(&database) {
+            Ok(store) => store,
+            Err(error) => {
+                let _ = events.send(StatisticsEvent::Error(error));
+                return;
+            }
+        };
+        let mut current_paths = Vec::new();
+        while let Ok(command) = receiver.recv() {
+            let result = match command {
+                StatisticsCommand::Library(paths) => {
+                    current_paths = paths;
+                    store.register_library_paths(&current_paths, chrono::Utc::now().timestamp())
+                }
+                StatisticsCommand::Played {
+                    path,
+                    played_at,
+                    listened_seconds,
+                } => store.record_play(&path, played_at, listened_seconds),
+            };
+            if let Err(error) = result {
+                let _ = events.send(StatisticsEvent::Error(error));
+                continue;
+            }
+            let snapshots = crate::library::statistics::SmartPlaylist::ALL
+                .into_iter()
+                .map(|kind| {
+                    store
+                        .smart_playlist(kind, &current_paths)
+                        .map(|paths| (kind, paths))
+                })
+                .collect::<Result<HashMap<_, _>, _>>();
+            match snapshots {
+                Ok(playlists) => {
+                    if events
+                        .send(StatisticsEvent::SmartPlaylists(playlists))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                Err(error) => {
+                    let _ = events.send(StatisticsEvent::Error(error));
+                }
+            }
+        }
+    });
+    (commands, event_receiver)
 }
 
 pub struct Controller {
@@ -60,6 +137,15 @@ pub struct Controller {
     last_video_generation: u64,
     directory: PathBuf,
     settings: Settings,
+    media_bridge: crate::platform::macos_media::MediaBridge,
+    media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
+    statistics_commands: Sender<StatisticsCommand>,
+    statistics_events: Receiver<StatisticsEvent>,
+    library_monitor: Option<crate::library::library_monitor::Monitor>,
+    library_scan_generation: u64,
+    playback_session: Option<PlaybackSession>,
+    prefetched: Option<(usize, usize, u64)>,
+    prefetch_token: u64,
     loading: Option<Receiver<thumbnails::LoadEvent>>,
     library_ready: bool,
     playlist_loading: Option<Receiver<Result<Vec<playlists::Playlist>, String>>>,
@@ -139,12 +225,17 @@ impl Controller {
         state.romaji_visible = settings.romaji_visible;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
+        state.gapless_playback = settings.gapless_playback;
+        state.replay_gain_mode = settings.replay_gain_mode;
+        state.replay_gain_preamp_db = settings.replay_gain_preamp_db;
+        state.replay_gain_prevent_clipping = settings.replay_gain_prevent_clipping;
         let keymap =
             Keymap::load_or_create(&directory.join("shortcuts.json")).unwrap_or_else(|message| {
                 state.notice = format!("{message}; using default shortcuts");
                 Keymap::default()
             });
         let database = directory.join("library.sqlite3");
+        let (statistics_commands, statistics_events) = statistics_worker(database.clone());
         let (sender, receiver) = std::sync::mpsc::channel();
         let (library_sender, library_receiver) = std::sync::mpsc::sync_channel(2);
         std::thread::spawn(move || {
@@ -188,6 +279,15 @@ impl Controller {
             last_video_generation: 0,
             directory,
             settings,
+            media_bridge: crate::platform::macos_media::MediaBridge::default(),
+            media_marker: None,
+            statistics_commands,
+            statistics_events,
+            library_monitor: None,
+            library_scan_generation: 0,
+            playback_session: None,
+            prefetched: None,
+            prefetch_token: 0,
             loading,
             library_ready: false,
             playlist_loading: Some(receiver),
@@ -582,6 +682,8 @@ impl Controller {
         self.effects(ui, audio);
         self.sync(ui);
         self.effects(ui, effects);
+        self.schedule_gapless_prefetch();
+        self.publish_media_snapshot();
     }
 
     fn effects(&mut self, ui: &AppWindow, effects: Vec<Effect>) {
@@ -726,9 +828,55 @@ impl Controller {
     }
 
     fn send_music(&mut self, command: AudioCommand) {
-        if matches!(command, AudioCommand::Load { .. }) {
+        let command = match command {
+            AudioCommand::Load {
+                id,
+                path,
+                volume,
+                paused,
+            } => {
+                self.begin_playback_session(id);
+                AudioCommand::LoadWithGain {
+                    id,
+                    path,
+                    volume,
+                    paused,
+                    gain: self.gain_config(),
+                }
+            }
+            AudioCommand::LoadWithGain {
+                id,
+                path,
+                volume,
+                paused,
+                ..
+            } => {
+                self.begin_playback_session(id);
+                AudioCommand::LoadWithGain {
+                    id,
+                    path,
+                    volume,
+                    paused,
+                    gain: self.gain_config(),
+                }
+            }
+            AudioCommand::Seek(seconds) => {
+                self.prefetched = None;
+                if let Some(session) = &mut self.playback_session {
+                    session.last_position = Some(seconds);
+                    session.last_tick = std::time::Instant::now();
+                }
+                AudioCommand::Seek(seconds)
+            }
+            other => other,
+        };
+        if matches!(
+            command,
+            AudioCommand::LoadWithGain { .. } | AudioCommand::Load { .. }
+        ) {
             self.handoff += 1;
             self.pending_seek = None;
+            self.prefetched = None;
             self.pending_media = Some(PendingMedia::Music {
                 handoff: self.handoff,
                 command,
@@ -748,12 +896,144 @@ impl Controller {
         }
     }
 
+    fn gain_config(&self) -> crate::audio::gain::GainConfig {
+        crate::audio::gain::GainConfig {
+            mode: self.state.replay_gain_mode,
+            preamp_db: self.state.replay_gain_preamp_db,
+            prevent_clipping: self.state.replay_gain_prevent_clipping,
+        }
+    }
+
+    fn begin_playback_session(&mut self, id: usize) {
+        let Some(track) = self.state.tracks.get(id) else {
+            self.playback_session = None;
+            return;
+        };
+        self.playback_session = Some(PlaybackSession {
+            path: track.path.clone(),
+            duration: track.duration,
+            heard_seconds: 0.0,
+            last_position: None,
+            last_tick: std::time::Instant::now(),
+            counted: false,
+        });
+    }
+
+    fn update_playback_session(&mut self, id: usize, status: PlaybackStatus, position: f64) {
+        let Some(track) = self.state.tracks.get(id) else {
+            return;
+        };
+        let Some(session) = self.playback_session.as_mut() else {
+            self.begin_playback_session(id);
+            return;
+        };
+        if session.path != track.path {
+            self.begin_playback_session(id);
+            return;
+        }
+        let now = std::time::Instant::now();
+        let delta_time = now.duration_since(session.last_tick).as_secs_f64();
+        let delta_position = session
+            .last_position
+            .map(|previous| position - previous)
+            .unwrap_or(0.0);
+        if status == PlaybackStatus::Playing
+            && delta_time > 0.0
+            && delta_position >= 0.0
+            && delta_position <= delta_time * 1.5 + 0.5
+        {
+            // Bound missed UI polls and ignore forward/backward seek jumps.
+            session.heard_seconds += delta_time.min(1.0);
+        }
+        session.last_position = Some(position);
+        session.last_tick = now;
+        let threshold = if session.duration.is_finite() && session.duration > 0.0 {
+            (session.duration * 0.5).min(30.0).max(3.0)
+        } else {
+            30.0
+        };
+        if !session.counted && session.heard_seconds >= threshold {
+            session.counted = true;
+            let _ = self.statistics_commands.send(StatisticsCommand::Played {
+                path: session.path.clone(),
+                played_at: chrono::Utc::now().timestamp(),
+                listened_seconds: session.heard_seconds.floor().max(0.0) as u32,
+            });
+        }
+    }
+
+    fn schedule_gapless_prefetch(&mut self) {
+        if self.pending_media.is_some() || self.state.video_active || !self.state.gapless_playback {
+            self.cancel_gapless_prefetch();
+            return;
+        }
+        let Some(current) = self.state.current else {
+            self.cancel_gapless_prefetch();
+            return;
+        };
+        let queue = &self.state.queue;
+        let Some(position) = queue.order.iter().position(|id| *id == current) else {
+            self.cancel_gapless_prefetch();
+            return;
+        };
+        let next = if self.state.repeat == crate::audio::Repeat::One {
+            Some(current)
+        } else if position + 1 < queue.order.len() {
+            queue.order.get(position + 1).copied()
+        } else if self.state.repeat == crate::audio::Repeat::All {
+            queue.order.first().copied()
+        } else {
+            None
+        };
+        let Some(next) = next.filter(|id| {
+            self.state
+                .tracks
+                .get(*id)
+                .is_some_and(|track| self.state.track_available(track))
+        }) else {
+            self.cancel_gapless_prefetch();
+            return;
+        };
+        if self
+            .prefetched
+            .is_some_and(|(from, to, _)| from == current && to == next)
+        {
+            return;
+        }
+        self.prefetch_token = self.prefetch_token.wrapping_add(1);
+        let token = self.prefetch_token;
+        let Some(track) = self.state.tracks.get(next) else {
+            return;
+        };
+        if self
+            .engine
+            .send(AudioCommand::AppendNext {
+                token,
+                id: next,
+                path: track.path.clone(),
+                gain: self.gain_config(),
+            })
+            .is_ok()
+        {
+            self.prefetched = Some((current, next, token));
+        }
+    }
+
+    fn cancel_gapless_prefetch(&mut self) {
+        if let Some((_, _, token)) = self.prefetched.take() {
+            let _ = self.engine.send(AudioCommand::CancelPrefetch { token });
+        }
+    }
+
     fn send_video(&mut self, command: crate::video::engine::Command) {
         use crate::video::engine::Command;
         if let Command::Load { video, .. } = &command {
+            self.media_marker = None;
+            self.media_bridge.publish(None);
             self.pending_subtitle = Some(self.state.video_subtitles.get(&video.path));
             self.subtitle_tracks.clear();
             self.handoff += 1;
+            self.cancel_gapless_prefetch();
             self.pending_seek = None;
             self.pending_media = Some(PendingMedia::Video {
                 handoff: self.handoff,
@@ -822,7 +1102,9 @@ impl Controller {
         let Some(PendingMedia::Music { mut command, .. }) = self.pending_media.take() else {
             return;
         };
-        if let AudioCommand::Load { volume, paused, .. } = &mut command {
+        if let AudioCommand::Load { volume, paused, .. }
+        | AudioCommand::LoadWithGain { volume, paused, .. } = &mut command
+        {
             *volume = self.state.effective_volume();
             *paused = self.state.paused;
         }
@@ -833,6 +1115,7 @@ impl Controller {
         if let Some(seconds) = self.pending_seek.take() {
             self.send_music(AudioCommand::Seek(seconds));
         }
+        self.schedule_gapless_prefetch();
     }
 
     /// Import original local files without changing their contents. This is also
@@ -1205,6 +1488,10 @@ impl Controller {
             device_mode: self.state.device_mode,
             monitor_deleted_files: self.settings.monitor_deleted_files,
             monitor_roots: self.settings.monitor_roots.clone(),
+            gapless_playback: self.state.gapless_playback,
+            replay_gain_mode: self.state.replay_gain_mode,
+            replay_gain_preamp_db: self.state.replay_gain_preamp_db,
+            replay_gain_prevent_clipping: self.state.replay_gain_prevent_clipping,
             window_width: Some(saved_width),
             window_height: Some(saved_height),
         };
@@ -1231,6 +1518,8 @@ impl Controller {
                     prepared.previews.retain_tracks(&prepared.value);
                     self.state.merge_library(prepared.value);
                     self.start_deletion_monitor();
+                    self.start_library_monitor();
+                    self.update_smart_playlist_library();
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
                     self.thumbnails.seed(&self.state.tracks, prepared.previews);
@@ -1288,6 +1577,8 @@ impl Controller {
                     let result = prepared.value;
                     self.state.merge_library(result.tracks);
                     self.start_deletion_monitor();
+                    self.start_library_monitor();
+                    self.update_smart_playlist_library();
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
                     self.thumbnails.seed(&self.state.tracks, prepared.previews);
@@ -1341,7 +1632,9 @@ impl Controller {
             ui.invoke_focus_screen();
         }
         self.poll_romaji(ui);
+        self.poll_statistics();
         self.poll_deletions();
+        self.poll_library_monitor();
         self.poll_translation(ui);
         self.poll_genius(ui);
         self.poll_playlists(ui);
@@ -1357,12 +1650,38 @@ impl Controller {
                     && self.pending_media.is_none()
                     && self.state.current == Some(id) =>
                 {
+                    self.update_playback_session(id, status, position);
                     self.state.position = position;
                     self.state.status = if self.state.paused {
                         PlaybackStatus::Paused
                     } else {
                         status
                     };
+                }
+                AudioEvent::Transitioned { from, to, token }
+                    if !self.state.video_active
+                        && self.pending_media.is_none()
+                        && self.state.current == Some(from)
+                        && self.prefetched == Some((from, to, token)) =>
+                {
+                    let Some(track) = self.state.tracks.get(to) else {
+                        continue;
+                    };
+                    self.prefetched = None;
+                    self.state.current = Some(to);
+                    self.state.position = 0.0;
+                    self.state.status = if self.state.paused {
+                        PlaybackStatus::Paused
+                    } else {
+                        PlaybackStatus::Playing
+                    };
+                    self.state.lyrics_visible = !track.lyrics.is_empty();
+                    self.state.overlay_visible = self.state.lyrics_visible;
+                    self.last_track = None;
+                    self.lyrics_dirty = true;
+                    self.begin_playback_session(to);
+                    self.rows_dirty = true;
+                    self.schedule_gapless_prefetch();
                 }
                 AudioEvent::Finished(id)
                     if !self.state.video_active
@@ -1383,10 +1702,84 @@ impl Controller {
                 _ => {}
             }
         }
+        self.poll_media_commands(ui);
+        self.schedule_gapless_prefetch();
         self.sync(ui);
+        self.publish_media_snapshot();
         if let Some(artwork) = self.artwork.poll() {
             ui.set_artwork(artwork);
         }
+    }
+
+    fn poll_media_commands(&mut self, ui: &AppWindow) {
+        while let Some(command) = self.media_bridge.poll_command() {
+            match command {
+                crate::platform::macos_media::RemoteCommand::Play => {
+                    if self.state.paused
+                        || matches!(
+                            self.state.status,
+                            PlaybackStatus::Stopped | PlaybackStatus::Error
+                        )
+                    {
+                        self.execute(ui, Action::TogglePlay);
+                    }
+                }
+                crate::platform::macos_media::RemoteCommand::Pause => {
+                    if !self.state.paused && self.state.status == PlaybackStatus::Playing {
+                        self.execute(ui, Action::TogglePlay);
+                    }
+                }
+                crate::platform::macos_media::RemoteCommand::Toggle => {
+                    self.execute(ui, Action::TogglePlay);
+                }
+                crate::platform::macos_media::RemoteCommand::Next => {
+                    self.execute(ui, Action::NextTrack);
+                }
+                crate::platform::macos_media::RemoteCommand::Previous => {
+                    self.execute(ui, Action::PreviousTrack);
+                }
+                crate::platform::macos_media::RemoteCommand::SeekTo(seconds) => {
+                    let effect = self.state.seek(seconds);
+                    self.effects(ui, vec![effect]);
+                }
+            }
+        }
+    }
+
+    fn publish_media_snapshot(&mut self) {
+        let current = self.state.current;
+        let position = self.state.position.floor().max(0.0) as i64;
+        let marker = (current, self.state.status, position);
+        if self.media_marker == Some(marker) {
+            return;
+        }
+        self.media_marker = Some(marker);
+        let snapshot = current
+            .filter(|_| {
+                !self.state.video_active
+                    && matches!(
+                        self.state.status,
+                        PlaybackStatus::Playing | PlaybackStatus::Paused | PlaybackStatus::Loading
+                    )
+            })
+            .and_then(|id| self.state.tracks.get(id))
+            .map(|track| crate::platform::macos_media::MediaSnapshot {
+                title: track.title.clone(),
+                artist: track.artist.clone(),
+                album: track.album.clone(),
+                artwork: (!track.artwork.is_empty()).then(|| track.artwork.clone()),
+                duration_seconds: (track.duration.is_finite() && track.duration > 0.0)
+                    .then_some(track.duration),
+                elapsed_seconds: position as f64,
+                playback_state: match self.state.status {
+                    PlaybackStatus::Playing => crate::platform::macos_media::PlaybackState::Playing,
+                    PlaybackStatus::Paused | PlaybackStatus::Loading => {
+                        crate::platform::macos_media::PlaybackState::Paused
+                    }
+                    _ => crate::platform::macos_media::PlaybackState::Stopped,
+                },
+            });
+        self.media_bridge.publish(snapshot);
     }
 
     fn start_deletion_monitor(&mut self) {
@@ -1440,6 +1833,103 @@ impl Controller {
             self.deletion_events = Some(monitor);
         }
         let _ = self.settings.save(&self.directory.join("settings.json"));
+    }
+
+    fn start_library_monitor(&mut self) {
+        if self.deletion_worker.is_none() {
+            self.deletion_worker = Some(thumbnails::FileWorker::new(
+                self.directory.join("library.sqlite3"),
+                self.directory.join("cover-previews-v1"),
+            ));
+        }
+        let mut roots: Vec<_> = self
+            .state
+            .tracks
+            .iter()
+            .filter_map(|track| track.path.parent().map(PathBuf::from))
+            .collect();
+        roots.extend(self.settings.monitor_roots.iter().cloned());
+        roots = roots
+            .into_iter()
+            .map(|root| crate::library::deletion_monitor::normalize(&root))
+            .collect();
+        roots.sort();
+        roots.dedup();
+        if roots.is_empty() {
+            return;
+        }
+        if let Some(monitor) = &self.library_monitor {
+            monitor.add_roots(roots);
+        } else {
+            self.library_monitor = Some(crate::library::library_monitor::watch(roots));
+        }
+    }
+
+    fn update_smart_playlist_library(&self) {
+        let paths = self
+            .state
+            .tracks
+            .iter()
+            .filter(|track| self.state.track_available(track))
+            .map(|track| track.path.clone())
+            .collect();
+        let _ = self
+            .statistics_commands
+            .send(StatisticsCommand::Library(paths));
+    }
+
+    fn poll_statistics(&mut self) {
+        while let Ok(event) = self.statistics_events.try_recv() {
+            match event {
+                StatisticsEvent::SmartPlaylists(playlists) => {
+                    self.state.smart_playlists = playlists;
+                    self.rows_dirty = true;
+                }
+                StatisticsEvent::Error(error) => {
+                    self.state.notice = format!("Playback statistics unavailable: {error}");
+                }
+            }
+        }
+    }
+
+    fn poll_library_monitor(&mut self) {
+        let mut events = Vec::new();
+        if let Some(monitor) = &self.library_monitor {
+            while let Ok(event) = monitor.events.try_recv() {
+                events.push(event);
+            }
+        }
+        for event in events {
+            match event {
+                crate::library::library_monitor::LibraryEvent::Added(path)
+                | crate::library::library_monitor::LibraryEvent::Modified(path) => {
+                    self.queue_library_scan(path);
+                }
+                crate::library::library_monitor::LibraryEvent::Renamed { from, to } => {
+                    if let Some(worker) = self.deletion_worker.as_mut() {
+                        worker.evict(from);
+                    }
+                    self.queue_library_scan(to);
+                }
+                crate::library::library_monitor::LibraryEvent::Removed(_) => {
+                    // The existing deletion watcher owns safe missing/restored transitions
+                    // and stops the active track when its source disappears.
+                }
+                crate::library::library_monitor::LibraryEvent::Error(error) => {
+                    self.state.notice = format!("Library monitoring warning: {error}");
+                }
+            }
+        }
+    }
+
+    fn queue_library_scan(&mut self, path: PathBuf) {
+        self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
+        let identity = crate::library::deletion_monitor::normalize(&path);
+        self.deletion_generations
+            .insert(identity, self.library_scan_generation);
+        if let Some(worker) = self.deletion_worker.as_mut() {
+            worker.scan(path, self.library_scan_generation);
+        }
     }
 
     fn poll_deletions(&mut self) {
@@ -1526,8 +2016,34 @@ impl Controller {
                         })
                     {
                         self.state.merge_library(vec![value]);
+                        self.thumbnails.clear();
                         self.thumbnails.seed(&self.state.tracks, previews);
                         self.rows_dirty = true;
+                        self.last_track = None;
+                        self.lyrics_dirty = true;
+                        self.media_marker = None;
+                        self.start_deletion_monitor();
+                        self.start_library_monitor();
+                        self.update_smart_playlist_library();
+                    }
+                }
+                thumbnails::FileWorkEvent::Scanned {
+                    generation,
+                    prepared,
+                } => {
+                    let thumbnails::Prepared { value, previews } = *prepared;
+                    let identity = crate::library::deletion_monitor::normalize(&value.path);
+                    if self.deletion_generations.get(&identity).copied() == Some(generation) {
+                        self.state.merge_library(vec![value]);
+                        self.thumbnails.clear();
+                        self.thumbnails.seed(&self.state.tracks, previews);
+                        self.rows_dirty = true;
+                        self.last_track = None;
+                        self.lyrics_dirty = true;
+                        self.media_marker = None;
+                        self.start_deletion_monitor();
+                        self.start_library_monitor();
+                        self.update_smart_playlist_library();
                     }
                 }
                 thumbnails::FileWorkEvent::Error {

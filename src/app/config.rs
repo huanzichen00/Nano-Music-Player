@@ -18,6 +18,14 @@ pub struct Settings {
     pub monitor_deleted_files: bool,
     #[serde(default)]
     pub monitor_roots: Vec<PathBuf>,
+    #[serde(default = "gapless_default")]
+    pub gapless_playback: bool,
+    #[serde(default)]
+    pub replay_gain_mode: crate::audio::gain::GainMode,
+    #[serde(default)]
+    pub replay_gain_preamp_db: f32,
+    #[serde(default = "clipping_default")]
+    pub replay_gain_prevent_clipping: bool,
     pub window_width: Option<f32>,
     pub window_height: Option<f32>,
 }
@@ -35,6 +43,10 @@ impl Default for Settings {
             device_mode: true,
             monitor_deleted_files: true,
             monitor_roots: Vec::new(),
+            gapless_playback: true,
+            replay_gain_mode: crate::audio::gain::GainMode::Off,
+            replay_gain_preamp_db: 0.0,
+            replay_gain_prevent_clipping: true,
             window_width: None,
             window_height: None,
         }
@@ -49,6 +61,14 @@ fn monitor_default() -> bool {
     true
 }
 
+fn gapless_default() -> bool {
+    true
+}
+
+fn clipping_default() -> bool {
+    true
+}
+
 impl Settings {
     pub fn load(path: &Path) -> Result<Self, String> {
         let settings: Self = if path.exists() {
@@ -59,6 +79,11 @@ impl Settings {
         };
         if !settings.zoom.is_finite() || !(0.75..=3.0).contains(&settings.zoom) {
             return Err("Zoom must be between 0.75 and 3.0".to_owned());
+        }
+        if !settings.replay_gain_preamp_db.is_finite()
+            || !(-12.0..=12.0).contains(&settings.replay_gain_preamp_db)
+        {
+            return Err("ReplayGain preamp must be between -12 and 12 dB".to_owned());
         }
         if settings
             .window_width
