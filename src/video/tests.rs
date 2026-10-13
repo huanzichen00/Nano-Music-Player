@@ -253,6 +253,105 @@ fn native_import_transport_generations_and_errors() {
 }
 
 #[test]
+#[ignore = "Requires libmpv/libass and ffmpeg; verifies styled subtitles in copied render frames"]
+fn ass_sidecar_is_composited_and_seek_synchronized() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("styled.mp4");
+    let ass = dir.path().join("styled.ass");
+    assert!(
+        Process::new(std::env::var_os("NANO_FFMPEG").unwrap_or_else(|| "ffmpeg".into()))
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x180:r=24",
+                "-t",
+                "4",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p"
+            ])
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(&ass, "[Script Info]\nScriptType: v4.00+\nPlayResX: 320\nPlayResY: 180\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,42,&H0000FF00,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.50,0:00:02.50,Default,,0,0,0,,STYLED TEST\n").unwrap();
+    let video = library::probe(&path).unwrap();
+    let engine = Engine::new(true);
+    engine
+        .send(Command::Load {
+            generation: 91,
+            video,
+            start: 0.0,
+            volume: 0.0,
+            paused: true,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 91 && p.status == Status::Paused
+    });
+    engine
+        .send(Command::Subtitle {
+            generation: 91,
+            preference: super::subtitles::SubtitlePreference::External(ass),
+        })
+        .unwrap();
+    engine
+        .send(Command::Pause {
+            generation: 91,
+            paused: false,
+        })
+        .unwrap();
+    wait(&engine, |p| p.generation == 91 && p.position > 1.0);
+    engine
+        .send(Command::Pause {
+            generation: 91,
+            paused: true,
+        })
+        .unwrap();
+    thread::sleep(Duration::from_millis(250));
+    let frame = engine.take_frame().unwrap();
+    let green = frame
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[1] > 170 && p[0] < 100 && p[2] < 100)
+        .count();
+    assert!(
+        green > 100,
+        "ASS style was not composited into RGB frame; green pixels={green}"
+    );
+    engine
+        .send(Command::Seek {
+            generation: 91,
+            seconds: 3.0,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 91 && p.status == Status::Paused && p.position > 2.8
+    });
+    thread::sleep(Duration::from_millis(250));
+    let frame = engine.take_frame().unwrap();
+    let green_after_end = frame
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[1] > 170 && p[0] < 100 && p[2] < 100)
+        .count();
+    assert!(
+        green_after_end < 100,
+        "subtitle remained visible beyond its ASS end time: {green_after_end}"
+    );
+}
+
+#[test]
 #[ignore = "Requires libmpv, ffmpeg and a real default audio output"]
 fn native_default_audio_output_clock() {
     let dir = tempfile::tempdir().unwrap();

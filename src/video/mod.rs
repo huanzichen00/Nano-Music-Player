@@ -4,6 +4,7 @@ pub mod import;
 pub mod library;
 mod mpv;
 pub mod orientation;
+pub mod subtitles;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

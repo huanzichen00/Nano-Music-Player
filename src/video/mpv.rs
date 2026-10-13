@@ -194,7 +194,8 @@ impl Session {
             ("input-vo-keyboard", "no"),
             ("osc", "no"),
             ("osd-level", "0"),
-            ("sid", "no"),
+            ("sid", "auto"),
+            ("sub-auto", "all"),
             ("audio-display", "no"),
             ("keep-open", "no"),
             ("video-sync", "audio"),
@@ -279,6 +280,30 @@ impl Session {
             return Err("Video has finished; reopen it to play or seek".into());
         }
         match command {
+            Command::Subtitle {
+                generation,
+                preference,
+            } if generation == self.generation => match preference {
+                super::subtitles::SubtitlePreference::Automatic => {
+                    self.async_command(&["set", "sid", "auto"])?;
+                }
+                super::subtitles::SubtitlePreference::Off => {
+                    self.async_command(&["set", "sid", "no"])?;
+                }
+                super::subtitles::SubtitlePreference::Embedded(id) if id > 0 => {
+                    self.async_command(&["set", "sid", &id.to_string()])?;
+                }
+                super::subtitles::SubtitlePreference::Embedded(_) => {
+                    return Err("Invalid embedded subtitle track ID".into());
+                }
+                super::subtitles::SubtitlePreference::External(path) => {
+                    if !path.is_file() {
+                        return Err(format!("Subtitle file not found: {}", path.display()));
+                    }
+                    let path = path.to_str().ok_or("Subtitle path is not valid UTF-8")?;
+                    self.async_command(&["sub-add", path, "select"])?;
+                }
+            },
             Command::Pause { generation, paused } if generation == self.generation => {
                 self.async_command(&["set", "pause", if paused { "yes" } else { "no" }])?;
                 self.paused = paused;

@@ -26,6 +26,10 @@ pub enum Command {
         generation: Generation,
         volume: f32,
     },
+    Subtitle {
+        generation: Generation,
+        preference: super::subtitles::SubtitlePreference,
+    },
     /// Reply only after the native player and its audio output are destroyed.
     Stop {
         handoff: u64,
