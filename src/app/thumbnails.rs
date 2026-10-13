@@ -22,6 +22,13 @@ pub(super) struct Previews {
     tracks: Vec<(PathBuf, usize)>,
 }
 
+impl Previews {
+    pub(super) fn retain_tracks(&mut self, tracks: &[Track]) {
+        let paths: HashSet<_> = tracks.iter().map(|track| &track.path).collect();
+        self.tracks.retain(|(path, _)| paths.contains(path));
+    }
+}
+
 pub(super) struct Prepared<T> {
     pub value: T,
     pub previews: Previews,
@@ -178,17 +185,41 @@ impl FileWorker {
     }
 }
 
-// Publish library metadata together with its tiny covers, never decode on entry.
-pub(super) fn load(database_path: PathBuf) -> Receiver<Result<Prepared<Vec<Track>>, String>> {
+pub(super) enum LoadEvent {
+    Cached(Prepared<Vec<Track>>),
+    Refreshed {
+        original: Box<Track>,
+        prepared: Box<Prepared<Track>>,
+    },
+    Complete,
+    Error(String),
+}
+
+// Publish cached metadata and tiny covers before opening any audio source.
+pub(super) fn load(database_path: PathBuf) -> Receiver<LoadEvent> {
     let cache = database_path.with_file_name("cover-previews-v1");
-    let loading = scanner::load(database_path);
-    let (sender, receiver) = mpsc::channel();
+    let loading = scanner::load_cached(database_path);
+    let (sender, receiver) = mpsc::sync_channel(2);
     thread::spawn(move || {
-        if let Ok(result) = loading.recv() {
-            let _ = sender.send(result.map(|tracks| Prepared {
-                previews: prepare(&tracks, &cache),
-                value: tracks,
-            }));
+        while let Ok(event) = loading.recv() {
+            let event = match event {
+                scanner::CachedLoadEvent::Cached(tracks) => LoadEvent::Cached(Prepared {
+                    previews: prepare(&tracks, &cache),
+                    value: tracks,
+                }),
+                scanner::CachedLoadEvent::Refreshed { original, track } => LoadEvent::Refreshed {
+                    original,
+                    prepared: Box::new(Prepared {
+                        previews: prepare(std::slice::from_ref(&track), &cache),
+                        value: *track,
+                    }),
+                },
+                scanner::CachedLoadEvent::Complete => LoadEvent::Complete,
+                scanner::CachedLoadEvent::Error(error) => LoadEvent::Error(error),
+            };
+            if sender.send(event).is_err() {
+                break;
+            }
         }
     });
     receiver
@@ -373,13 +404,10 @@ impl Thumbnails {
             .enumerate()
             .map(|(id, track)| (&track.path, id))
             .collect();
-        self.previews = previews
-            .tracks
-            .into_iter()
-            .filter_map(|(path, preview)| {
+        self.previews
+            .extend(previews.tracks.into_iter().filter_map(|(path, preview)| {
                 indices.get(&path).map(|id| (*id, images[preview].clone()))
-            })
-            .collect();
+            }));
     }
 
     pub fn cached(&self, track: usize) -> Option<slint::Image> {
@@ -690,6 +718,17 @@ mod tests {
         assert_eq!(thumbnails.cached(1).unwrap().size().height, 48);
         thumbnails.set_visible(&reordered, &[0, 1], 96);
         assert!(thumbnails.jobs.0.lock().unwrap().queued.is_empty());
+        // A single restored/refreshed cover must not discard every other
+        // album's ready preview and reintroduce list-entry decode latency.
+        thumbnails.seed(
+            &reordered,
+            Previews {
+                pixels: vec![image::RgbaImage::new(24, 24)],
+                tracks: vec![(tracks[1].path.clone(), 0)],
+            },
+        );
+        assert_eq!(thumbnails.cached(0).unwrap().size().height, 24);
+        assert_eq!(thumbnails.cached(1).unwrap().size().height, 48);
         thumbnails.clear();
         assert!(thumbnails.cached(0).is_none());
     }

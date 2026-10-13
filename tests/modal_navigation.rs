@@ -64,6 +64,14 @@ fn home_dismisses_overlays_genius_respects_bindings_and_playlist_drafts_survive(
     )))
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
+    // The absent source path below tests Genius validation and modal navigation,
+    // rather than watcher reconciliation.
+    nano_music_player::app::config::Settings {
+        monitor_deleted_files: false,
+        ..Default::default()
+    }
+    .save(&directory.path().join("settings.json"))
+    .unwrap();
     let ui = AppWindow::new().unwrap();
     let controller = Rc::new(RefCell::new(Controller::new(directory.path().to_owned())));
     // Missing fixture files make Genius fail validation before any provider call.

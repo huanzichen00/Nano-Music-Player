@@ -166,6 +166,14 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     )))
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
+    // These synthetic tracks deliberately have no source files. File deletion
+    // reconciliation is covered separately with real filesystem fixtures.
+    nano_music_player::app::config::Settings {
+        monitor_deleted_files: false,
+        ..Default::default()
+    }
+    .save(&directory.path().join("settings.json"))
+    .unwrap();
     let ui = AppWindow::new().unwrap();
     let controller = Rc::new(RefCell::new(Controller::new(
         directory.path().to_path_buf(),

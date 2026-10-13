@@ -135,6 +135,68 @@ pub fn load(database_path: PathBuf) -> Receiver<Result<Vec<Track>, String>> {
     receiver
 }
 
+/// The cached library is available before any source file is opened. Refreshes
+/// carry their original value so callers can reject obsolete background work.
+pub enum CachedLoadEvent {
+    Cached(Vec<Track>),
+    Refreshed {
+        original: Box<Track>,
+        track: Box<Track>,
+    },
+    Complete,
+    Error(String),
+}
+
+pub fn load_cached(database_path: PathBuf) -> Receiver<CachedLoadEvent> {
+    let (sender, receiver) = mpsc::sync_channel(2);
+    thread::spawn(move || {
+        cache_then_refresh(database_path, sender, read_track);
+    });
+    receiver
+}
+
+fn cache_then_refresh(
+    database_path: PathBuf,
+    sender: mpsc::SyncSender<CachedLoadEvent>,
+    read: impl Fn(PathBuf) -> Result<Track, String>,
+) {
+    let result = (|| {
+        let db = Database::open(&database_path)?;
+        let mut tracks = db.load()?;
+        for track in &mut tracks {
+            // Manual snapshots and removal choices require only the database.
+            db.apply_lyrics(track)?;
+        }
+        if sender
+            .send(CachedLoadEvent::Cached(tracks.clone()))
+            .is_err()
+        {
+            return Ok(());
+        }
+        for original in tracks {
+            let mut track = read(original.path.clone()).unwrap_or_else(|_| original.clone());
+            // Re-read overrides after the source: the user may have edited them
+            // while that file was being opened.
+            db.apply_lyrics(&mut track)?;
+            if track != original
+                && sender
+                    .send(CachedLoadEvent::Refreshed {
+                        original: Box::new(original),
+                        track: Box::new(track),
+                    })
+                    .is_err()
+            {
+                return Ok(());
+            }
+        }
+        let _ = sender.send(CachedLoadEvent::Complete);
+        Ok::<_, String>(())
+    })();
+    if let Err(error) = result {
+        let _ = sender.send(CachedLoadEvent::Error(error));
+    }
+}
+
 pub fn read_track(path: PathBuf) -> Result<Track, String> {
     let file = Probe::open(&path)
         .and_then(|probe| probe.read())
@@ -230,4 +292,74 @@ pub fn edit_lyrics(
         let _ = sender.send(result);
     });
     receiver
+}
+
+#[cfg(test)]
+mod cached_loading_tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn cached_tracks_and_manual_lyrics_publish_before_a_blocked_source_refresh() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = directory.path().join("library.sqlite3");
+        let track = Track {
+            path: directory.path().join("blocked.mp3"),
+            title: "Cached title".into(),
+            artist: "Artist".into(),
+            album: "Album".into(),
+            genre: "Genre".into(),
+            number: 1,
+            duration: 60.0,
+            artwork: vec![],
+            lyrics: super::super::lyrics::Lyrics::plain_text("Cached automatic text"),
+        };
+        {
+            let db = Database::open(&database).unwrap();
+            db.save(&track, 1).unwrap();
+            db.set_manual_lyrics(
+                &track.path,
+                &directory.path().join("manual.txt"),
+                &super::super::lyrics::Lyrics::plain_text("Persisted manual text"),
+            )
+            .unwrap();
+        }
+        let (sender, events) = mpsc::sync_channel(2);
+        let (release, blocked) = mpsc::sync_channel::<()>(0);
+        let (started, reading) = mpsc::sync_channel(1);
+        let worker = thread::spawn(move || {
+            cache_then_refresh(database, sender, |path| {
+                started.send(()).unwrap();
+                blocked.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(Track {
+                    path,
+                    title: "Refreshed title".into(),
+                    ..track.clone()
+                })
+            })
+        });
+        let CachedLoadEvent::Cached(cached) = events.recv_timeout(Duration::from_secs(2)).unwrap()
+        else {
+            panic!("cache must publish first")
+        };
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached[0].title, "Cached title");
+        assert_eq!(cached[0].lyrics.lines(), ["Persisted manual text"]);
+        reading.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(events.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        release.send(()).unwrap();
+        let CachedLoadEvent::Refreshed { original, track } =
+            events.recv_timeout(Duration::from_secs(2)).unwrap()
+        else {
+            panic!("source update must follow cache")
+        };
+        assert_eq!(*original, cached[0]);
+        assert_eq!(track.title, "Refreshed title");
+        assert_eq!(track.lyrics.lines(), ["Persisted manual text"]);
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(2)).unwrap(),
+            CachedLoadEvent::Complete
+        ));
+        worker.join().unwrap();
+    }
 }

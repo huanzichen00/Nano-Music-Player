@@ -635,6 +635,19 @@ impl State {
         !self.unavailable_tracks.contains(&track.path)
     }
 
+    /// Startup refreshes must not revive deleted files or overwrite a newer
+    /// import/manual lyric edit. Existing queue and playback indexes stay fixed.
+    pub fn refresh_cached_track(&mut self, original: &Track, track: Track) -> bool {
+        if original.path != track.path || !self.track_available(original) {
+            return false;
+        }
+        if !self.tracks.iter().any(|current| current == original) {
+            return false;
+        }
+        self.merge_library(vec![track]);
+        true
+    }
+
     pub fn mark_track_available(&mut self, path: &std::path::Path, available: bool) {
         let selected_path = self.selected_track_path();
         if available {
