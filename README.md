@@ -111,3 +111,5 @@ Saved playlists can be edited from their **Edit** toolbar or **File → Edit Pla
 **Shuffle** at the top of Songs, album collections and individual album/playlist/genre lists starts a random run scoped to that list. Search shuffles only its results. The entry participates in J/K and Enter/L; F plus a letter skips the control and jumps to metadata. Turning Shuffle off restores the list’s canonical order.
 
 Rightward pointer swipes and horizontal trackpad scrolling return to the parent from library lists. Vertical gestures retain scrolling; small/diagonal motions and text/modal/transition input are guarded.
+
+Home pages use persistent icon trees with a 180 ms ease-out slide for horizontal trackpad input and H/L page changes. Continued momentum at a page boundary does not reset selection or submit more navigation. Smooth Slides Off draws the destination immediately; pointer swipes over icons navigate without launching them.

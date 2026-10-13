@@ -373,6 +373,7 @@ export component AppWindow inherits Window {
                 x: root.transition-active ? root.previous-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
             previous-home := HomeView {
                 visible: root.previous-screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                navigation-enabled: false;
                 page: root.previous-home-page; selected: root.previous-selected; page-direction: root.previous-home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
@@ -446,6 +447,7 @@ export component AppWindow inherits Window {
                 x: root.transition-active ? root.current-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
             home := HomeView {
                 visible: root.screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                navigation-enabled: root.screen == 0 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 page: root.home-page; selected: root.selected; page-direction: root.home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
