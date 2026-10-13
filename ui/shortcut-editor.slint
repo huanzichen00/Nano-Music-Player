@@ -36,7 +36,7 @@ export component ShortcutEditor inherits Rectangle {
             x: 12px * root.s; y: 178px * root.s; width: parent.width - 24px * root.s; height: 80px * root.s;
             EditorButton { x: 0px; y: 0px; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Replace keys"; primary: true; clicked => { root.command("replace"); } }
             EditorButton { x: (parent.width + 8px * root.s) / 2; y: 0px; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Add key"; clicked => { root.command("add"); } }
-            EditorButton { y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Remove keys"; clicked => { root.command("clear"); } }
+            EditorButton { x: 0px; y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Remove keys"; clicked => { root.command("clear"); } }
             EditorButton { x: (parent.width + 8px * root.s) / 2; y: 42px * root.s; width: (parent.width - 8px * root.s) / 2; s: root.s; label: "Default keys"; clicked => { root.command("restore"); } }
         }
         if root.recording: Text { x: 14px * root.s; y: 180px * root.s; width: parent.width - 28px * root.s; height: 66px * root.s; text: I18n.tr("Letters, arrows, function keys\nand modifier combinations.\nChanges save automatically."); font-size: 11px * root.s; color: #647181; horizontal-alignment: center; vertical-alignment: center; }

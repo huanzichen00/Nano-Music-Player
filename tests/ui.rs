@@ -503,9 +503,9 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, "k");
     tap(&ui, "k");
     tap(&ui, "l");
-    ui.invoke_shortcut_command("clear".into());
+    click(&ui, 65.0, 298.0);
     assert_eq!(ui.get_shortcut_keys(), "Unassigned");
-    ui.invoke_shortcut_command("restore".into());
+    click(&ui, 173.0, 298.0);
     assert!(ui.get_shortcut_keys().contains("J"));
     ui.invoke_shortcut_command("replace".into());
     tap(&ui, slint::platform::Key::Escape);
