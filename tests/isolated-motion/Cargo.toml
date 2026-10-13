@@ -1,0 +1,12 @@
+[package]
+name = "isolated-motion"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "renderer-software", "compat-1-18"] }
+i-slint-backend-testing = { version = "=1.18.1", features = ["renderer-software"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[build-dependencies]
+slint-build = "=1.18.1"
