@@ -555,6 +555,14 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert!(ui.get_device_mode());
     ui.window().set_size(slint::LogicalSize::new(400.0, 700.0));
     controller.borrow_mut().poll(&ui);
+    let dragging = ui.window().size().to_logical(ui.window().scale_factor());
+    assert_eq!(
+        dragging,
+        slint::LogicalSize::new(400.0, 700.0),
+        "poll must not fight an active native resize"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(160));
+    controller.borrow_mut().poll(&ui);
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     assert!(
         (size.width / 296.0 - ui.get_content_height() / (296.0 * 76.5 / 39.6)).abs() < 0.01,
@@ -781,6 +789,8 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         controller.borrow_mut().execute(&ui, mode);
         for (width, height) in [(300.0, 900.0), (650.0, 500.0), (240.0, 432.0)] {
             ui.window().set_size(slint::LogicalSize::new(width, height));
+            controller.borrow_mut().poll(&ui);
+            std::thread::sleep(std::time::Duration::from_millis(160));
             controller.borrow_mut().poll(&ui);
             let size = ui.window().size().to_logical(ui.window().scale_factor());
             let ratio = if mode == Action::ScreenMode {

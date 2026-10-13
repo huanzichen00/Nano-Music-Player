@@ -157,8 +157,16 @@ Inspect manual pages 22–23, including the inside-playlist Edit entry, compact 
 
 Acceptance: Edit is visible inside every saved playlist, including empty ones; pointer/keyboard editor navigation works; identity/order/name survive restart; duplicate names and injected failures leave the original untouched and retain the draft; missing rows are visible and never silently discarded; Save replaces rather than duplicates; EN/ZH/JA labels translate without changing metadata. Render real editor fixtures alongside the manual; run formatting/full tests/strict lint, commit and package.
 
-## Phase 19 — Stable native resizing (investigation)
+## Phase 19 — Stable native resizing (verified; native delivery pending)
 
 Investigate the correction loop during native dragging and mode/orientation changes. Keep a shared logical coordinate system and existing hardware/screen ratios, with finite/bounded zoom and no recursive or stale corrections. A lower-cost geometry subagent owns a pure tested helper; primary integrates and checks native behavior. Acceptance: horizontal/vertical/corner dragging settles to the correct ratio, controls remain within the LCD during transient geometry, zoom/mode/video changes discard stale drag measurements, and unrelated playback/navigation are unchanged.
 
 Playlist verification: the full suite passes 145 default tests (including five standalone geometry tests), with seven native/manual checks ignored. Actual Edit/Done/Add/minus/Delete pointer actions, keyboard review, rename, Home suspension/background update, database rollback, restart, unavailable rows and empty-playlist editing pass. Rendered English/Chinese/Japanese previews were inspected alongside manual page 23; the red minus uses an SVG circle to preserve its silhouette in both renderers. No normal-library fixture writes.
+
+## Phase 20 — Shuffle at the top of lists (implementation)
+
+Manual page 19 specifies Shuffle at the top of Songs, starting a random run of the list. Extend this entry to album collections and artist album lists, every individual album/genre/playlist song list, and search results as requested. Keep album/library sorting and playlist track order underneath it. Shuffle participates in J/K and activation, chooses a random starting track and builds a scoped queue; an empty list is harmless. Use the existing shuffle icon and compact firmware row style, with consistent geometry/thumbnail offsets and letter jumps that skip the control. Normal song activation and disabling Shuffle must retain canonical order. Test scope, canonical restoration, missing paths, rendered pointer/keyboard activation and translations, then commit/build.
+
+The user-requested separate chat **Fix scroll-to-parent navigation in library lists** owns the back-gesture implementation. It has committed an isolated four-test recognizer and integration plan while shared UI ownership stays here until Shuffle is complete.
+
+Resize verification: seven pure geometry tests cover quiet intervals, continued drag, width/height anchors, native menu chrome, proportional drag zoom updates, bounds and mode/orientation reset. The rendered controller regression verifies that an active drag is not immediately resized, then settles to Screen/Device ratio; modal and whole-device video orientation tests pass. Strict all-target Clippy and formatting pass. Native drag verification follows packaging; the LCD uses contain scaling during transient non-proportional native sizes, then the window corrects after 140 ms without movement.

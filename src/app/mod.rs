@@ -2,6 +2,7 @@ pub mod action;
 mod artwork;
 pub mod config;
 pub mod controller;
+pub mod geometry;
 pub mod i18n;
 pub mod navigation;
 pub mod state;

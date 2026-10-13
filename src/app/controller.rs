@@ -94,6 +94,8 @@ pub struct Controller {
     last_selected: usize,
     last_scale: f32,
     last_window_size: slint::LogicalSize,
+    resize_debouncer: super::geometry::ResizeDebouncer,
+    resize_clock: std::time::Instant,
     last_notice: String,
     notice_since: std::time::Instant,
     letter_jump: Option<(std::time::Instant, Screen)>,
@@ -192,6 +194,8 @@ impl Controller {
             last_selected: usize::MAX,
             last_scale: 0.0,
             last_window_size: slint::LogicalSize::new(0.0, 0.0),
+            resize_debouncer: super::geometry::ResizeDebouncer::default(),
+            resize_clock: std::time::Instant::now(),
             last_notice: String::new(),
             notice_since: std::time::Instant::now(),
             letter_jump: None,
@@ -833,6 +837,7 @@ impl Controller {
     }
 
     fn resize(&mut self, ui: &AppWindow) {
+        self.resize_debouncer.reset();
         ui.set_device_mode(self.state.device_mode);
         ui.set_video_landscape(self.state.landscape_video());
         let (width, height) = self.base_size();
@@ -847,21 +852,18 @@ impl Controller {
 
     fn maintain_aspect_ratio(&mut self, ui: &AppWindow) {
         let size = ui.window().size().to_logical(ui.window().scale_factor());
-        let (width, height) = self.base_size();
-        let dx = (size.width - self.last_window_size.width).abs() / width;
-        let dy = (size.height - self.last_window_size.height).abs() / height;
         let content_height = ui.get_content_height();
-        let mismatch = (content_height - size.width / width * height).abs();
-        if dx < 0.004 && dy < 0.004 && mismatch < 2.0 {
-            return;
+        if let Some(zoom) = self.resize_debouncer.observe(
+            self.resize_clock.elapsed().as_millis() as u64,
+            (size.width, size.height),
+            (self.last_window_size.width, self.last_window_size.height),
+            content_height,
+            self.base_size(),
+            (size.height - content_height).max(0.0),
+        ) {
+            self.state.zoom = zoom;
+            self.resize(ui);
         }
-        self.state.zoom = if dx >= dy {
-            size.width / width
-        } else {
-            content_height / height
-        }
-        .clamp(0.75, 3.0);
-        self.resize(ui);
     }
 
     pub fn save_settings(&mut self, ui: &AppWindow) {
