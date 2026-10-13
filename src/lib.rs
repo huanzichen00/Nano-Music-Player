@@ -4,6 +4,7 @@ pub mod audio;
 pub mod genius;
 pub mod input;
 pub mod library;
+pub mod platform;
 pub mod translation;
 pub mod video;
 
