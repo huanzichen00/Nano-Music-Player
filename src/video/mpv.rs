@@ -165,6 +165,9 @@ pub(super) struct Session {
     loaded: bool,
     finished: bool,
     audio_output: Option<String>,
+    subtitle_tracks: Vec<super::engine::SubtitleTrack>,
+    external_stamps:
+        std::collections::BTreeMap<std::path::PathBuf, (u64, Option<std::time::SystemTime>)>,
 }
 
 unsafe extern "C" fn render_updated(data: *mut c_void) {
@@ -204,6 +207,8 @@ impl Session {
             loaded: false,
             finished: false,
             audio_output: None,
+            subtitle_tracks: Vec::new(),
+            external_stamps: std::collections::BTreeMap::new(),
         };
         for (key, value) in [
             ("config", "no"),
@@ -329,11 +334,28 @@ impl Session {
                     return Err("Invalid embedded subtitle track ID".into());
                 }
                 super::subtitles::SubtitlePreference::External(path) => {
-                    if !path.is_file() {
+                    let path = std::fs::canonicalize(&path).map_err(|error| {
+                        format!("Subtitle file not found: {}: {error}", path.display())
+                    })?;
+                    let metadata = path.metadata().map_err(|error| error.to_string())?;
+                    if !metadata.is_file() {
                         return Err(format!("Subtitle file not found: {}", path.display()));
                     }
-                    let path = path.to_str().ok_or("Subtitle path is not valid UTF-8")?;
-                    self.async_subtitle_command(&["sub-add", path, "select"])?;
+                    let stamp = (metadata.len(), metadata.modified().ok());
+                    // Reuse a loaded file across Off/On and repeated selection.
+                    // An edited file must be replaced before cached selection,
+                    // otherwise mpv keeps its previous contents indefinitely.
+                    if self.external_stamps.get(&path) != Some(&stamp)
+                        && let Some(track) = self
+                            .subtitle_tracks
+                            .iter()
+                            .find(|track| track.external_path.as_ref() == Some(&path))
+                    {
+                        self.async_subtitle_command(&["sub-remove", &track.id.to_string()])?;
+                    }
+                    let filename = path.to_str().ok_or("Subtitle path is not valid UTF-8")?;
+                    self.async_subtitle_command(&["sub-add", filename, "cached"])?;
+                    self.external_stamps.insert(path, stamp);
                 }
             },
             Command::Pause { generation, paused } if generation == self.generation => {
@@ -386,7 +408,7 @@ impl Session {
             match event.kind {
                 0 => break,
                 5 => {
-                    if event.userdata & SUBTITLE_COMMAND_TAG != 0 {
+                    if event.userdata & SUBTITLE_COMMAND_TAG != 0 && event.error < 0 {
                         let message = unsafe { CStr::from_ptr((self.api.error)(event.error)) }
                             .to_string_lossy()
                             .into_owned();
@@ -433,6 +455,7 @@ impl Session {
                             (5, 6) => {
                                 let tracks =
                                     unsafe { subtitle_tracks(&*property.data.cast::<Node>()) };
+                                self.subtitle_tracks.clone_from(&tracks);
                                 let _ = events.send(Event::SubtitleTracks {
                                     generation: self.generation,
                                     tracks,

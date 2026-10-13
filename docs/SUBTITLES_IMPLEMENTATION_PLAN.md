@@ -1,13 +1,13 @@
 # ASS/SSA subtitle implementation plan
 
-## Verified current behavior
+## Original pipeline and rendering decision
 
 The video worker renders with libmpv's software render API into an RGB0 buffer,
 then copies that buffer into the latest-frame slot consumed by Slint. This is the
 right place to preserve ASS styling: mpv's render output can include its subtitle
-renderer (libass) when subtitle tracks are enabled. The current session explicitly
-sets `sid=no` and `osd-level=0`, so current delivered frames do **not** prove
-subtitle composition. `Video::render_size()` accounts for display aspect and
+renderer (libass) when subtitle tracks are enabled. The original session disabled
+subtitles with `sid=no`; the completed implementation enables them and verifies
+actual composition below. `Video::render_size()` accounts for display aspect and
 rotation before creating the fixed-size target. Keep subtitles in that same mpv
 render pass; do not flatten ASS to plain text or add a second UI overlay renderer.
 
@@ -60,7 +60,7 @@ render pass; do not flatten ASS to plain text or add a second UI overlay rendere
 
 Per-video preferences are stored atomically in `video-subtitles.json`, keyed by
 video path. Automatic discovery follows mpv `sub-auto=all` and `sid=auto`; an
-explicit external path is added with `sub-add ... select`, while embedded IDs,
+explicit external path is selected with `sub-add ... cached`, while embedded IDs,
 Off and Automatic map to mpv subtitle selection commands. Manual paths are
 canonicalized and restricted to existing `.ass`/`.ssa` files before persistence.
 Track-list events expose ID, title, language, external status and external path.
@@ -83,3 +83,11 @@ invalid path rejection, and many-track landscape rendering in Device and Screen
 Mode. Rotation/aspect and audio handoff retain the existing video pipeline and
 have their existing independent video tests. Re-run the full suite and strict
 lint after any native platform/runtime upgrade.
+
+Real-file verification found and fixed duplicate tracks from selecting the same
+external file repeatedly and false error notices for successful command replies.
+Cached selection reuses one track; a changed size/modification time removes and
+reloads the old external track so importing an edited file at the same path works.
+Only negative native command results become subtitle errors. The generated native
+fixture verifies repeat selection, same-path style replacement and genuine error
+handling. These commands follow the [mpv reference manual](https://mpv.io/manual/stable/#track-manipulation).

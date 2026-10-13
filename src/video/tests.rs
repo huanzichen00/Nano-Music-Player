@@ -412,7 +412,8 @@ fn ass_sidecar_is_composited_and_seek_synchronized() {
         .unwrap()
         .replace("&H0000FF00", "&H00FF0000")
         .replace("STYLED TEST", "MANUAL REPLACEMENT");
-    std::fs::write(&replacement, replacement_script).unwrap();
+    std::fs::write(&replacement, &replacement_script).unwrap();
+    let replacement_identity = std::fs::canonicalize(&replacement).unwrap();
     engine
         .send(Command::Seek {
             generation: 91,
@@ -425,7 +426,7 @@ fn ass_sidecar_is_composited_and_seek_synchronized() {
     engine
         .send(Command::Subtitle {
             generation: 91,
-            preference: super::subtitles::SubtitlePreference::External(replacement),
+            preference: super::subtitles::SubtitlePreference::External(replacement.clone()),
         })
         .unwrap();
     engine
@@ -472,6 +473,72 @@ fn ass_sidecar_is_composited_and_seek_synchronized() {
     assert!(
         colored < 100,
         "subtitle pixels remained after selecting Off: {colored}"
+    );
+    // Selecting a loaded file repeatedly must keep one track. Successful async
+    // replies must not become error notices, and edits at the same path reload.
+    for _ in 0..3 {
+        engine
+            .send(Command::Subtitle {
+                generation: 91,
+                preference: super::subtitles::SubtitlePreference::External(replacement.clone()),
+            })
+            .unwrap();
+    }
+    thread::sleep(Duration::from_millis(250));
+    let updated_script = replacement_script
+        .replace("&H00FF0000", "&H000000FF")
+        .replace("MANUAL REPLACEMENT", "UPDATED IN PLACE");
+    std::fs::write(&replacement, updated_script).unwrap();
+    engine
+        .send(Command::Subtitle {
+            generation: 91,
+            preference: super::subtitles::SubtitlePreference::External(replacement.clone()),
+        })
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut last_tracks = None;
+    let mut red_seen = false;
+    while Instant::now() < deadline {
+        while let Ok(event) = engine.events.try_recv() {
+            match event {
+                Event::SubtitleError { message, .. } => {
+                    panic!("unexpected subtitle error: {message}")
+                }
+                Event::SubtitleTracks { tracks, .. } => last_tracks = Some(tracks),
+                _ => {}
+            }
+        }
+        if let Some(frame) = engine.take_frame() {
+            red_seen |= frame
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .filter(|pixel| pixel[0] > 170 && pixel[1] < 100 && pixel[2] < 100)
+                .count()
+                > 100;
+        }
+        if red_seen
+            && last_tracks.as_ref().is_some_and(|tracks| {
+                tracks
+                    .iter()
+                    .filter(|track| track.external_path.as_ref() == Some(&replacement_identity))
+                    .count()
+                    == 1
+            })
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(15));
+    }
+    assert!(red_seen, "same-path subtitle edit was not reloaded");
+    assert_eq!(
+        last_tracks
+            .unwrap()
+            .iter()
+            .filter(|track| track.external_path.as_ref() == Some(&replacement_identity))
+            .count(),
+        1
     );
 }
 

@@ -13,7 +13,9 @@ generation manual (`/Users/huanzichen/Downloads/Study/References/46034.pdf`): se
 from Videos; tap the image to show/hide Done, position and transport controls.
 Desktop volume is also visible. Frames fit the available display without cropping.
 Landscape playback rotates the whole device, as described below.
-Chapter selection, rentals, subtitles and video playlists are outside this milestone.
+ASS/SSA sidecars, embedded subtitle tracks, selection/Off and per-video preferences
+are supported; see [subtitle implementation](SUBTITLES_IMPLEMENTATION_PLAN.md).
+Chapter selection, rentals and video playlists are outside this milestone.
 
 ## Whole-device landscape orientation
 

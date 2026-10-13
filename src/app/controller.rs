@@ -3265,6 +3265,10 @@ mod subtitle_import_controller_tests {
 }
 
 #[cfg(test)]
+#[path = "local_video_profile.rs"]
+mod local_video_profile;
+
+#[cfg(test)]
 mod cached_library_controller_tests {
     use super::*;
 
