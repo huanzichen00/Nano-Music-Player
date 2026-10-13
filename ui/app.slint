@@ -8,6 +8,8 @@ import "fonts/jetbrains-mono/JetBrainsMono-Bold.ttf";
 import { LibraryView, LibraryRow, GeniusRow, ListMetrics } from "library.slint";
 import { VideoView } from "video.slint";
 import { VideoDeviceFrame } from "video-device.slint";
+
+export struct SubtitleChoice { id: int, label: string, selected: bool }
 import { NowPlayingView } from "now-playing.slint";
 import { ShortcutEditor } from "shortcut-editor.slint";
 import { DeepSeekSettings } from "deepseek-settings.slint";
@@ -103,6 +105,8 @@ export component AppWindow inherits Window {
     in property <bool> video-overlay: true;
     in property <image> video-frame;
     in property <string> video-title;
+    in property <bool> subtitle-menu-open;
+    in property <[SubtitleChoice]> subtitle-choices;
     private property <length> base-width: video-landscape ? (device-mode ? 296px * 76.5 / 39.6 : 432px) : (device-mode ? 296px : 240px);
     private property <length> base-height: video-landscape ? (device-mode ? 296px : 240px) : (device-mode ? 296px * 76.5 / 39.6 : 432px);
     in property <string> screen-title;
@@ -193,6 +197,8 @@ export component AppWindow inherits Window {
     callback genius-command(string);
     callback open-genius-requested;
     callback playlist-command(string, string);
+    callback subtitle-command(string);
+    callback subtitle-select(int);
     callback item-clicked(int);
     callback query-changed(string);
     callback volume-changed(float);
@@ -266,6 +272,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("New Playlist…"); enabled: !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("new_playlist"); } }
             MenuItem { title: I18n.tr("Edit Playlist…"); enabled: root.playlist-content && !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("edit_playlist"); } }
             MenuItem { title: I18n.tr("Import Videos…"); activated => { root.command("import_videos"); } }
+            MenuItem { title: I18n.tr("Subtitles…"); enabled: root.screen == 9; activated => { root.subtitle-command("open"); } }
             MenuItem { title: I18n.tr("Import Music Folder…"); activated => { root.command("import_folder"); } }
             MenuItem { title: I18n.tr("Import / Replace Lyrics…"); activated => { root.command("import_lyrics"); } }
             MenuItem { title: I18n.tr("Search Library…"); activated => { root.command("search"); } }
@@ -540,6 +547,46 @@ export component AppWindow inherits Window {
             s: root.s; title: root.shortcut-title; keys: root.shortcut-keys;
             message: root.shortcut-message; recording: root.shortcut-recording;
             command(name) => { root.shortcut-command(name); }
+        }
+        if root.subtitle-menu-open: Rectangle {
+            x: root.screen == 9 ? video-device.display-x : display.x;
+            y: root.screen == 9 ? video-device.display-y : display.y;
+            width: root.screen == 9 ? video-device.display-width : display.width;
+            height: root.screen == 9 ? video-device.display-height : display.height;
+            background: #0009;
+            TouchArea { clicked => { root.subtitle-command("close"); } }
+            Rectangle {
+                x: 16px * root.s; y: 18px * root.s;
+                width: parent.width - 32px * root.s;
+                height: min(parent.height - 36px * root.s, (190px + root.subtitle-choices.length * 30px) * root.s);
+                background: #22252b; border-width: 1px * root.s; border-color: #69717e; border-radius: 8px * root.s;
+                Text { x: 12px * root.s; y: 8px * root.s; width: parent.width - 24px * root.s; height: 24px * root.s; text: I18n.tr("Subtitles"); color: white; font-size: 15px * root.s; font-weight: 700; }
+                for choice[index] in root.subtitle-choices: Rectangle {
+                    x: 8px * root.s; y: (36px + index * 28px) * root.s;
+                    width: parent.width - 16px * root.s; height: 26px * root.s;
+                    background: choice.selected ? #3478c8 : #343943; border-radius: 4px * root.s;
+                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: choice.label; color: white; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; }
+                    TouchArea { clicked => { root.subtitle-select(choice.id); } }
+                }
+                Rectangle {
+                    x: 8px * root.s; y: (40px + root.subtitle-choices.length * 28px) * root.s;
+                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
+                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Import / Replace…"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
+                    TouchArea { clicked => { root.subtitle-command("import"); } }
+                }
+                Rectangle {
+                    x: 8px * root.s; y: (70px + root.subtitle-choices.length * 28px) * root.s;
+                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
+                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Remove External Subtitle"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
+                    TouchArea { clicked => { root.subtitle-command("remove"); } }
+                }
+                Rectangle {
+                    x: 8px * root.s; y: (100px + root.subtitle-choices.length * 28px) * root.s;
+                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
+                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Close"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
+                    TouchArea { clicked => { root.subtitle-command("close"); } }
+                }
+            }
         }
         genius-preview := GeniusPreview {
             visible: root.genius-preview-open;
