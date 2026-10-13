@@ -47,9 +47,16 @@ fn rotation_tracks_display_aspect_and_navigation_without_changing_music_or_zoom(
         video("Portrait", 9.0 / 16.0),
         video("Square", 1.0),
     ]);
+    let effects = state.start_video(0);
     assert!(matches!(
-        state.start_video(0).as_slice(),
-        [Effect::Video(Command::Load { generation: 1, .. })]
+        effects.as_slice(),
+        [
+            Effect::Video(Command::Load { generation: 1, .. }),
+            Effect::Video(Command::Subtitle {
+                generation: 1,
+                preference: nano_music_player::video::subtitles::SubtitlePreference::Automatic,
+            }),
+        ]
     ));
     assert!(state.landscape_video());
     state.apply(Action::TogglePlay);
@@ -103,14 +110,21 @@ fn eof_replay_and_seek_reopen_while_transport_uses_video_generations() {
         })
     ));
     state.video_status = Status::Finished;
+    let replay = state.apply(Action::TogglePlay);
     assert!(matches!(
-        state.apply(Action::TogglePlay).as_slice(),
-        [Effect::Video(Command::Load {
-            generation: 2,
-            start: 0.0,
-            paused: false,
-            ..
-        })]
+        replay.as_slice(),
+        [
+            Effect::Video(Command::Load {
+                generation: 2,
+                start: 0.0,
+                paused: false,
+                ..
+            }),
+            Effect::Video(Command::Subtitle {
+                generation: 2,
+                preference: nano_music_player::video::subtitles::SubtitlePreference::Automatic,
+            }),
+        ]
     ));
     state.video_status = Status::Finished;
     assert!(matches!(
