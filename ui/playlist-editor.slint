@@ -8,6 +8,25 @@ export component PlaylistEditor inherits Rectangle {
     in property <bool> open;
     in property <bool> editing;
     private property <string> pending-remove;
+    private property <string> drag-id;
+    private property <int> drag-source;
+    private property <int> drag-target;
+    private property <length> drag-pointer-y;
+    public function cancel-drag() { root.drag-id = ""; }
+    function update-drop() {
+        root.drag-target = clamp(floor((root.drag-pointer-y - draft-scroll.y - draft-scroll.content-y) / (48px * root.s)), 0, max(0, root.draft.length - 1));
+    }
+    changed open => { if !root.open { root.cancel-drag(); } }
+    changed saving => { if root.saving { root.cancel-drag(); } }
+    changed review => { root.cancel-drag(); }
+    drag-scroll-timer := Timer {
+        interval: 50ms; running: root.drag-id != "" && root.open && root.review && !root.saving;
+        triggered => {
+            if root.drag-pointer-y < draft-scroll.y + 24px * root.s { draft-scroll.content-y = min(0px, draft-scroll.content-y + 8px * root.s); }
+            else if root.drag-pointer-y > draft-scroll.y + draft-scroll.height - 24px * root.s { draft-scroll.content-y = max(draft-scroll.height - draft-scroll.content-height, draft-scroll.content-y - 8px * root.s); }
+            root.update-drop();
+        }
+    }
     in property <[PlaylistCandidate]> candidates;
     in property <[PlaylistCandidate]> draft;
     in property <string> message;
@@ -93,9 +112,11 @@ export component PlaylistEditor inherits Rectangle {
         if root.candidates.length == 0: Text { x: 16px * root.s; width: root.width - 32px * root.s; height: 170px * root.s; text: I18n.tr(root.library-loading ? "Loading music library…" : "Import music to choose songs."); color: #788390; font-size: 12px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
     }
     draft-scroll := Flickable {
+        interactive: root.drag-id == "";
         visible: root.review; x: 0px; y: (root.editing ? 64px : 97px) * root.s; width: root.width; height: root.height - self.y - (root.editing ? 64px : 112px) * root.s;
         content-height: max(self.height, root.draft.length * 48px * root.s);
         for song[index] in root.draft: Rectangle {
+            opacity: root.drag-id == song.id ? 0.45 : 1;
             x: 0px; y: index * 48px * root.s; width: root.width; height: 48px * root.s;
             background: root.selected-row == index ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
             Rectangle { x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
@@ -108,7 +129,11 @@ export component PlaylistEditor inherits Rectangle {
                 Image { source: @image-url("../assets/icons/playlist-remove.svg"); image-fit: contain; width: parent.width; height: parent.height; }
                 TouchArea { clicked => { if !root.saving { root.selected-row = index; root.pending-remove = root.pending-remove == song.id ? "" : song.id; } } }
             }
-            if root.editing && root.pending-remove != song.id: Text { x: parent.width - 22px * root.s; width: 17px * root.s; text: "≡"; color: #a5a9ae; font-size: 18px * root.s; vertical-alignment: center; }
+            if root.editing && root.pending-remove != song.id: Rectangle {
+                x: parent.width - 30px * root.s; width: 30px * root.s; height: parent.height;
+                Text { text: "≡"; color: #a5a9ae; font-size: 18px * root.s; horizontal-alignment: center; vertical-alignment: center; }
+
+            }
             if root.editing && root.pending-remove == song.id: Rectangle {
                 x: parent.width - 65px * root.s; y: 10px * root.s; width: 60px * root.s; height: 28px * root.s;
                 border-radius: 4px * root.s; border-width: 1px * root.s; border-color: #9a2727; background: @linear-gradient(180deg, #e88876, #b72c22);
@@ -116,6 +141,35 @@ export component PlaylistEditor inherits Rectangle {
                 TouchArea { clicked => { if !root.saving { root.command("remove", song.id); root.pending-remove = ""; root.selected-row = max(0, min(root.selected-row, root.draft.length - 1)); } } }
             }
         }
+    }
+    // Keep drag capture on the viewport, so the source row can scroll offscreen.
+    TouchArea {
+        x: root.width - 30px * root.s; y: draft-scroll.y; width: 30px * root.s; height: draft-scroll.height;
+        enabled: root.open && root.editing && root.review && !root.saving && root.pending-remove == "";
+        pointer-event(event) => {
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                let index = floor((self.mouse-y - draft-scroll.content-y) / (48px * root.s));
+                if index >= 0 && index < root.draft.length {
+                    root.drag-source = index; root.drag-target = index; root.selected-row = index;
+                    root.drag-pointer-y = draft-scroll.y + self.mouse-y;
+                    root.drag-id = root.draft[index].id;
+                }
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.up && root.drag-id != "" {
+                let id = root.drag-id; let target = root.drag-target;
+                root.cancel-drag(); root.command("move:" + target, id); root.selected-row = target;
+            }
+            if event.kind == PointerEventKind.cancel { root.cancel-drag(); }
+        }
+        moved => {
+            if self.pressed && root.drag-id != "" {
+                root.drag-pointer-y = draft-scroll.y + self.mouse-y; root.update-drop();
+            }
+        }
+    }
+    if root.drag-id != "": Rectangle {
+        x: 2px * root.s; y: clamp(draft-scroll.y + draft-scroll.content-y + (root.drag-target + (root.drag-target > root.drag-source ? 1 : 0)) * 48px * root.s, draft-scroll.y, draft-scroll.y + draft-scroll.height - 2px * root.s);
+        width: root.width - 4px * root.s; height: 2px * root.s; background: #1876ca;
     }
     if root.review: Rectangle {
         x: 0px; y: root.height - (root.editing ? 60px : 105px) * root.s; width: root.width; height: 36px * root.s;

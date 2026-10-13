@@ -1275,9 +1275,13 @@ impl Controller {
             ) {
                 let row_height = ui.get_list_row_height();
                 let playlist_list = *screen == Screen::Groups(Group::Playlists);
-                let row_index = self.state.navigation.selected().saturating_sub(usize::from(
-                    playlist_list || self.state.supports_list_shuffle(),
-                ));
+                let row_index = self.state.navigation.selected().saturating_sub(
+                    if matches!(screen, Screen::Songs(Filter::Playlist { .. })) {
+                        2
+                    } else {
+                        usize::from(playlist_list || self.state.supports_list_shuffle())
+                    },
+                );
                 let row_y = row_index as f32 * row_height;
                 let visible_height = ui.get_list_viewport_height() - ui.get_list_header_height();
                 let scroll = ui.get_list_scroll_y();
@@ -1541,6 +1545,26 @@ impl Controller {
             return;
         }
         let path = PathBuf::from(id);
+        if let Some(target) = command
+            .strip_prefix("move:")
+            .and_then(|index| index.parse::<usize>().ok())
+        {
+            if let Some(source) = self.playlist_paths.iter().position(|p| p == &path) {
+                let target = target.min(self.playlist_paths.len() - 1);
+                let path = self.playlist_paths.remove(source);
+                self.playlist_paths.insert(target, path);
+                ui.set_playlist_message(
+                    if self.playlist_edit_id.is_some() {
+                        "Changes not saved"
+                    } else {
+                        "Draft only · not saved"
+                    }
+                    .into(),
+                );
+                self.sync_playlist_draft(ui);
+            }
+            return;
+        }
         match command {
             "new" => {
                 self.playlist_edit_id = None;

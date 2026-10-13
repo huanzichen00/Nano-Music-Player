@@ -106,6 +106,8 @@ See [`docs/MACOS_INTEGRATION.md`](docs/MACOS_INTEGRATION.md) for the stable bund
 
 The Rust/Slint architecture supports Windows and Linux, but this implementation has been built and exercised on macOS only. Native Windows/Linux compilation, audio output, packaging and UI behavior remain unverified.
 
-Saved playlists can be edited from their **Edit** toolbar or **File → Edit Playlist…**. **Add** opens the name/song picker; the red minus then **Delete** removes a row from the draft. **Move Up/Down** changes order, **Done** saves the existing playlist, and **Cancel** discards changes. Missing songs remain visible and stored until explicitly removed. Home preserves the draft for reopening through New Playlist. Editing leaves the currently playing queue intact.
+Saved playlists can be edited from their **Edit** toolbar or **File → Edit Playlist…**. **Add** opens the name/song picker; the red minus then **Delete** removes a row from the draft. Drag the right-hand three-line grip (with edge scrolling), or use **Move Up/Down**, to change order; **Done** saves the existing playlist, and **Cancel** discards changes. Edit, Shuffle and songs share J/K selection; Enter/L opens the selected control. Missing songs remain visible and stored until explicitly removed. Home preserves the draft for reopening through New Playlist. Editing leaves the currently playing queue intact.
 
 **Shuffle** at the top of Songs, album collections and individual album/playlist/genre lists starts a random run scoped to that list. Search shuffles only its results. The entry participates in J/K and Enter/L; F plus a letter skips the control and jumps to metadata. Turning Shuffle off restores the list’s canonical order.
+
+Rightward pointer swipes and horizontal trackpad scrolling return to the parent from library lists. Vertical gestures retain scrolling; small/diagonal motions and text/modal/transition input are guarded.

@@ -51,6 +51,49 @@ fn click(ui: &AppWindow, x: f32, y: f32) {
     });
 }
 
+fn drag(ui: &AppWindow, start: (f32, f32), end: (f32, f32)) {
+    drag_with_hold(ui, start, end, 0);
+}
+
+fn drag_with_hold(ui: &AppWindow, start: (f32, f32), end: (f32, f32), edge_ticks: usize) {
+    let size = ui.window().size().to_logical(ui.window().scale_factor());
+    let scale = ui.get_display_scale();
+    let height = if ui.get_device_mode() {
+        296.0 * 76.5 / 39.6
+    } else {
+        432.0
+    };
+    let top =
+        size.height - ui.get_content_height() + (ui.get_content_height() - height * scale) / 2.0;
+    let point = |x: f32, y: f32| {
+        slint::LogicalPosition::new(
+            (size.width - 240.0 * scale) / 2.0 + x * scale,
+            top + (y + if ui.get_device_mode() { 36.0 } else { 0.0 }) * scale,
+        )
+    };
+    ui.window().dispatch_event(WindowEvent::PointerPressed {
+        position: point(start.0, start.1),
+        button: PointerEventButton::Left,
+    });
+    for step in 1..=10 {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(20));
+        let fraction = step as f32 / 10.0;
+        ui.window().dispatch_event(WindowEvent::PointerMoved {
+            position: point(
+                start.0 + (end.0 - start.0) * fraction,
+                start.1 + (end.1 - start.1) * fraction,
+            ),
+        });
+    }
+    for _ in 0..edge_ticks {
+        i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(50));
+    }
+    ui.window().dispatch_event(WindowEvent::PointerReleased {
+        position: point(end.0, end.1),
+        button: PointerEventButton::Left,
+    });
+}
+
 fn settle(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -149,6 +192,30 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
         "Unavailable song"
     );
     snapshot(&ui, "playlist-edit-review");
+    drag(&ui, (226.0, 88.0), (226.0, 184.0));
+    assert_eq!(
+        ui.get_playlist_draft().row_data(2).unwrap().id,
+        paths[1].to_string_lossy()
+    );
+    assert_eq!(
+        ui.get_playlist_draft().row_data(0).unwrap().id,
+        missing.to_string_lossy()
+    );
+    assert_eq!(
+        playlists::load(&database).unwrap()[0],
+        original,
+        "drag changes only the draft"
+    );
+    drag(&ui, (226.0, 184.0), (226.0, 88.0));
+    assert_eq!(
+        ui.get_playlist_draft().row_data(0).unwrap().id,
+        paths[1].to_string_lossy()
+    );
+    drag(&ui, (226.0, 88.0), (226.0, 91.0));
+    assert_eq!(
+        ui.get_playlist_draft().row_data(0).unwrap().id,
+        paths[1].to_string_lossy()
+    );
     click(&ui, 16.0, 88.0); // Minus asks for Delete, without modifying the draft yet.
     assert_eq!(ui.get_playlist_draft().row_count(), 3);
     snapshot(&ui, "playlist-edit-delete");
@@ -158,8 +225,17 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
     click(&ui, 25.0, 16.0); // Cancel discards all unsaved changes.
     assert!(!ui.get_playlist_editor_open());
     assert_eq!(playlists::load(&database).unwrap()[0], original);
-
-    controller.borrow_mut().execute(&ui, Action::EditPlaylist);
+    // Edit, Shuffle, then songs form a single keyboard selection sequence.
+    assert_eq!(ui.get_selected(), 0);
+    tap(&ui, "j");
+    assert_eq!(ui.get_selected(), 1);
+    tap(&ui, "j");
+    assert_eq!(ui.get_selected(), 2);
+    tap(&ui, "k");
+    tap(&ui, "k");
+    assert_eq!(ui.get_selected(), 0);
+    tap(&ui, "l");
+    assert!(ui.get_playlist_editor_open() && ui.get_playlist_reviewing());
     click(&ui, 175.0, 48.0); // Add opens the existing name and available-song picker.
     assert!(!ui.get_playlist_reviewing());
     ui.set_playlist_name("夜の Mix".into());
@@ -241,11 +317,48 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
     }
     click(&ui, 55.0, 48.0);
     settle(&ui, &controller);
-    assert_eq!(ui.get_rows().row_count(), 1);
+    assert_eq!(ui.get_rows().row_count(), 2);
     assert!(ui.get_playlist_content());
     click(&ui, 120.0, 42.0);
     assert!(ui.get_playlist_editor_open());
     assert_eq!(ui.get_playlist_draft().row_count(), 0);
+    click(&ui, 25.0, 16.0);
+    // Holding a grip near the viewport edge reaches rows below the initial screen.
+    let long_paths: Vec<_> = (0..12)
+        .map(|index| directory.path().join(format!("long-{index:02}.wav")))
+        .collect();
+    let long = playlists::create(&database, "Long draft", &long_paths).unwrap();
+    controller.borrow_mut().state.playlists.push(long.clone());
+    controller
+        .borrow_mut()
+        .state
+        .navigation
+        .open(Screen::Songs(Filter::Playlist {
+            id: long.id,
+            name: long.name.clone(),
+        }));
+    controller.borrow_mut().poll(&ui);
+    tap(&ui, "l");
+    assert_eq!(ui.get_playlist_draft().row_count(), 12);
+    drag_with_hold(&ui, (226.0, 88.0), (226.0, 361.0), 30);
+    let target = ui
+        .get_playlist_draft()
+        .iter()
+        .position(|song| song.id.as_str() == long_paths[0].to_string_lossy())
+        .unwrap();
+    assert!(
+        target >= 9,
+        "edge auto-scroll reaches rows beyond the initial viewport: {target}"
+    );
+    assert_eq!(
+        playlists::load(&database)
+            .unwrap()
+            .iter()
+            .find(|p| p.id == long.id)
+            .unwrap()
+            .tracks,
+        long_paths
+    );
     click(&ui, 25.0, 16.0);
     let mut restarted = Controller::new(directory.path().to_owned());
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -255,5 +368,14 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
         std::thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(restarted.state.playlists[0].id, original.id);
-    assert!(restarted.state.playlists[0].tracks.is_empty());
+    assert!(
+        restarted
+            .state
+            .playlists
+            .iter()
+            .find(|p| p.id == original.id)
+            .unwrap()
+            .tracks
+            .is_empty()
+    );
 }

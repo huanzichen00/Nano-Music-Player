@@ -184,6 +184,20 @@ impl State {
                 },
             );
         }
+        if matches!(
+            self.navigation.current().screen,
+            Screen::Songs(Filter::Playlist { .. })
+        ) {
+            rows.insert(
+                0,
+                Row {
+                    title: "Edit".into(),
+                    subtitle: String::new(),
+                    artwork_id: None,
+                    target: Target::Action(Action::EditPlaylist),
+                },
+            );
+        }
         rows
     }
 
@@ -529,12 +543,14 @@ impl State {
         }
         let rows = self.rows();
         if let Some(index) = rows.iter().position(|row| {
-            !matches!(row.target, Target::Action(Action::ShuffleList))
-                && row
-                    .title
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.eq_ignore_ascii_case(&letter))
+            !matches!(
+                row.target,
+                Target::Action(Action::ShuffleList | Action::EditPlaylist)
+            ) && row
+                .title
+                .chars()
+                .next()
+                .is_some_and(|c| c.eq_ignore_ascii_case(&letter))
         }) {
             self.navigation.select(index);
             true

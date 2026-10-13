@@ -1649,11 +1649,11 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
             .iter()
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
-        ["Shuffle", "Third", "First"]
+        ["Edit", "Shuffle", "Third", "First"]
     );
     state.merge_library(vec![track(0, "Updated first", "Alice", "Shared", "Jazz")]);
-    assert_eq!(state.rows()[2].title, "Updated first");
-    state.navigation.select(1);
+    assert_eq!(state.rows()[3].title, "Updated first");
+    state.navigation.select(2);
     let effects = state.apply(Action::Activate);
     assert!(matches!(
         effects.first(),
@@ -1671,7 +1671,7 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
         name: "alpha".into(),
     }));
     assert!(
-        state.rows().len() == 1,
+        state.rows().len() == 2,
         "paths absent from the music library are retained but skipped"
     );
     assert_eq!(state.playlists[1].tracks, [PathBuf::from("/missing.mp3")]);

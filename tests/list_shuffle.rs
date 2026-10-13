@@ -69,11 +69,12 @@ fn shuffle_entry_plays_only_the_current_list_and_keeps_canonical_order() {
     ] {
         let mut state = fixture(screen.clone());
         state.query = "Shuffle Song".into();
+        let shuffle_index = usize::from(matches!(screen, Screen::Songs(Filter::Playlist { .. })));
         assert!(matches!(
-            state.rows()[0].target,
+            state.rows()[shuffle_index].target,
             Target::Action(Action::ShuffleList)
         ));
-        state.navigation.select(0);
+        state.navigation.select(shuffle_index);
         let effects = state.apply(Action::Activate);
         assert!(!effects.is_empty());
         assert_eq!(state.navigation.current().screen, Screen::NowPlaying);
@@ -101,7 +102,7 @@ fn letter_jump_skips_shuffle_control_and_empty_shuffle_is_harmless() {
         name: "Empty".into(),
     }));
     let previous_queue = state.queue.order.clone();
-    assert_eq!(state.rows().len(), 1);
+    assert_eq!(state.rows().len(), 2);
     assert!(state.apply(Action::ShuffleList).is_empty());
     assert!(!state.shuffle);
     assert_eq!(state.queue.order, previous_queue);
