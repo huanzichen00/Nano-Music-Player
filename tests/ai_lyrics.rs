@@ -5,6 +5,7 @@ use slint::{ComponentHandle, Model, ModelRc, VecModel};
 fn translated_lyrics_romaji_and_active_scroll_stay_line_aligned() {
     slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
         i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
             mock_time: true,
             ..Default::default()
         },
@@ -52,6 +53,8 @@ fn translated_lyrics_romaji_and_active_scroll_stay_line_aligned() {
     let source_height = ui.get_lyric_content_height();
     ui.set_translation_visible(true);
     slint::platform::update_timers_and_animations();
+    // Force real software rendering, including wrapped CJK and Latin fallback glyphs.
+    let _ = ui.window().take_snapshot().unwrap();
     let translated_height = ui.get_lyric_content_height();
     assert_eq!(ui.get_lyric_lines().row_count(), 18);
     assert_eq!(ui.get_translated_lines().row_count(), 18);

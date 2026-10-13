@@ -138,6 +138,7 @@ export component AppWindow inherits Window {
     public function focus-search() { library.focus-search(); }
     changed deepseek-settings-open => { root.focus-screen(); }
     public function open-genius-preview() {
+        if root.genius-preview-open { return; }
         root.genius-seed-available = root.has-track;
         root.genius-seed-title = root.has-track ? root.track-title : I18n.tr("No song selected");
         root.genius-seed-artist = root.has-track ? root.track-artist : "";

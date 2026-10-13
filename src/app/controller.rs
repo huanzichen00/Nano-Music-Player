@@ -2016,6 +2016,12 @@ impl Controller {
                     token.cancel();
                 }
                 self.genius_request = None;
+                self.genius_seed = None;
+                self.genius_rows.clear();
+                self.genius_variation = 0;
+                ui.set_genius_busy(false);
+                ui.set_genius_songs(ModelRc::default());
+                ui.set_genius_message("".into());
             }
             "play" => {
                 let ids = self.genius_playable_indices();
