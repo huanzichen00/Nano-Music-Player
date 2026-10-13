@@ -46,7 +46,7 @@ Available lyrics appear by default over the artwork in a translucent, left-align
 
 ## Lyrics
 
-In Now Playing, swipe or scroll horizontally to the right across the artwork, lyrics or song details to return to the previous list. The small **Back** control at the top left does the same; H/Escape also works. Playback continues. Vertical movement scrolls lyrics, and dragging the seek/volume sliders keeps their normal behavior. Buttons, icons and sliders use the normal arrow cursor.
+In Now Playing, swipe or scroll horizontally to the right across the artwork, lyrics or song details to return to the previous list. The small **Back** control at the top left does the same; H/Escape also works. Playback continues. Vertical movement scrolls lyrics, and dragging the seek/volume sliders keeps their normal behavior. Buttons, icons and sliders use the normal arrow cursor. An optional AeroSpace workspace-follow helper is documented in [macOS integration](docs/MACOS_INTEGRATION.md).
 
 Use **File → Import / Replace Lyrics** or **Settings → Lyrics for Track** to associate a `.txt` or `.lrc` file with the selected song (or the playing song outside a song list). Manual imports take precedence and persist their content across restarts and rescans, even if the source lyrics file moves. **Remove Lyrics** suppresses automatic lyrics; **Use Automatic Lyrics** clears that choice and discovers lyrics again.
 
