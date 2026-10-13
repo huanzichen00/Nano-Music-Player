@@ -1,7 +1,4 @@
-//! Isolated Genius request contracts and validation.
-//!
-//! This module is intentionally not wired into the app while shared controller/UI ownership is
-//! reserved. It contains no network client; callers must explicitly inject a provider.
+//! Genius request contracts, provider validation, and bounded request admission.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashSet, path::PathBuf};
@@ -167,7 +164,7 @@ impl Request {
         self.validate()?;
         let parsed: ProviderResponse =
             serde_json::from_str(response).map_err(|_| Error::InvalidResponse)?;
-        if parsed.ids.len() > self.limit {
+        if parsed.ids.is_empty() || parsed.ids.len() > self.limit {
             return Err(Error::InvalidResponse);
         }
         let sparse = parsed.ids.len() < self.limit;
@@ -305,6 +302,7 @@ mod tests {
         let req = request();
         for body in [
             "{}",
+            r#"{"ids":[]}"#,
             r#"{"ids":["a","a"]}"#,
             r#"{"ids":["nope"]}"#,
             r#"{"ids":["seed"]}"#,
@@ -339,5 +337,47 @@ mod tests {
         );
         token.cancel();
         assert_eq!(generate(&req, &fixture, &token), Err(Error::Cancelled));
+    }
+
+    #[test]
+    fn cancellation_keeps_capacity_reserved_until_a_blocking_worker_exits() {
+        let gate = RequestGate::new(1);
+        let permit = gate.try_acquire().unwrap();
+        let token = Cancellation::default();
+        let worker_token = token.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(move || {
+                let _permit = permit;
+                struct BlockingFixture {
+                    started: std::sync::mpsc::Sender<()>,
+                    release: std::sync::mpsc::Receiver<()>,
+                }
+                impl JsonProvider for BlockingFixture {
+                    fn json(&self, _: &str, _: &Value) -> Result<Value, String> {
+                        self.started.send(()).unwrap();
+                        self.release.recv().unwrap();
+                        Ok(serde_json::json!({"ids":["a"]}))
+                    }
+                }
+                generate(
+                    &request(),
+                    &BlockingFixture {
+                        started: started_tx,
+                        release: release_rx,
+                    },
+                    &worker_token,
+                )
+            });
+            started_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            token.cancel();
+            assert!(matches!(gate.try_acquire(), Err(Error::Busy)));
+            release_tx.send(()).unwrap();
+            assert_eq!(worker.join().unwrap(), Err(Error::Cancelled));
+            assert!(gate.try_acquire().is_ok());
+        });
     }
 }

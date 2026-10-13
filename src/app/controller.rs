@@ -19,6 +19,10 @@ use crate::{
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
 
+// Closing a preview drops its receiver, but a blocking provider call may still be alive.
+// Reserve capacity before spawning and retain it until that worker actually exits.
+static GENIUS_WORKERS: crate::genius::RequestGate = crate::genius::RequestGate::new(1);
+
 enum PendingMedia {
     Music {
         handoff: u64,
@@ -1713,6 +1717,7 @@ impl Controller {
                     )
                 }) =>
             {
+                let previous = self.translation_cache.clone();
                 self.translation_cache.insert(translation);
                 match self
                     .translation_cache
@@ -1722,7 +1727,10 @@ impl Controller {
                         self.translation_visible = true;
                         "Translation ready"
                     }
-                    Err(_) => "Could not save translation cache",
+                    Err(_) => {
+                        self.translation_cache = previous;
+                        "Could not save translation cache"
+                    }
                 }
             }
             Ok(_) => "Lyrics or target changed; translation discarded",
@@ -1853,11 +1861,16 @@ impl Controller {
             ui.set_genius_message(self.text("Not enough available local songs"));
             return;
         }
+        let Ok(permit) = GENIUS_WORKERS.try_acquire() else {
+            ui.set_genius_message(self.text("Genius failed; retry is available"));
+            return;
+        };
         let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
         let (tx, rx) = std::sync::mpsc::channel();
         let cancellation = crate::genius::Cancellation::default();
         let worker_cancellation = cancellation.clone();
         std::thread::spawn(move || {
+            let _permit = permit;
             let result = settings
                 .map_err(|_| crate::genius::Error::Provider)
                 .and_then(|settings| {
@@ -2555,6 +2568,39 @@ mod ai_controller_tests {
             "Lyrics or target changed; translation discarded"
         );
         assert!(controller.translation_cache.is_empty());
+    }
+
+    #[test]
+    fn failed_translation_regeneration_preserves_the_previous_cached_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut controller = Controller::new(dir.path().to_owned());
+        let track = make_track(
+            dir.path().join("song.flac"),
+            "Song",
+            Lyrics {
+                plain: vec!["hello".into()],
+                ..Default::default()
+            },
+        );
+        let request = translation_request(&track, 2, TargetLanguage::English);
+        let previous = fixture_translation(&request, serde_json::json!({"translations":["old"]}));
+        let replacement =
+            fixture_translation(&request, serde_json::json!({"translations":["new"]}));
+        controller.state.tracks = vec![track];
+        controller.state.current = Some(0);
+        controller.translation_request_id = request.request_id;
+        controller.translation_visible = true;
+        controller.translation_cache.insert(previous.clone());
+        std::fs::create_dir(dir.path().join("translations.json")).unwrap();
+        assert_eq!(
+            controller.apply_translation_result(request.clone(), Ok(replacement)),
+            "Could not save translation cache"
+        );
+        assert_eq!(
+            controller.translation_cache.get(&request.cache_key()),
+            Some(&previous)
+        );
+        assert!(controller.translation_visible);
     }
 
     #[test]

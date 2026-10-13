@@ -1,7 +1,4 @@
-//! Isolated lyric-translation contracts, validation, and durable cache prototype.
-//!
-//! No network client is included; generation requires an explicitly injected provider. App
-//! integration is intentionally deferred until shared controller/UI ownership is released.
+//! Lyric-translation contracts, provider validation, and durable exact-source cache.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -182,6 +179,9 @@ impl Request {
             return Err(Error::Incomplete);
         }
         for (source, translated) in self.source.iter().zip(&parsed.translations) {
+            if source.text.trim().is_empty() && !translated.is_empty() {
+                return Err(Error::InvalidResponse);
+            }
             if translated.chars().any(char::is_control) {
                 return Err(Error::InvalidResponse);
             }
@@ -375,6 +375,27 @@ mod tests {
         );
         assert!(
             req.validate_response(r#"{"translations":["こんにちは","世界"],"source":"changed"}"#)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn blank_lyric_rows_remain_blank_and_keep_their_timestamps() {
+        let mut req = request();
+        req.source.insert(
+            1,
+            SourceLine {
+                at_ms: Some(1800),
+                text: "  ".into(),
+            },
+        );
+        let result = req
+            .validate_response(r#"{"translations":["こんにちは","","世界"]}"#)
+            .unwrap();
+        assert_eq!(result.key.source, req.source);
+        assert_eq!(result.lines[1], "");
+        assert!(
+            req.validate_response(r#"{"translations":["こんにちは","invented lyric","世界"]}"#)
                 .is_err()
         );
     }
