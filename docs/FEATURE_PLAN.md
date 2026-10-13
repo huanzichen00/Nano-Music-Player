@@ -45,11 +45,13 @@ Agents implement isolated modules and tests only; they do not modify the shared 
 
 - Manual: identified and extracted the complete 68-page PDF with Poppler; reviewed the music, controls, playlist, and settings chapters and the overview/gesture conventions. Poppler reports malformed cross-reference entries in this supplied copy, but the full text extracts and `pdfinfo` reports all 68 pages.
 - Implemented: same-worker gapless successor prefetch/transition and ReplayGain processing; macOS media snapshot/remote-command bridge; debounced incremental filesystem monitor; SQLite playback statistics and bounded listening history; four computed smart playlists; persisted settings and nano-style UI entries. Genius and manual playlists remain on their existing paths.
-- `cargo fmt --check`: passed.
-- `cargo check`: passed for the current macOS host build.
-- Focused tests: library monitor 5/5, statistics 3/3, audio/gain 5/5 passed.
-- Full `cargo test --lib`: 75 passed, 6 ignored, 2 failed. The failures are existing AI tests that call `TcpListener::bind("127.0.0.1:0")`; the sandbox returned `PermissionDenied` before those tests could exercise their HTTP behavior. The full suite therefore is not reported as passing.
+- Historical verification on 2026-10-13 confirmed these modules compile and have unit coverage; it did not establish end-to-end feature correctness. A subsequent native playback crash remains under investigation.
+- The supplied manual at `/Users/huanzichen/Downloads/Study/References/46034.pdf` was extracted with Poppler and its music, controls, playlist, and settings chapters reviewed. Poppler reports malformed cross-reference entries in this copy, but text extraction succeeds and `pdfinfo` reports all 68 pages.
+- `cargo fmt --all -- --check`: passed on 2026-10-13.
+- `cargo check`: passed on 2026-10-13 for the current macOS host build.
+- `cargo test --lib`: 77 passed, 6 ignored, 0 failed on 2026-10-13. This supersedes the earlier sandbox run that could not bind loopback sockets.
 - `git diff --check`: passed.
 - Not verified on physical playback hardware: audible gapless transitions, output-level clipping behavior, and interactions across real device audio outputs. Not verified against the live macOS Now Playing surface or physical media keys. Unit tests and compilation do not establish those runtime behaviors.
 - Monitoring tests exercise event normalization/debouncing and unavailable-root safety; a long-running user-library add/rename/delete session was not performed. Statistics persistence and smart-list ordering have SQLite unit coverage; no end-to-end listening session was run.
+- Four isolated project-thread delegations were attempted for focused feature audits, but the desktop thread-creation API rejected the supplied arguments. The main workspace audit and verification were completed directly; no delegated changes were applied.
 - The manual also describes Audio Crossfade. This implementation adds the requested gapless playback setting and does not add a separate crossfade control.

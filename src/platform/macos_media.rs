@@ -378,10 +378,18 @@ mod macos {
                     )
                 };
                 let image = send_id_id(class("NSImage"), sel("imageWithData:"), data);
-                let artwork = send_id(class("MPMediaItemArtwork"), sel("alloc"));
-                let artwork = send_id_id(artwork, sel("initWithImage:"), image);
-                keys.push("artwork");
-                values.push(artwork);
+                // Artwork is optional and embedded image data is user supplied.
+                // Do not pass a nil NSImage to MPMediaItemArtwork: that raises an
+                // Objective-C exception, which cannot unwind through this Rust
+                // worker and aborts the entire application.
+                if !image.is_null() {
+                    let artwork = send_id(class("MPMediaItemArtwork"), sel("alloc"));
+                    let artwork = send_id_id(artwork, sel("initWithImage:"), image);
+                    if !artwork.is_null() {
+                        keys.push("artwork");
+                        values.push(artwork);
+                    }
+                }
             }
             let info = dictionary(&keys, &values);
             send_void_id(center, sel("setNowPlayingInfo:"), info);
