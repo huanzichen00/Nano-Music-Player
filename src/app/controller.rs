@@ -52,6 +52,7 @@ pub struct Controller {
     playlist_loading: Option<Receiver<Result<Vec<playlists::Playlist>, String>>>,
     playlist_saving: Option<Receiver<Result<playlists::Playlist, String>>>,
     playlist_writer: Option<std::thread::JoinHandle<()>>,
+    playlist_suspended: bool,
     playlist_candidates: Vec<PlaylistCandidate>,
     playlist_paths: Vec<PathBuf>,
     importing: Option<Receiver<thumbnails::ImportEvent>>,
@@ -157,6 +158,7 @@ impl Controller {
             playlist_loading: Some(receiver),
             playlist_saving: None,
             playlist_writer: None,
+            playlist_suspended: false,
             playlist_candidates: Vec::new(),
             playlist_paths: Vec::new(),
             importing: None,
@@ -242,6 +244,101 @@ impl Controller {
         translate(self.state.language, key).into()
     }
 
+    pub fn dispatch_modal_navigation(
+        &mut self,
+        ui: &AppWindow,
+        event: slint::language::KeyEvent,
+        editing: bool,
+    ) -> bool {
+        if self.dialog_open || self.shortcut_capture.is_some() {
+            return false;
+        }
+        let Some(key) = Key::from_slint(event.text.as_str()) else {
+            return false;
+        };
+        let press = KeyPress {
+            key,
+            repeat: event.repeat,
+            modifiers: Modifiers {
+                primary: event.modifiers.control,
+                secondary: event.modifiers.meta,
+                alt: event.modifiers.alt,
+                shift: event.modifiers.shift,
+            },
+        };
+        let resolved = self.dispatcher.dispatch(
+            &press,
+            Context {
+                surface: crate::input::Surface::Library,
+                text_input: editing,
+                reference_open: self.state.reference_open,
+                native_dialog: false,
+            },
+        );
+        if resolved == Dispatch::Action(Action::Home) {
+            ui.set_keyboard_navigation(true);
+            self.execute(ui, Action::Home);
+            return true;
+        }
+        if editing
+            || self.state.reference_open
+            || ui.get_deepseek_settings_open()
+            || ui.get_playlist_editor_open()
+            || ui.get_shortcut_editor_open()
+            || !ui.get_genius_preview_open()
+        {
+            return false;
+        }
+        self.letter_jump = None;
+        let command = match resolved {
+            Dispatch::Action(Action::Back) => Some("close"),
+            Dispatch::Action(Action::Activate) => Some(if ui.get_genius_songs().row_count() == 0 {
+                "create"
+            } else {
+                "play"
+            }),
+            _ if !press.repeat && press.modifiers == Modifiers::default() => match press.key {
+                Key::Letter('r') if ui.get_genius_preview_stage() > 0 => {
+                    Some(if ui.get_genius_songs().row_count() == 0 {
+                        "create"
+                    } else {
+                        "refresh"
+                    })
+                }
+                Key::Letter('s') => Some("save"),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(command) = command
+            && ui.invoke_prepare_genius_action(command.into())
+        {
+            ui.set_keyboard_navigation(true);
+            self.genius_command(ui, command);
+        }
+        true
+    }
+
+    fn dismiss_overlays_for_home(&mut self, ui: &AppWindow) {
+        if ui.get_genius_preview_open() {
+            self.genius_command(ui, "close");
+            ui.set_genius_preview_open(false);
+        }
+        if ui.get_deepseek_settings_open() {
+            ui.set_deepseek_api_key("".into());
+            ui.set_deepseek_settings_open(false);
+        }
+        if ui.get_playlist_editor_open() {
+            // Home hides the draft; reopening New Playlist resumes it unchanged.
+            self.playlist_suspended = true;
+            ui.set_playlist_editor_open(false);
+        }
+        self.shortcut_edit = None;
+        self.shortcut_capture = None;
+        self.sync_editor(ui);
+        self.state.reference_open = false;
+    }
+
     pub fn dispatch(
         &mut self,
         ui: &AppWindow,
@@ -249,14 +346,16 @@ impl Controller {
         text_input: bool,
     ) -> bool {
         let key = Key::from_slint(event.text.as_str());
-        if ui.get_deepseek_settings_open() {
+        if ui.get_deepseek_settings_open() && !self.state.reference_open {
             if key == Some(Key::Escape) {
                 self.deepseek_command(ui, "cancel");
                 return true;
             }
             return false;
         }
-        if let Some(action) = self.shortcut_edit {
+        if let Some(action) = self.shortcut_edit
+            && !self.state.reference_open
+        {
             if event.repeat {
                 return true;
             }
@@ -344,6 +443,12 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if action == Action::Home {
+            if self.dialog_open {
+                return;
+            }
+            self.dismiss_overlays_for_home(ui);
+        }
         if matches!(action, Action::ShowShortcuts | Action::Shortcuts) {
             self.prepare_portrait_dialog(ui);
         }
@@ -427,8 +532,14 @@ impl Controller {
                         && !self.state.reference_open
                     {
                         self.prepare_portrait_dialog(ui);
-                        self.playlist_command(ui, "new", "");
-                        ui.invoke_open_playlist_editor();
+                        if self.playlist_suspended {
+                            self.playlist_suspended = false;
+                            ui.set_playlist_editor_open(true);
+                            ui.invoke_focus_screen();
+                        } else {
+                            self.playlist_command(ui, "new", "");
+                            ui.invoke_open_playlist_editor();
+                        }
                     }
                 }
                 Effect::GenerateRomaji { id } => self.start_romaji(ui, id),
@@ -1517,9 +1628,12 @@ impl Controller {
                     self.state.playlists.push(playlist);
                     self.rows_dirty = true;
                     ui.set_playlist_persisted(true);
+                    if ui.get_playlist_editor_open() {
+                        self.state.navigation.open(Screen::Groups(Group::Playlists));
+                        self.state.navigation.open(screen);
+                    }
                     ui.set_playlist_editor_open(false);
-                    self.state.navigation.open(Screen::Groups(Group::Playlists));
-                    self.state.navigation.open(screen);
+                    self.playlist_suspended = false;
                     self.state.notice = "Playlist saved".into();
                     self.playlist_paths.clear();
                     self.playlist_candidates.clear();
@@ -1542,6 +1656,9 @@ impl Controller {
                         _ => "Could not save playlist. Try again.",
                     };
                     ui.set_playlist_message(message.into());
+                    if !ui.get_playlist_editor_open() {
+                        self.state.notice = message.into();
+                    }
                 }
             }
         }
@@ -2063,13 +2180,15 @@ impl Controller {
             }
             "play" => {
                 let ids = self.genius_playable_indices();
-                if ids.is_empty() {
+                if ids.is_empty() || ids.len() != self.genius_rows.len() {
+                    ui.set_genius_message(self.text("Library or seed changed; result discarded"));
                     return;
                 }
                 let (start, keep, position) = self.install_genius_queue(ids);
                 if keep.is_some() {
                     self.state.position = position;
                     self.send_music(crate::audio::engine::AudioCommand::Seek(position));
+                    self.send_music(crate::audio::engine::AudioCommand::Pause(false));
                 } else if let Some(effect) = self.state.start(start).into_iter().next() {
                     self.effects(ui, vec![effect]);
                 }
@@ -2102,7 +2221,15 @@ impl Controller {
     }
 
     fn install_genius_queue(&mut self, ids: Vec<usize>) -> (usize, Option<usize>, f64) {
-        let keep = self.state.current.filter(|id| ids.contains(id));
+        let keep = self.state.current.filter(|id| {
+            *id == ids[0]
+                && !self.state.video_active
+                && self.pending_media.is_none()
+                && matches!(
+                    self.state.status,
+                    PlaybackStatus::Playing | PlaybackStatus::Paused | PlaybackStatus::Loading
+                )
+        });
         let start = keep.unwrap_or(ids[0]);
         let position = self.state.position;
         self.state.queue.set(ids, start, false);
@@ -2111,6 +2238,10 @@ impl Controller {
         }
         if keep.is_some() {
             self.state.position = position;
+            self.state.paused = false;
+            if self.state.status == PlaybackStatus::Paused {
+                self.state.status = PlaybackStatus::Playing;
+            }
         }
         (start, keep, position)
     }
@@ -2121,6 +2252,9 @@ impl Controller {
             .into_iter()
             .filter_map(|id| self.state.tracks.get(id).map(|track| track.path.clone()))
             .collect();
+        if paths.is_empty() || paths.len() != self.genius_rows.len() {
+            return Err("Some selected songs are unavailable".into());
+        }
         let seed = self
             .genius_seed
             .as_ref()
@@ -2293,6 +2427,15 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     ui.on_key_event(move |event, editing| {
         weak.upgrade()
             .is_some_and(|ui| state.borrow_mut().dispatch(&ui, event, editing))
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_modal_key_event(move |event, editing| {
+        weak.upgrade().is_some_and(|ui| {
+            state
+                .borrow_mut()
+                .dispatch_modal_navigation(&ui, event, editing)
+        })
     });
     let weak = ui.as_weak();
     let state = controller.clone();
@@ -2682,6 +2825,8 @@ mod ai_controller_tests {
         ];
         controller.state.current = Some(0);
         controller.state.position = 37.25;
+        controller.state.status = PlaybackStatus::Paused;
+        controller.state.paused = true;
         controller.state.shuffle = true;
         controller.genius_seed = Some(seed.clone());
         controller.genius_rows = vec![
@@ -2705,12 +2850,31 @@ mod ai_controller_tests {
         assert_eq!(controller.state.queue.order, [0, 1]);
         assert_eq!(controller.state.current, Some(0));
         assert_eq!(controller.state.position, 37.25);
+        assert!(!controller.state.paused);
+        assert_eq!(controller.state.status, PlaybackStatus::Playing);
         controller.save_genius_playlist().unwrap();
         assert_eq!(
             playlists::load(&dir.path().join("library.sqlite3")).unwrap()[0].tracks,
-            [seed, next]
+            [seed.clone(), next.clone()]
         );
         assert!(controller.save_genius_playlist().is_err());
+        assert_eq!(
+            playlists::load(&dir.path().join("library.sqlite3"))
+                .unwrap()
+                .len(),
+            1
+        );
+        controller.state.current = Some(1);
+        assert_eq!(controller.install_genius_queue(vec![0, 1]).1, None);
+        controller.state.current = Some(0);
+        controller.state.video_active = true;
+        assert_eq!(controller.install_genius_queue(vec![0, 1]).1, None);
+        std::fs::remove_file(next).unwrap();
+        controller.state.tracks[0].title = "A different name".into();
+        assert_eq!(
+            controller.save_genius_playlist().unwrap_err(),
+            "Some selected songs are unavailable"
+        );
         assert_eq!(
             playlists::load(&dir.path().join("library.sqlite3"))
                 .unwrap()

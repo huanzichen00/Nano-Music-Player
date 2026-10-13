@@ -9,6 +9,7 @@ export component DeepSeekSettings inherits Rectangle {
     in-out property <string> api-key;
     in-out property <string> model;
     callback command(string);
+    out property <bool> editor-focused: key-input.has-focus || model-input.has-focus;
     public function focus-editor() { key-input.focus(); }
     visible: root.open;
     background: #080e1baa;

@@ -81,7 +81,10 @@ impl Dispatcher {
         if press.repeat && !binding.action.repeatable() {
             return Dispatch::Consumed;
         }
-        if context.reference_open && binding.action.category() == Category::Navigation {
+        if context.reference_open
+            && binding.action.category() == Category::Navigation
+            && binding.action != Home
+        {
             return Dispatch::Consumed;
         }
         let action = match (binding.action, context.surface) {

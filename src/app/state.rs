@@ -947,6 +947,7 @@ impl State {
                 return vec![Effect::FocusScreen];
             }
             Home => {
+                self.reference_open = false;
                 self.navigation.home();
                 self.home_page = 0;
                 return vec![Effect::FocusScreen];

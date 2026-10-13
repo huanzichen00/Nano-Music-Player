@@ -1123,14 +1123,14 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     ui.set_track_title("夜の散歩".into());
     snapshot(&ui, "genius-ready-preview");
     tap(&ui, "r");
-    assert_eq!(ui.get_genius_preview_variation(), 1);
+    assert_eq!(ui.get_genius_preview_variation(), 0); // A failed Create retries from the frozen seed.
     assert_eq!(controller.borrow().state.romaji_visible, romaji_before);
     tap(&ui, Key::Return);
-    assert_eq!(ui.get_genius_preview_stage(), 2);
+    assert_eq!(ui.get_genius_preview_stage(), 1); // No result exists to play in this offline fixture.
     assert_eq!(controller.borrow().state.status, playback_before);
     assert_eq!(controller.borrow().state.queue.current(), queue_before);
     tap(&ui, "s");
-    assert_eq!(ui.get_genius_preview_stage(), 3);
+    assert_eq!(ui.get_genius_preview_stage(), 1); // Empty results cannot claim a saved playlist.
     snapshot(&ui, "genius-save-preview");
     click(&ui, 24.0, 16.0); // Close in the compact Genius header.
     assert!(!ui.get_genius_preview_open());

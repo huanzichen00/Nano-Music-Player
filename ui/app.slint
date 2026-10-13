@@ -180,6 +180,7 @@ export component AppWindow inherits Window {
     out property <float> lyric-content-height: now-playing.lyric-content-height / 1px;
     private property <float> s: min(keyboard.width / root.base-width, keyboard.height / root.base-height);
     callback key-event(KeyEvent, bool) -> bool;
+    callback modal-key-event(KeyEvent, bool) -> bool;
     callback command(string);
     callback shortcut-command(string);
     callback deepseek-command(string);
@@ -218,14 +219,19 @@ export component AppWindow inherits Window {
         root.genius-preview-open = true;
         keyboard.focus();
     }
-    public function genius-action(name: string) {
-        if name != "close" && !root.genius-seed-available { return; }
+    public function prepare-genius-action(name: string) -> bool {
+        if name != "close" && !root.genius-seed-available { return false; }
+        if name != "close" && root.genius-busy { return false; }
+        if (name == "play" || name == "save") && root.genius-songs.length == 0 { return false; }
         if name == "close" { root.genius-preview-open = false; root.focus-screen(); }
         else if name == "create" { genius-preview.stage = 1; }
         else if name == "refresh" { genius-preview.variation += 1; genius-preview.stage = 1; }
         else if name == "play" && genius-preview.stage > 0 { genius-preview.stage = 2; }
         else if name == "save" && genius-preview.stage > 0 { genius-preview.stage = 3; }
-        root.genius-command(name);
+        return true;
+    }
+    public function genius-action(name: string) {
+        if root.prepare-genius-action(name) { root.genius-command(name); }
     }
     public function open-playlist-editor() {
         root.playlist-name = "";
@@ -285,6 +291,11 @@ export component AppWindow inherits Window {
     keyboard := FocusScope {
         // The sole keyboard entry point for the entire application.
         capture-key-pressed(event) => {
+            if root.modal-key-event(event, root.reference-open ? false
+                : root.deepseek-settings-open ? deepseek-dialog.editor-focused
+                : root.playlist-editor-open ? (!root.playlist-saving && playlist-editor.name-focused)
+                : root.genius-preview-open || root.shortcut-editor-open ? false : library.search-focused) { return accept; }
+            if root.reference-open { return root.key-event(event, false) ? accept : reject; }
             if root.deepseek-settings-open {
                 if event.text == Key.Escape { root.deepseek-command("cancel"); return accept; }
                 if event.text == Key.Return { root.deepseek-command("save"); return accept; }
@@ -318,11 +329,6 @@ export component AppWindow inherits Window {
                 return accept;
             }
             if root.genius-preview-open {
-                if event.repeat { return accept; }
-                if event.text == Key.Escape { root.genius-action("close"); }
-                else if event.text == Key.Return { root.genius-action(genius-preview.stage == 0 ? "create" : "play"); }
-                else if event.text.to-lowercase() == "r" && genius-preview.stage > 0 { root.genius-action("refresh"); }
-                else if event.text.to-lowercase() == "s" && genius-preview.stage > 0 { root.genius-action("save"); }
                 return accept;
             }
             return root.key-event(event, library.search-focused) ? accept : reject;
