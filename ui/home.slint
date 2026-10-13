@@ -35,7 +35,7 @@ export component HomeView inherits Rectangle {
     in property <int> page-direction: 1;
     in property <bool> smooth-slides: true;
     in property <bool> navigation-enabled: true;
-    private property <bool> animating: true;
+    private property <bool> animating: false;
     out property <length> page-slide-offset: !root.smooth-slides ? 0px : root.page == 1 ? second-page.x : first-page.x;
     out property <length> page-outgoing-offset: !root.smooth-slides ? 0px : root.page == 1 ? first-page.x : second-page.x;
     callback activated(int);
@@ -45,8 +45,11 @@ export component HomeView inherits Rectangle {
         second-page.x = root.page == 1 ? 0px : root.width;
     }
     public function cancel-page-transition() { root.animating = false; root.place-pages(); }
-    changed page => { root.animating = root.smooth-slides; root.place-pages(); }
+    // Screen navigation and modal changes place the icons at their destination;
+    // only page changes on an interactive Home screen animate.
+    changed page => { root.animating = root.smooth-slides && root.navigation-enabled; root.place-pages(); }
     changed width => { root.cancel-page-transition(); }
+    changed navigation-enabled => { root.cancel-page-transition(); }
     changed smooth-slides => { if !root.smooth-slides { root.cancel-page-transition(); } }
     background: @linear-gradient(155deg, #779487, #334d45 70%, #253a37);
     clip: true;
@@ -91,7 +94,7 @@ export component HomeView inherits Rectangle {
             // Translate native rectangle containers, keeping reusable page roots local.
             first-page := Rectangle {
                 x: 0px; y: 0px;
-                animate x { duration: root.animating && root.smooth-slides ? 180ms : 0ms; easing: ease-out; } width: parent.width; height: parent.height;
+                animate x { duration: root.animating && root.smooth-slides && root.navigation-enabled ? 180ms : 0ms; easing: ease-out; } width: parent.width; height: parent.height;
                 HomeIconPage {
                     x: 0px; y: 0px; width: parent.width; height: parent.height; s: root.s;
                     page: 0; selected: root.selected; active: root.navigation-enabled && root.page == 0;
@@ -100,7 +103,7 @@ export component HomeView inherits Rectangle {
             }
             second-page := Rectangle {
                 x: root.width; y: 0px;
-                animate x { duration: root.animating && root.smooth-slides ? 180ms : 0ms; easing: ease-out; } width: parent.width; height: parent.height;
+                animate x { duration: root.animating && root.smooth-slides && root.navigation-enabled ? 180ms : 0ms; easing: ease-out; } width: parent.width; height: parent.height;
                 HomeIconPage {
                     x: 0px; y: 0px; width: parent.width; height: parent.height; s: root.s;
                     page: 1; selected: root.selected; active: root.navigation-enabled && root.page == 1;
