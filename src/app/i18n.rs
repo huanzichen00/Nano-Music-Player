@@ -41,6 +41,12 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Shuffle", "随机播放", "シャッフル"),
+    (
+        "Shuffle this list",
+        "随机播放此列表",
+        "このリストをシャッフル",
+    ),
     ("Edit", "编辑", "編集"),
     ("Edit Playlist…", "编辑播放列表…", "プレイリストを編集…"),
     ("Edit Playlist", "编辑播放列表", "プレイリストを編集"),

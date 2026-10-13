@@ -68,10 +68,11 @@ fn library_publishes_immediate_covers_and_sharpening_preserves_model_and_selecti
         .navigation
         .open(Screen::Groups(Group::Albums));
     controller.execute(&ui, Action::FinishSearchEditing);
-    assert_eq!(ui.get_rows().row_count(), tracks.len());
+    assert_eq!(ui.get_rows().row_count(), tracks.len() + 1);
     assert!(
         ui.get_rows()
             .iter()
+            .filter(|row| row.show_artwork)
             .all(|row| row.artwork.size().width == 96)
     );
     // Changing DPI/zoom requests sharper visible covers without rebuilding rows.
@@ -99,7 +100,12 @@ fn library_publishes_immediate_covers_and_sharpening_preserves_model_and_selecti
         .navigation
         .open(Screen::Groups(Group::Artists));
     controller.execute(&ui, Action::FinishSearchEditing);
-    assert!(ui.get_rows().iter().all(|row| row.artwork.size().width > 0));
+    assert!(
+        ui.get_rows()
+            .iter()
+            .filter(|row| row.show_artwork)
+            .all(|row| row.artwork.size().width > 0)
+    );
     controller.state.start(0); // Discard audio effect; don't touch the live audio device.
     controller.execute(&ui, Action::NowPlaying);
     assert!(
@@ -141,13 +147,13 @@ fn compilation_groups_keep_subtitles_artist_filters_and_representative_order() {
     state.navigation.open(Screen::Groups(Group::Albums));
     let rows = state.rows();
     assert_eq!(rows.len(), state.selection_count());
-    assert_eq!(rows[0].subtitle, "A, B");
-    assert_eq!(rows[0].artwork_id, Some(3));
+    assert_eq!(rows[1].subtitle, "A, B");
+    assert_eq!(rows[1].artwork_id, Some(3));
     state.navigation.open(Screen::Artist("B".into()));
     let rows = state.rows();
-    assert_eq!(rows[0].subtitle, "B");
-    assert_eq!(rows[0].artwork_id, Some(0));
-    assert!(matches!(&rows[0].target, Target::Screen(Screen::Songs(
+    assert_eq!(rows[1].subtitle, "B");
+    assert_eq!(rows[1].artwork_id, Some(0));
+    assert!(matches!(&rows[1].target, Target::Screen(Screen::Songs(
         nano_music_player::app::navigation::Filter::Album { artist: Some(artist), .. }
     )) if artist == "B"));
 }
@@ -242,13 +248,16 @@ fn profile_album_entry() {
         );
         assert_eq!(ui.get_rows().row_count(), rows.len());
         assert!(
-            ui.get_rows().iter().all(|row| row.artwork.size().width > 0),
+            ui.get_rows()
+                .iter()
+                .filter(|row| row.show_artwork)
+                .all(|row| row.artwork.size().width > 0),
             "all first-frame album covers must be ready"
         );
         let deadline = Instant::now() + std::time::Duration::from_secs(15);
         while ui
             .get_rows()
-            .row_data(0)
+            .row_data(1)
             .is_some_and(|row| row.artwork.size().width == 0)
             && Instant::now() < deadline
         {

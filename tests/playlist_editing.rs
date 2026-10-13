@@ -241,7 +241,7 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
     }
     click(&ui, 55.0, 48.0);
     settle(&ui, &controller);
-    assert_eq!(ui.get_rows().row_count(), 0);
+    assert_eq!(ui.get_rows().row_count(), 1);
     assert!(ui.get_playlist_content());
     click(&ui, 120.0, 42.0);
     assert!(ui.get_playlist_editor_open());

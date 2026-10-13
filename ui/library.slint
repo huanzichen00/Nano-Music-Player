@@ -18,13 +18,16 @@ export component LibraryView inherits Rectangle {
     in property <bool> compact-title;
     in property <bool> playlist-list: false;
     in property <bool> playlist-content: false;
+    in property <bool> shuffle-list: false;
+    private property <int> prefix-count: root.playlist-list || root.shuffle-list ? 1 : 0;
+    out property <length> header-height: ((root.search ? 44px : (root.playlist-list || root.playlist-content ? 32px : 0px)) + (root.shuffle-list ? 32px : 0px)) * root.s;
     callback edit-playlist();
     in property <bool> enabled: true;
     in property <[LibraryRow]> rows;
     in-out property <string> search-text;
     in-out property <length> scroll-y;
     out property <bool> search-focused: input.has-focus;
-    out property <length> row-height: (root.rows.length > 0 && root.rows[0].show-artwork ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
+    out property <length> row-height: (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
     callback edited(string);
     public function focus-search() { input.focus(); }
@@ -46,6 +49,14 @@ export component LibraryView inherits Rectangle {
             TouchArea { clicked => { if root.enabled { root.edit-playlist(); } } }
         }
     }
+    if root.shuffle-list: Rectangle {
+        x: 0px; y: (root.search ? 44px : root.playlist-content ? 32px : 0px) * root.s; width: root.width; height: 32px * root.s;
+        background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
+        Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #d5d5d5; }
+        Image { source: @image-url("../assets/icons/shuffle.svg"); colorize: root.selected == 0 ? white : #6b7d8f; x: 10px * root.s; y: 8px * root.s; width: 18px * root.s; height: 16px * root.s; image-fit: contain; }
+        Text { x: 38px * root.s; width: parent.width - 48px * root.s; text: I18n.tr("Shuffle"); color: root.rows.length <= 1 ? #929292 : root.selected == 0 ? white : #111; font-size: 14px * root.s; font-weight: 600; vertical-alignment: center; }
+        TouchArea { clicked => { if root.enabled && root.rows.length > 1 { root.activated(0); } } }
+    }
     Rectangle {
         visible: root.search;
         x: 6px * root.s; y: 6px * root.s; width: parent.width - 12px * root.s; height: 30px * root.s;
@@ -60,13 +71,13 @@ export component LibraryView inherits Rectangle {
         }
     }
     Flickable {
-        y: (root.search ? 44px : (root.playlist-list || root.playlist-content ? 32px : 0px)) * root.s;
+        y: root.header-height;
         height: root.height - self.y; width: root.width;
-        content-height: max(self.height, (root.rows.length - (root.playlist-list ? 1 : 0)) * root.row-height);
+        content-height: max(self.height, (root.rows.length - root.prefix-count) * root.row-height);
         content-y <=> root.scroll-y;
         for row[index] in root.rows: Rectangle {
-            visible: !root.playlist-list || index > 0;
-            y: (index - (root.playlist-list ? 1 : 0)) * root.row-height; width: root.width; height: root.row-height;
+            visible: index >= root.prefix-count;
+            y: (index - root.prefix-count) * root.row-height; width: root.width; height: root.row-height;
             background: root.selected == index ? @linear-gradient(180deg, #4794e4, #1666bb) : #fff;
             Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #d5d5d5; }
             if root.playlist-list: Image {
@@ -101,7 +112,7 @@ export component LibraryView inherits Rectangle {
             }
             TouchArea { clicked => { root.activated(index); } }
         }
-        if root.rows.length == 0: Text {
+        if root.rows.length <= root.prefix-count: Text {
             width: root.width; height: 160px * root.s;
             text: root.search ? I18n.tr("No matching songs") : root.playlist-content ? I18n.tr("Empty playlist") : I18n.tr("No music yet\nFile → Import Music Folder");
             font-size: 13px * root.s; color: #888; horizontal-alignment: center; vertical-alignment: center;

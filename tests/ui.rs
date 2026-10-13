@@ -425,6 +425,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, "m");
     assert!(!controller.borrow().state.muted);
     tap(&ui, Key::DownArrow);
+    tap(&ui, Key::DownArrow); // Shuffle is the first selectable item above the songs.
     tap(&ui, Key::Return);
     assert_eq!(ui.get_screen(), 2);
     assert_eq!(ui.get_track_title(), "Test Song 01");
@@ -862,13 +863,13 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     }
     tap(&ui, "f");
     tap(&ui, "z");
-    assert_eq!(ui.get_selected(), 20);
+    assert_eq!(ui.get_selected(), 21);
     assert!(ui.get_list_scroll_y() < 0.0);
     let shuffle = controller.borrow().state.shuffle;
     tap(&ui, "f");
     tap(&ui, "s"); // No title starts with S; must not shuffle.
     assert_eq!(controller.borrow().state.shuffle, shuffle);
-    assert_eq!(ui.get_selected(), 20);
+    assert_eq!(ui.get_selected(), 21);
     tap(&ui, "f");
     tap(&ui, Key::Escape);
     assert_eq!(ui.get_screen_title(), "Songs");
@@ -893,13 +894,15 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
             ));
         controller.execute(&ui, Action::FinishSearchEditing);
     }
-    assert!(ui.get_rows().row_data(0).unwrap().show_artwork);
-    wait_for_library_artwork(&ui, &controller, 0);
-    assert!(ui.get_rows().row_data(0).unwrap().artwork.size().width > 0);
+    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "Shuffle");
+    assert!(!ui.get_rows().row_data(0).unwrap().show_artwork);
+    assert!(ui.get_rows().row_data(1).unwrap().show_artwork);
+    wait_for_library_artwork(&ui, &controller, 1);
+    assert!(ui.get_rows().row_data(1).unwrap().artwork.size().width > 0);
     snapshot(&ui, "album-thumbnails");
     tap(&ui, "f");
     tap(&ui, "z");
-    assert_eq!(ui.get_selected(), 1);
+    assert_eq!(ui.get_selected(), 2);
     {
         let mut controller = controller.borrow_mut();
         controller
@@ -938,15 +941,18 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     }
     assert!((ui.get_list_row_height() - 58.0 * ui.get_display_scale()).abs() < 0.01);
     assert!((ui.get_list_viewport_height() - 406.0 * ui.get_display_scale()).abs() < 0.01);
-    for row in 0..7 {
+    for row in 1..8 {
         wait_for_library_artwork(&ui, &controller, row);
     }
     snapshot(&ui, "larger-album-thumbnails");
     tap(&ui, "f");
     tap(&ui, "z");
-    assert_eq!(ui.get_selected(), 9);
-    assert!((ui.get_list_scroll_y() - (406.0 - 10.0 * 58.0) * ui.get_display_scale()).abs() < 0.01);
-    for row in 3..10 {
+    assert_eq!(ui.get_selected(), 10);
+    assert!(
+        (ui.get_list_scroll_y() - (406.0 - 32.0 - 10.0 * 58.0) * ui.get_display_scale()).abs()
+            < 0.01
+    );
+    for row in 4..11 {
         wait_for_library_artwork(&ui, &controller, row);
     }
     snapshot(&ui, "larger-album-jump");

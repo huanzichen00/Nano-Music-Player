@@ -29,7 +29,11 @@ fn state(tracks: Vec<Track>, screen: Screen) -> State {
     s
 }
 fn titles(s: &State) -> Vec<String> {
-    s.rows().into_iter().map(|r| r.title).collect()
+    s.rows()
+        .into_iter()
+        .filter(|r| !matches!(r.target, Target::Action(_)))
+        .map(|r| r.title)
+        .collect()
 }
 
 #[test]
@@ -43,7 +47,7 @@ fn group_and_song_rows_are_case_folded_stable_and_keep_track_indexes() {
     let artists = state(tracks.clone(), Screen::Groups(Group::Artists));
     assert_eq!(titles(&artists), ["Alpha", "alpha", "zArtist"]);
     let songs = state(tracks, Screen::Songs(Filter::All));
-    let rows = songs.rows();
+    let rows = songs.rows().into_iter().skip(1).collect::<Vec<_>>();
     assert_eq!(
         rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
         ["ALPHA", "Alpha", "beta", "zulu"]
@@ -67,7 +71,7 @@ fn album_tracks_order_known_numbers_then_unknown_and_deterministic_ties() {
             artist: Some("A".into()),
         }),
     );
-    let rows = s.rows();
+    let rows = s.rows().into_iter().skip(1).collect::<Vec<_>>();
     assert_eq!(
         rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
         ["ALPHA", "Alpha", "beta", "zulu", "unknown"]
@@ -84,7 +88,7 @@ fn album_and_artist_rows_choose_deterministic_artwork_and_jump_preserves_track_i
         track("song", "Beta", "Bee", 1, "/bee", true),
     ];
     let albums = state(tracks.clone(), Screen::Groups(Group::Albums));
-    let rows = albums.rows();
+    let rows = albums.rows().into_iter().skip(1).collect::<Vec<_>>();
     assert_eq!(
         rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
         ["Album", "album", "Bee"]
@@ -92,14 +96,14 @@ fn album_and_artist_rows_choose_deterministic_artwork_and_jump_preserves_track_i
     assert_eq!(rows[0].artwork_id, Some(2));
     assert_eq!(rows[1].artwork_id, Some(0));
     let artist = state(tracks.clone(), Screen::Artist("Artist".into()));
-    let albums = artist.rows();
+    let albums = artist.rows().into_iter().skip(1).collect::<Vec<_>>();
     assert_eq!(albums[0].artwork_id, Some(2));
     assert_eq!(albums[1].artwork_id, Some(0));
 
     let mut songs = state(tracks, Screen::Songs(Filter::All));
     assert!(songs.supports_letter_jump());
     assert!(songs.jump_to_letter('L'));
-    assert_eq!(songs.navigation.selected(), 1);
+    assert_eq!(songs.navigation.selected(), 2);
     assert!(!songs.jump_to_letter('Q'));
     assert!(matches!(
         songs.rows()[songs.navigation.selected()].target,
@@ -124,6 +128,7 @@ fn reverse_insertion_keeps_display_order_and_path_ties() {
     let paths = |s: &State| {
         s.rows()
             .into_iter()
+            .filter(|r| !matches!(r.target, Target::Action(_)))
             .map(|r| match r.target {
                 Target::Play(id) => s.tracks[id].path.clone(),
                 _ => unreachable!(),

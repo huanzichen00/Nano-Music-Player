@@ -37,7 +37,7 @@ fn romaji_actions_target_the_selected_song_and_pin_the_lyrics_screen() {
     state.merge_library(vec![track("a.mp3".into(), "A"), track("b.mp3".into(), "B")]);
     state.current = Some(0);
     state.navigation.open(Screen::Songs(Filter::All));
-    state.navigation.select(1);
+    state.navigation.select(2);
     assert!(matches!(
         state.apply(Action::GenerateRomaji).as_slice(),
         [Effect::GenerateRomaji { id: 1 }]

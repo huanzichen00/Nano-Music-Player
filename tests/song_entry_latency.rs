@@ -133,7 +133,7 @@ fn song_metadata_is_immediate_and_background_covers_follow_the_current_track() {
     while ui
         .get_rows()
         .iter()
-        .any(|row| row.artwork.size().width == 0)
+        .any(|row| row.show_artwork && row.artwork.size().width == 0)
     {
         assert!(Instant::now() < deadline);
         std::thread::sleep(Duration::from_millis(5));

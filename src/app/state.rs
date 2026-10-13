@@ -164,7 +164,30 @@ impl State {
         }
     }
 
+    pub fn supports_list_shuffle(&self) -> bool {
+        matches!(
+            self.navigation.current().screen,
+            Screen::Songs(_) | Screen::Search | Screen::Groups(Group::Albums) | Screen::Artist(_)
+        )
+    }
+
     pub fn rows(&self) -> Vec<Row> {
+        let mut rows = self.list_rows();
+        if self.supports_list_shuffle() {
+            rows.insert(
+                0,
+                Row {
+                    title: "Shuffle".into(),
+                    subtitle: String::new(),
+                    artwork_id: None,
+                    target: Target::Action(Action::ShuffleList),
+                },
+            );
+        }
+        rows
+    }
+
+    fn list_rows(&self) -> Vec<Row> {
         let row = |title: &str, target| Row {
             title: title.to_owned(),
             subtitle: String::new(),
@@ -506,10 +529,12 @@ impl State {
         }
         let rows = self.rows();
         if let Some(index) = rows.iter().position(|row| {
-            row.title
-                .chars()
-                .next()
-                .is_some_and(|c| c.eq_ignore_ascii_case(&letter))
+            !matches!(row.target, Target::Action(Action::ShuffleList))
+                && row
+                    .title
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.eq_ignore_ascii_case(&letter))
         }) {
             self.navigation.select(index);
             true
@@ -530,19 +555,23 @@ impl State {
             Screen::NowPlaying => 7,
             Screen::VideoPlaying => 5,
             Screen::Groups(Group::Playlists) => 2 + self.playlists.len(),
-            Screen::Groups(group) => self
-                .tracks
-                .iter()
-                .map(|track| group_name(track, group))
-                .collect::<BTreeSet<_>>()
-                .len(),
-            Screen::Artist(artist) => self
-                .tracks
-                .iter()
-                .filter(|track| &track.artist == artist)
-                .map(|track| track.album.as_str())
-                .collect::<BTreeSet<_>>()
-                .len(),
+            Screen::Groups(group) => {
+                self.tracks
+                    .iter()
+                    .map(|track| group_name(track, group))
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    + usize::from(*group == Group::Albums)
+            }
+            Screen::Artist(artist) => {
+                self.tracks
+                    .iter()
+                    .filter(|track| &track.artist == artist)
+                    .map(|track| track.album.as_str())
+                    .collect::<BTreeSet<_>>()
+                    .len()
+                    + 1
+            }
             _ => self.rows().len(),
         }
     }
@@ -999,6 +1028,64 @@ impl State {
                 self.muted = !self.muted;
                 self.notice = if self.muted { "Muted" } else { "Unmuted" }.to_owned();
                 return vec![self.volume_effect()];
+            }
+            ShuffleList => {
+                if !self.supports_list_shuffle() {
+                    return Vec::new();
+                }
+                let ids: Vec<_> = if matches!(
+                    self.navigation.current().screen,
+                    Screen::Groups(Group::Albums) | Screen::Artist(_)
+                ) {
+                    // Album collections use only the tracks represented by their album rows.
+                    self.list_rows()
+                        .iter()
+                        .flat_map(|row| {
+                            let mut tracks: Vec<_> = self
+                                .tracks
+                                .iter()
+                                .enumerate()
+                                .filter(|(_, track)| match &row.target {
+                                    Target::Screen(Screen::Songs(Filter::Album {
+                                        name,
+                                        artist,
+                                    })) => {
+                                        &track.album == name
+                                            && artist.as_ref().is_none_or(|a| &track.artist == a)
+                                    }
+                                    _ => false,
+                                })
+                                .collect();
+                            tracks.sort_by_cached_key(|(_, track)| {
+                                (
+                                    track.number == 0,
+                                    track.number,
+                                    track.title.to_lowercase(),
+                                    track.title.clone(),
+                                    track.path.clone(),
+                                )
+                            });
+                            tracks.into_iter().map(|(id, _)| id).collect::<Vec<_>>()
+                        })
+                        .collect()
+                } else {
+                    self.list_rows()
+                        .iter()
+                        .filter_map(|row| match row.target {
+                            Target::Play(id) => Some(id),
+                            _ => None,
+                        })
+                        .collect()
+                };
+                use rand::seq::IndexedRandom;
+                let Some(&start) = ids.choose(&mut rand::rng()) else {
+                    return Vec::new();
+                };
+                self.shuffle = true;
+                self.queue.set(ids, start, true);
+                self.navigation.open(Screen::NowPlaying);
+                self.navigation.select(1);
+                return self.start(start);
             }
             ToggleShuffle => {
                 self.shuffle = !self.shuffle;

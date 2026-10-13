@@ -20,6 +20,7 @@ pub enum Action {
     VolumeDown,
     ToggleMute,
     ToggleShuffle,
+    ShuffleList,
     CycleRepeat,
     NowPlaying,
     ImportFolder,
@@ -83,6 +84,7 @@ impl Action {
             | Self::VolumeDown
             | Self::ToggleMute
             | Self::ToggleShuffle
+            | Self::ShuffleList
             | Self::CycleRepeat
             | Self::NowPlaying
             | Self::SeekBackward
@@ -153,6 +155,7 @@ impl Action {
             Self::VolumeDown => "Decrease volume (hold to repeat)",
             Self::ToggleMute => "Toggle mute",
             Self::ToggleShuffle => "Toggle shuffle",
+            Self::ShuffleList => "Shuffle this list",
             Self::CycleRepeat => "Repeat: Off / All / One",
             Self::NowPlaying => "Open Now Playing",
             Self::ImportFolder => "Import music folder",
@@ -207,6 +210,7 @@ impl Action {
         Self::VolumeDown,
         Self::ToggleMute,
         Self::ToggleShuffle,
+        Self::ShuffleList,
         Self::CycleRepeat,
         Self::NowPlaying,
         Self::ToggleLyrics,

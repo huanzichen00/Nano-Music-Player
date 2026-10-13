@@ -673,7 +673,7 @@ fn navigation_restores_each_parent_selection_and_never_pops_home() {
 fn empty_lists_and_a_library_refresh_keep_selection_valid() {
     let mut state = State::default();
     state.navigation.open(Screen::Songs(Filter::All));
-    assert_eq!(state.selection_count(), 0);
+    assert_eq!(state.selection_count(), 1);
     for action in [Action::SelectPrevious, Action::SelectNext, Action::Activate] {
         assert!(state.apply(action).is_empty());
         assert_eq!(state.navigation.selected(), 0);
@@ -684,11 +684,11 @@ fn empty_lists_and_a_library_refresh_keep_selection_valid() {
     state.navigation.select(2);
     state.query = "First".to_owned();
     state.merge_library(Vec::new());
-    assert_eq!(state.navigation.selected(), 0);
-    assert_eq!(state.selection_count(), 1);
+    assert_eq!(state.navigation.selected(), 1);
+    assert_eq!(state.selection_count(), 2);
     state.query = "nothing matches".to_owned();
     state.merge_library(Vec::new());
-    assert_eq!(state.selection_count(), 0);
+    assert_eq!(state.selection_count(), 1);
     assert_eq!(state.navigation.selected(), 0);
     assert!(state.apply(Action::Activate).is_empty());
 }
@@ -731,20 +731,21 @@ fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata()
             .iter()
             .map(|row| row.title.as_str())
             .collect::<Vec<_>>(),
-        ["Shared", "Solo"]
+        ["Shuffle", "Shared", "Solo"]
     );
+    state.navigation.select(1);
     state.apply(Action::Activate);
-    assert_eq!(state.rows().len(), 1);
-    assert!(matches!(state.rows()[0].target, Target::Play(0)));
+    assert_eq!(state.rows().len(), 2);
+    assert!(matches!(state.rows()[1].target, Target::Play(0)));
     state.navigation.open(Screen::Songs(Filter::Album {
         name: "Shared".to_owned(),
         artist: None,
     }));
-    assert_eq!(state.rows().len(), 2);
+    assert_eq!(state.rows().len(), 3);
     state
         .navigation
         .open(Screen::Songs(Filter::Genre("Jazz".to_owned())));
-    assert_eq!(state.rows().len(), 2);
+    assert_eq!(state.rows().len(), 3);
     state.navigation.open(Screen::Search);
     for (query, count) in [
         (" ALICE ", 2),
@@ -755,7 +756,7 @@ fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata()
         ("", 3),
     ] {
         state.query = query.to_owned();
-        assert_eq!(state.rows().len(), count, "query {query:?}");
+        assert_eq!(state.rows().len(), count + 1, "query {query:?}");
     }
 }
 
@@ -765,7 +766,7 @@ fn activation_builds_a_queue_from_visible_results_and_back_restores_selection() 
     state
         .navigation
         .open(Screen::Songs(Filter::Genre("Jazz".to_owned())));
-    state.navigation.select(1);
+    state.navigation.select(2);
     let effects = state.apply(Action::Activate);
     assert_eq!(state.current, Some(2));
     assert_eq!(state.queue.order, [0, 2]);
@@ -789,7 +790,7 @@ fn activation_builds_a_queue_from_visible_results_and_back_restores_selection() 
         state.navigation.current().screen,
         Screen::Songs(Filter::Genre("Jazz".to_owned()))
     );
-    assert_eq!(state.navigation.selected(), 1);
+    assert_eq!(state.navigation.selected(), 2);
 }
 
 #[test]
@@ -1477,7 +1478,7 @@ fn settings_and_album_track_list_are_real_navigation_screens() {
     state.apply(Action::TrackList);
     assert_eq!(
         state.rows().len(),
-        1,
+        2,
         "same-named albums remain scoped to their artist"
     );
     state.apply(Action::Back);
@@ -1648,11 +1649,11 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
             .iter()
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
-        ["Third", "First"]
+        ["Shuffle", "Third", "First"]
     );
     state.merge_library(vec![track(0, "Updated first", "Alice", "Shared", "Jazz")]);
-    assert_eq!(state.rows()[1].title, "Updated first");
-    state.navigation.select(0);
+    assert_eq!(state.rows()[2].title, "Updated first");
+    state.navigation.select(1);
     let effects = state.apply(Action::Activate);
     assert!(matches!(
         effects.first(),
@@ -1670,7 +1671,7 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
         name: "alpha".into(),
     }));
     assert!(
-        state.rows().is_empty(),
+        state.rows().len() == 1,
         "paths absent from the music library are retained but skipped"
     );
     assert_eq!(state.playlists[1].tracks, [PathBuf::from("/missing.mp3")]);

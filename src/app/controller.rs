@@ -1067,6 +1067,7 @@ impl Controller {
             ui.set_previous_rows(ui.get_rows());
             ui.set_previous_playlist_list(ui.get_playlist_list());
             ui.set_previous_playlist_content(ui.get_playlist_content());
+            ui.set_previous_shuffle_list(ui.get_shuffle_list());
             ui.set_previous_list_scroll_y(ui.get_list_scroll_y());
             ui.set_previous_lyric_scroll_y(ui.get_lyric_scroll_y());
         }
@@ -1110,6 +1111,7 @@ impl Controller {
         ui.set_device_mode(self.state.device_mode);
         ui.set_playlist_list(matches!(screen, Screen::Groups(Group::Playlists)));
         ui.set_playlist_content(matches!(screen, Screen::Songs(Filter::Playlist { .. })));
+        ui.set_shuffle_list(self.state.supports_list_shuffle());
         ui.set_ui_font_family(self.state.font.family().into());
         ui.set_keep_on_top(self.state.always_on_top);
         ui.set_selected(self.state.navigation.selected() as i32);
@@ -1221,15 +1223,18 @@ impl Controller {
                         .artwork_id
                         .and_then(|id| self.thumbnails.cached(id))
                         .unwrap_or_default(),
-                    show_artwork: matches!(
-                        screen,
-                        Screen::Groups(
-                            super::navigation::Group::Artists | super::navigation::Group::Albums
-                        ) | Screen::Artist(_)
-                    ),
+                    show_artwork: !matches!(row.target, Target::Action(_))
+                        && matches!(
+                            screen,
+                            Screen::Groups(
+                                super::navigation::Group::Artists
+                                    | super::navigation::Group::Albums
+                            ) | Screen::Artist(_)
+                        ),
                     chevron: !matches!(
                         row.target,
                         Target::Play(_)
+                            | Target::Action(Action::ShuffleList)
                             | Target::PlayVideo(_)
                             | Target::Language(_)
                             | Target::Font(_)
@@ -1270,23 +1275,11 @@ impl Controller {
             ) {
                 let row_height = ui.get_list_row_height();
                 let playlist_list = *screen == Screen::Groups(Group::Playlists);
-                let row_index = self
-                    .state
-                    .navigation
-                    .selected()
-                    .saturating_sub(usize::from(playlist_list));
+                let row_index = self.state.navigation.selected().saturating_sub(usize::from(
+                    playlist_list || self.state.supports_list_shuffle(),
+                ));
                 let row_y = row_index as f32 * row_height;
-                let visible_height = ui.get_list_viewport_height()
-                    - if *screen == Screen::Search {
-                        44.0 * scale
-                    } else if matches!(
-                        screen,
-                        Screen::Groups(Group::Playlists) | Screen::Songs(Filter::Playlist { .. })
-                    ) {
-                        32.0 * scale
-                    } else {
-                        0.0
-                    };
+                let visible_height = ui.get_list_viewport_height() - ui.get_list_header_height();
                 let scroll = ui.get_list_scroll_y();
                 if row_y + scroll < 0.0 {
                     ui.set_list_scroll_y(-row_y);
@@ -1426,8 +1419,11 @@ impl Controller {
         ) {
             let height = ui.get_list_row_height().max(1.0);
             let top = (-ui.get_list_scroll_y()).max(0.0);
-            let start = (top / height).floor() as usize;
-            let end = ((top + ui.get_list_viewport_height()) / height).ceil() as usize;
+            let prefix = usize::from(self.state.supports_list_shuffle());
+            let start = (top / height).floor() as usize + prefix;
+            let end = ((top + ui.get_list_viewport_height() - ui.get_list_header_height()) / height)
+                .ceil() as usize
+                + prefix;
             self.row_artwork
                 .iter()
                 .take(end.saturating_add(1))
