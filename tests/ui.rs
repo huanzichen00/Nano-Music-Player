@@ -327,6 +327,43 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, Key::Return);
     assert_eq!(ui.get_screen_title(), "Music");
     assert_eq!(ui.get_rows().row_data(6).unwrap().title, "Genius");
+    // The manual's right-swipe Back applies to library levels. A multi-frame
+    // swipe over an album row must not activate that row and restores parent selection.
+    controller.borrow_mut().state.navigation.select(3);
+    controller.borrow_mut().poll(&ui);
+    controller.borrow_mut().execute(&ui, Action::Activate);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    assert_eq!(ui.get_screen_title(), "Albums");
+    drag(&ui, (70.0, 150.0), (130.0, 152.0));
+    assert_eq!(ui.get_screen_title(), "Music");
+    assert_eq!(ui.get_selected(), 3, "Back restores the parent selection");
+    // Accumulated trackpad deltas also navigate Back from the current library level.
+    let scale = ui.get_display_scale();
+    scroll(&ui, 120.0, 150.0, 18.0 * scale, 0.0);
+    assert_eq!(ui.get_screen_title(), "Music", "short scroll is ignored");
+    scroll(&ui, 120.0, 150.0, 18.0 * scale, 0.0);
+    assert_eq!(
+        ui.get_screen_title(),
+        "iPod",
+        "rightward scroll returns Back"
+    );
+    assert_eq!(ui.get_selected(), 0, "Back restores the Home selection");
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    controller.borrow_mut().execute(&ui, Action::Activate);
+    controller.borrow_mut().state.navigation.select(4);
+    controller.borrow_mut().execute(&ui, Action::Activate);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    assert_eq!(ui.get_screen_title(), "Songs");
+    scroll(&ui, 120.0, 150.0, 4.0 * scale, -45.0 * scale);
+    assert_eq!(
+        ui.get_screen_title(),
+        "Songs",
+        "vertical scroll stays in list"
+    );
+    assert!(ui.get_list_scroll_y() < 0.0, "vertical scroll is preserved");
+    controller.borrow_mut().execute(&ui, Action::Back);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
+    assert_eq!(ui.get_screen_title(), "Music");
     ui.set_notice("".into());
     snapshot(&ui, "music-genius-entry");
     click(&ui, 120.0, 376.0);

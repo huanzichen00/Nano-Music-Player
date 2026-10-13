@@ -10,6 +10,39 @@ export global ListMetrics {
     out property <float> artwork-padding: 1;
 }
 
+// Keep horizontal Back recognition outside the list rows so a completed swipe
+// is consumed by SwipeGestureHandler instead of activating the pressed row.
+component LibraryBackArea inherits SwipeGestureHandler {
+    in property <float> s;
+    callback back;
+    property <length> accumulated-x;
+    handle-swipe-right: true;
+    swiped => {
+        let dx = self.current-position.x - self.pressed-position.x;
+        let dy = self.current-position.y - self.pressed-position.y;
+        if dx > 24px * root.s && dx > 1.5 * abs(dy) { root.back(); }
+    }
+    changed enabled => { root.accumulated-x = 0px; wheel-timeout.stop(); }
+    wheel-timeout := Timer {
+        interval: 500ms; running: false;
+        triggered => { root.accumulated-x = 0px; self.stop(); }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        scroll-event(event) => {
+            if abs(event.delta-x) > 1.5 * abs(event.delta-y) {
+                root.accumulated-x = max(0px, root.accumulated-x + event.delta-x);
+                wheel-timeout.start(); wheel-timeout.restart();
+                if root.accumulated-x > 32px * root.s {
+                    root.accumulated-x = 0px; wheel-timeout.stop(); root.back();
+                }
+                accept
+            } else { root.accumulated-x = 0px; wheel-timeout.stop(); reject }
+        }
+        @children
+    }
+}
+
 export component LibraryView inherits Rectangle {
     in property <float> s;
     in property <string> text-font-family;
@@ -19,9 +52,10 @@ export component LibraryView inherits Rectangle {
     in property <bool> playlist-list: false;
     in property <bool> playlist-content: false;
     in property <bool> shuffle-list: false;
-    private property <int> prefix-count: root.playlist-list || root.shuffle-list ? 1 : 0;
+    private property <int> prefix-count: root.playlist-content ? 2 : root.playlist-list || root.shuffle-list ? 1 : 0;
     out property <length> header-height: ((root.search ? 44px : (root.playlist-list || root.playlist-content ? 32px : 0px)) + (root.shuffle-list ? 32px : 0px)) * root.s;
     callback edit-playlist();
+    callback back;
     in property <bool> enabled: true;
     in property <[LibraryRow]> rows;
     in-out property <string> search-text;
@@ -32,6 +66,12 @@ export component LibraryView inherits Rectangle {
     callback edited(string);
     public function focus-search() { input.focus(); }
     background: #fff;
+    LibraryBackArea {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        s: root.s; enabled: root.enabled && !(root.search && input.has-focus);
+        back => { root.back(); }
+        // Existing list controls are children of the gesture area. Its recognizer
+        // defers taps and consumes swipes, so rows/toolbars never activate on Back.
     if root.playlist-list: Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
         background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : @linear-gradient(180deg, #f5f7f9, #d4d9df);
@@ -41,21 +81,21 @@ export component LibraryView inherits Rectangle {
     }
     if root.playlist-content: Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
-        background: @linear-gradient(180deg, #8badcf, #446b93);
+        background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : @linear-gradient(180deg, #8badcf, #446b93);
         Rectangle {
             x: 6px * root.s; y: 4px * root.s; width: parent.width - 12px * root.s; height: 24px * root.s;
-            background: @linear-gradient(180deg, #94b4d6, #4b78a6); border-width: 1px * root.s; border-color: #456383; border-radius: 4px * root.s;
+            background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : @linear-gradient(180deg, #94b4d6, #4b78a6); border-width: 1px * root.s; border-color: #456383; border-radius: 4px * root.s;
             Text { text: I18n.tr("Edit"); color: white; font-size: 12px * root.s; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { if root.enabled { root.edit-playlist(); } } }
+            TouchArea { clicked => { if root.enabled { root.activated(0); } } }
         }
     }
     if root.shuffle-list: Rectangle {
         x: 0px; y: (root.search ? 44px : root.playlist-content ? 32px : 0px) * root.s; width: root.width; height: 32px * root.s;
-        background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
+        background: root.selected == (root.playlist-content ? 1 : 0) ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
         Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #d5d5d5; }
-        Image { source: @image-url("../assets/icons/shuffle.svg"); colorize: root.selected == 0 ? white : #6b7d8f; x: 10px * root.s; y: 8px * root.s; width: 18px * root.s; height: 16px * root.s; image-fit: contain; }
-        Text { x: 38px * root.s; width: parent.width - 48px * root.s; text: I18n.tr("Shuffle"); color: root.rows.length <= 1 ? #929292 : root.selected == 0 ? white : #111; font-size: 14px * root.s; font-weight: 600; vertical-alignment: center; }
-        TouchArea { clicked => { if root.enabled && root.rows.length > 1 { root.activated(0); } } }
+        Image { source: @image-url("../assets/icons/shuffle.svg"); colorize: root.selected == (root.playlist-content ? 1 : 0) ? white : #6b7d8f; x: 10px * root.s; y: 8px * root.s; width: 18px * root.s; height: 16px * root.s; image-fit: contain; }
+        Text { x: 38px * root.s; width: parent.width - 48px * root.s; text: I18n.tr("Shuffle"); color: root.rows.length <= root.prefix-count ? #929292 : root.selected == (root.playlist-content ? 1 : 0) ? white : #111; font-size: 14px * root.s; font-weight: 600; vertical-alignment: center; }
+        TouchArea { clicked => { if root.enabled && root.rows.length > root.prefix-count { root.activated(root.playlist-content ? 1 : 0); } } }
     }
     Rectangle {
         visible: root.search;
@@ -117,5 +157,6 @@ export component LibraryView inherits Rectangle {
             text: root.search ? I18n.tr("No matching songs") : root.playlist-content ? I18n.tr("Empty playlist") : I18n.tr("No music yet\nFile → Import Music Folder");
             font-size: 13px * root.s; color: #888; horizontal-alignment: center; vertical-alignment: center;
         }
+    }
     }
 }
