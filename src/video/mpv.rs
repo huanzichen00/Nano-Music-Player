@@ -41,6 +41,24 @@ struct EndFile {
     reason: c_int,
     error: c_int,
 }
+#[repr(C)]
+union NodeValue {
+    string: *const c_char,
+    flag: c_int,
+    int64: i64,
+    list: *mut NodeList,
+}
+#[repr(C)]
+struct Node {
+    value: NodeValue,
+    format: c_int,
+}
+#[repr(C)]
+struct NodeList {
+    count: c_int,
+    values: *mut Node,
+    keys: *mut *const c_char,
+}
 
 struct Api {
     _library: Library,
@@ -236,6 +254,7 @@ impl Session {
                 (2, c"duration", 5),
                 (3, c"pause", 3),
                 (4, c"current-ao", 1),
+                (5, c"track-list", 6),
             ] {
                 session
                     .api
@@ -388,6 +407,14 @@ impl Session {
                                     );
                                 }
                             }
+                            (5, 6) => {
+                                let tracks =
+                                    unsafe { subtitle_tracks(&*property.data.cast::<Node>()) };
+                                let _ = events.send(Event::SubtitleTracks {
+                                    generation: self.generation,
+                                    tracks,
+                                });
+                            }
                             _ => {}
                         }
                     }
@@ -463,6 +490,81 @@ impl Session {
         });
         Ok(())
     }
+}
+
+unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
+    if !matches!(node.format, 8 | 9) {
+        return Vec::new();
+    }
+    // SAFETY: mpv owns the node list for this event; pointers are read only until
+    // the next wait_event call, and this function completes before then.
+    let list = unsafe { node.value.list };
+    if list.is_null() {
+        return Vec::new();
+    }
+    let list = unsafe { &*list };
+    if list.count <= 0 || list.values.is_null() {
+        return Vec::new();
+    }
+    let entries = unsafe { std::slice::from_raw_parts(list.values, list.count as usize) };
+    let mut tracks = Vec::new();
+    for entry in entries {
+        if entry.format != 9 {
+            continue;
+        }
+        let map_ptr = unsafe { entry.value.list };
+        if map_ptr.is_null() {
+            continue;
+        }
+        let map = unsafe { &*map_ptr };
+        if map.count <= 0 || map.values.is_null() || map.keys.is_null() {
+            continue;
+        }
+        let values = unsafe { std::slice::from_raw_parts(map.values, map.count as usize) };
+        let map_keys = unsafe { std::slice::from_raw_parts(map.keys, map.count as usize) };
+        let mut id = None;
+        let mut is_sub = false;
+        let mut external = false;
+        let mut title = String::new();
+        let mut language = String::new();
+        for (key, value) in map_keys.iter().zip(values) {
+            if key.is_null() {
+                continue;
+            }
+            let key = unsafe { CStr::from_ptr(*key) }.to_string_lossy();
+            match key.as_ref() {
+                "type" if value.format == 1 => {
+                    let ptr = unsafe { value.value.string };
+                    is_sub = !ptr.is_null() && unsafe { CStr::from_ptr(ptr) }.to_bytes() == b"sub";
+                }
+                "id" if value.format == 4 => id = Some(unsafe { value.value.int64 }),
+                "external" if value.format == 3 => external = unsafe { value.value.flag } != 0,
+                "title" | "lang" if value.format == 1 => {
+                    let ptr = unsafe { value.value.string };
+                    if !ptr.is_null() {
+                        let text = unsafe { CStr::from_ptr(ptr) }
+                            .to_string_lossy()
+                            .into_owned();
+                        if key == "title" {
+                            title = text
+                        } else {
+                            language = text
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        if is_sub && let Some(id) = id {
+            tracks.push(super::engine::SubtitleTrack {
+                id,
+                title,
+                language,
+                external,
+            });
+        }
+    }
+    tracks
 }
 
 impl Drop for Session {

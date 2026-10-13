@@ -58,9 +58,13 @@ render pass; do not flatten ASS to plain text or add a second UI overlay rendere
 
 ## Current isolated implementation
 
-`src/video/subtitles.rs` defines the preference states and deterministic sidecar
-discovery. Controller, state, library persistence, Slint menus and translation
-integration are owned by the primary task at present. The module therefore does
-not claim end-to-end playback support. Once those files are available, connect the
-preference and track commands to the existing worker and UI before describing ASS
-support as complete.
+`src/video/subtitles.rs` defines preference states, deterministic sidecar
+discovery, and an atomic JSON association store. The store is intended for
+`video-subtitles.json`, keyed by the video path. The worker accepts
+`Command::Subtitle { generation, preference }`, and emits `Event::SubtitleTracks`
+with `SubtitleTrack { id, title, language, external }` records for menu population.
+The native rendering fixture verifies ASS color/style composition and timed
+visibility across an exact seek. App controller/UI wiring, track-list native
+enumeration assertions, embedded muxed-track fixture, replacement/removal UX, and
+full persistence round-trip through app restart still need to be completed before
+describing the app feature as complete.

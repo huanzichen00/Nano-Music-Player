@@ -53,10 +53,22 @@ pub enum Event {
         handoff: u64,
     },
     Finished(Generation),
+    SubtitleTracks {
+        generation: Generation,
+        tracks: Vec<SubtitleTrack>,
+    },
     Error {
         generation: Generation,
         message: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubtitleTrack {
+    pub id: i64,
+    pub title: String,
+    pub language: String,
+    pub external: bool,
 }
 
 #[derive(Debug)]
