@@ -237,10 +237,18 @@ fn local_video_ass_pipeline_and_optional_library_import() {
     connect(&ui, &controller);
     ui.invoke_subtitle_command("open".into());
     assert!(ui.get_subtitle_menu_open());
-    save_pixels(
-        &ui.window().take_snapshot().unwrap(),
-        &output.join("subtitle-menu.png"),
+    let menu = ui.window().take_snapshot().unwrap();
+    assert!(
+        menu.as_bytes()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|rgba| rgba[..3] == [52, 120, 200])
+            .count()
+            > 100,
+        "the persisted subtitle selection must be visible in the real menu"
     );
+    save_pixels(&menu, &output.join("subtitle-menu.png"));
     let tracks = controller.borrow().subtitle_tracks.iter().map(|track| serde_json::json!({"id":track.id,"language":track.language,"external":track.external})).collect::<Vec<_>>();
     ui.invoke_subtitle_command("close".into());
     drop(ui);

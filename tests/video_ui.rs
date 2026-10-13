@@ -360,12 +360,63 @@ fn subtitle_menu_many_tracks_renders_in_both_landscape_modes() {
         label: format!("Embedded subtitle track {id} · Japanese captions").into(),
         selected: false,
     }));
+    let selected = choices.len() - 1;
+    for (index, choice) in choices.iter_mut().enumerate() {
+        choice.selected = index == selected;
+    }
+    ui.set_subtitle_menu_selected(selected as i32);
     ui.set_subtitle_choices(slint::ModelRc::new(slint::VecModel::from(choices)));
     ui.set_subtitle_menu_open(true);
-    assert!(ui.window().take_snapshot().unwrap().width() > 0);
+    let picked = Rc::new(std::cell::Cell::new(None));
+    let capture = picked.clone();
+    ui.on_subtitle_select(move |id| capture.set(Some(id)));
+    let verify_selected = || {
+        let pixels = ui.window().take_snapshot().unwrap();
+        let selected_pixels: Vec<_> = pixels
+            .as_bytes()
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, rgba)| rgba[..3] == [52, 120, 200])
+            .map(|(index, _)| (index as u32 % pixels.width(), index as u32 / pixels.width()))
+            .collect();
+        assert!(
+            selected_pixels.len() > 100,
+            "selected subtitle row must actually be visible, not merely present in the model"
+        );
+        let x = (selected_pixels.iter().map(|(x, _)| x).min().unwrap()
+            + selected_pixels.iter().map(|(x, _)| x).max().unwrap()) as f32
+            / 2.0;
+        let y = (selected_pixels.iter().map(|(_, y)| y).min().unwrap()
+            + selected_pixels.iter().map(|(_, y)| y).max().unwrap()) as f32
+            / 2.0;
+        let factor = ui.window().scale_factor();
+        let position = slint::LogicalPosition::new(x / factor, y / factor);
+        for pressed in [true, false] {
+            ui.window().dispatch_event(if pressed {
+                WindowEvent::PointerPressed {
+                    position,
+                    button: PointerEventButton::Left,
+                }
+            } else {
+                WindowEvent::PointerReleased {
+                    position,
+                    button: PointerEventButton::Left,
+                }
+            });
+        }
+        assert_eq!(
+            picked.get(),
+            Some(23),
+            "the visible selected row must receive pointer activation"
+        );
+        picked.set(None);
+    };
+    verify_selected();
     controller.borrow_mut().execute(&ui, Action::ScreenMode);
     assert!(ui.get_subtitle_menu_open());
-    assert!(ui.window().take_snapshot().unwrap().width() > 0);
+    verify_selected();
 }
 
 fn wait_for(

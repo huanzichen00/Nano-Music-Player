@@ -566,7 +566,8 @@ export component AppWindow inherits Window {
                     x: 8px * root.s; y: 36px * root.s;
                     width: parent.width - 16px * root.s;
                     height: max(26px * root.s, parent.height - 142px * root.s);
-                    content-y: max(0px, (root.subtitle-menu-selected - 1) * 28px * root.s);
+                    content-height: max(self.height, root.subtitle-choices.length * 28px * root.s);
+                    content-y: -min(max(0px, (root.subtitle-menu-selected - 1) * 28px * root.s), max(0px, self.content-height - self.height));
                     for choice[index] in root.subtitle-choices: Rectangle {
                         x: 0px; y: index * 28px * root.s;
                         width: parent.width; height: 26px * root.s;
