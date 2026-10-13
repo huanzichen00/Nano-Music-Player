@@ -1123,7 +1123,12 @@ impl State {
                 return vec![Effect::FocusScreen];
             }
             SeekBackward | SeekForward => {
-                if self.current.is_some() {
+                let has_media = if self.video_active {
+                    self.video_current.is_some()
+                } else {
+                    self.current.is_some()
+                };
+                if has_media {
                     let effect = self.seek(
                         self.active_position() + if action == SeekBackward { -5.0 } else { 5.0 },
                     );

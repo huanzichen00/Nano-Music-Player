@@ -162,3 +162,44 @@ fn video_import_and_error_labels_are_localized_but_details_are_preserved() {
         "视频导入失败： missing ffprobe"
     );
 }
+
+#[test]
+fn keyboard_seek_uses_active_video_without_a_previous_music_track() {
+    let mut state = State::default();
+    assert!(state.apply(Action::SeekForward).is_empty());
+    state.merge_videos(vec![video("Landscape", 16.0 / 9.0)]);
+    state.start_video(0);
+    assert_eq!(state.current, None);
+    state.video_status = Status::Paused;
+    state.video_paused = true;
+    state.video_position = 6.0;
+    assert!(matches!(
+        state.apply(Action::SeekBackward).as_slice(),
+        [Effect::Video(Command::Seek {
+            generation: 1,
+            seconds: 1.0
+        })]
+    ));
+    assert!(matches!(
+        state.apply(Action::SeekForward).as_slice(),
+        [Effect::Video(Command::Seek {
+            generation: 1,
+            seconds: 6.0
+        })]
+    ));
+    state.video_status = Status::Finished;
+    state.video_position = 12.0;
+    assert!(matches!(
+        state.apply(Action::SeekBackward).as_slice(),
+        [Effect::Video(Command::Load {
+            generation: 2,
+            start: 7.0,
+            paused: true,
+            ..
+        })]
+    ));
+    assert_eq!(state.queue.current(), None);
+    assert_eq!(state.position, 0.0);
+    state.video_active = false;
+    assert!(state.apply(Action::SeekForward).is_empty());
+}
