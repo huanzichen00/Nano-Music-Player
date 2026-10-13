@@ -120,6 +120,17 @@ impl Database {
         Ok(())
     }
 
+    /// Evict only scanner metadata; user-authored path associations are deliberately retained.
+    pub fn evict_track(&self, path: &Path) -> Result<(), String> {
+        self.0
+            .execute(
+                "DELETE FROM tracks WHERE path = ?",
+                [path.to_string_lossy()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn set_manual_lyrics(
         &self,
         audio: &Path,

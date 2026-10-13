@@ -27,11 +27,14 @@ Persist the set of monitored roots and a user-facing enable/disable setting if i
 ## Validation and implementation sequence
 
 1. Build a monitor/domain harness in an isolated Cargo target with temporary fixture directories. Test event coalescing, confirmed individual deletion, root disappearance, restoration at the same path, no source-file deletion, and bounded event handling. Do not touch the normal library database or user media.
-2. Add a small production monitor module and dependency, then exercise it against temporary files. Keep filesystem work off the Slint/UI thread.
-3. Integrate path identities and generations with library/cache updates, playback/queue invalidation, asynchronous import/artwork/AI result handling, and settings once shared controller/UI ownership is released.
-4. Add accurate localized labels for monitoring state/settings in English, Simplified Chinese, and Japanese, and persist the preference and roots.
-5. Run formatting, checks, focused tests, full tests, and strict lint. Record platform-specific watcher limitations and observed behavior.
+2. Added `notify` production monitoring on a worker, debounced candidate batches, root registration after imports, path normalization, file-state verification, and persisted monitor roots/preference. Set `monitor_deleted_files` to `false` in an isolated test's `settings.json` to disable monitoring there.
+3. Confirmed individual removals now hide the path from browsing/search/group counts and playlist browsing, evict scanner metadata only, and preserve the stable in-memory track slot plus all user-authored associations. Current playback is stopped with a new handoff generation; queue advancement skips unavailable IDs. Same-path create events and explicit imports restore availability.
+4. Temporary-fixture tests exercise confirmed removal and restoration at the path/domain layer. Formatting, checks, and strict lint pass; filesystem watcher delivery remains subject to OS/provider behavior. Notifications are hints and the worker does not infer mass deletion from an absent root.
+
+## Operational limits
+
+Roots are persisted as imported track parent directories and watched recursively. An unavailable root is not watched until it exists again; its cached in-memory records remain dormant, and users can re-import after reconnection. The current startup path intentionally does not scan all persisted roots for newly restored media; restoration is detected while watching or through explicit import. Monitoring is enabled by default and persisted as a setting; the UI does not yet expose a toggle.
 
 ## Watcher API research
 
-The upstream `notify` documentation describes its recommended cross-platform watcher and directs users needing debounced events to its debouncer crates. Events are OS notifications and can be imperfect, so this design treats them as prompts to verify current state rather than as a complete transaction log. See [notify crate documentation](https://docs.rs/notify/latest/notify/) and the [upstream notify-rs repository](https://github.com/notify-rs/notify).
+The upstream `notify` documentation describes its recommended cross-platform watcher and directs users needing debounced events to its debouncer crates. The production dependency enables Kqueue on macOS because the FSEvents backend can omit events for some file ownership/security cases; other platforms use their recommended native backend. Events are OS notifications and can be imperfect, so this design treats them as prompts to verify current state rather than as a complete transaction log. See [notify crate documentation](https://docs.rs/notify/latest/notify/) and the [upstream notify-rs repository](https://github.com/notify-rs/notify).

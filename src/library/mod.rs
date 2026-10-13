@@ -1,4 +1,5 @@
 pub mod database;
+pub mod deletion_monitor;
 pub mod lyrics;
 pub mod playlists;
 pub mod romaji;

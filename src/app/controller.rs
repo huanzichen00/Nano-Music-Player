@@ -58,6 +58,7 @@ pub struct Controller {
     playlist_candidates: Vec<PlaylistCandidate>,
     playlist_paths: Vec<PathBuf>,
     importing: Option<Receiver<thumbnails::ImportEvent>>,
+    deletion_events: Option<crate::library::deletion_monitor::Monitor>,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
     romaji_request: Option<romaji::Request>,
     romaji_store: romaji::Store,
@@ -168,6 +169,7 @@ impl Controller {
             playlist_candidates: Vec::new(),
             playlist_paths: Vec::new(),
             importing: None,
+            deletion_events: None,
             lyrics_edit: None,
             romaji_request: None,
             romaji_store,
@@ -886,6 +888,8 @@ impl Controller {
             translation_target: self.settings.translation_target,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
+            monitor_deleted_files: self.settings.monitor_deleted_files,
+            monitor_roots: self.settings.monitor_roots.clone(),
             window_width: Some(saved_width),
             window_height: Some(saved_height),
         };
@@ -905,6 +909,22 @@ impl Controller {
             match result {
                 Ok(prepared) => {
                     self.state.merge_library(prepared.value);
+                    if self.settings.monitor_deleted_files {
+                        let missing: Vec<_> = self
+                            .state
+                            .tracks
+                            .iter()
+                            .filter(|track| {
+                                !track.path.is_file()
+                                    && track.path.parent().is_some_and(|parent| parent.is_dir())
+                            })
+                            .map(|track| track.path.clone())
+                            .collect();
+                        for path in missing {
+                            self.state.mark_track_available(&path, false);
+                        }
+                    }
+                    self.start_deletion_monitor();
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
                     self.thumbnails.seed(&self.state.tracks, prepared.previews);
@@ -932,7 +952,24 @@ impl Controller {
             match result {
                 Ok(Some(prepared)) => {
                     let result = prepared.value;
-                    self.state.merge_library(result.tracks);
+                    let (present, missing): (Vec<_>, Vec<_>) = result
+                        .tracks
+                        .into_iter()
+                        .partition(|track| track.path.is_file());
+                    if !missing.is_empty() {
+                        let database = self.directory.join("library.sqlite3");
+                        std::thread::spawn(move || {
+                            if let Ok(database) =
+                                crate::library::database::Database::open(&database)
+                            {
+                                for track in missing {
+                                    let _ = database.evict_track(&track.path);
+                                }
+                            }
+                        });
+                    }
+                    self.state.merge_library(present);
+                    self.start_deletion_monitor();
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
                     self.thumbnails.seed(&self.state.tracks, prepared.previews);
@@ -986,6 +1023,7 @@ impl Controller {
             ui.invoke_focus_screen();
         }
         self.poll_romaji(ui);
+        self.poll_deletions();
         self.poll_translation(ui);
         self.poll_genius(ui);
         self.poll_playlists(ui);
@@ -1030,6 +1068,166 @@ impl Controller {
         self.sync(ui);
         if let Some(artwork) = self.artwork.poll() {
             ui.set_artwork(artwork);
+        }
+    }
+
+    fn start_deletion_monitor(&mut self) {
+        let missing: Vec<_> = self
+            .state
+            .tracks
+            .iter()
+            .filter(|track| !self.state.track_available(track))
+            .map(|track| track.path.clone())
+            .collect();
+        if !missing.is_empty() {
+            let db = self.directory.join("library.sqlite3");
+            std::thread::spawn(move || {
+                if let Ok(database) = crate::library::database::Database::open(&db) {
+                    for path in missing {
+                        let _ = database.evict_track(&path);
+                    }
+                }
+            });
+        }
+        if !self.settings.monitor_deleted_files {
+            return;
+        }
+        let mut roots: Vec<_> = self
+            .state
+            .tracks
+            .iter()
+            .filter_map(|track| track.path.parent().map(PathBuf::from))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        roots.extend(self.settings.monitor_roots.iter().cloned());
+        roots.sort();
+        roots.dedup();
+        for root in &roots {
+            if !self.settings.monitor_roots.contains(root) {
+                self.settings.monitor_roots.push(root.clone());
+            }
+        }
+        if let Some(monitor) = &self.deletion_events {
+            monitor.add_roots(roots);
+        } else if !roots.is_empty() {
+            self.deletion_events = Some(crate::library::deletion_monitor::watch(roots));
+        }
+        let _ = self.settings.save(&self.directory.join("settings.json"));
+    }
+
+    fn poll_deletions(&mut self) {
+        let Some(events) = self.deletion_events.as_ref().map(|monitor| &monitor.events) else {
+            return;
+        };
+        let mut removed = Vec::new();
+        let mut restored = Vec::new();
+        let mut changed_roots = Vec::new();
+        let mut errors = Vec::new();
+        while let Ok(event) = events.try_recv() {
+            match event {
+                crate::library::deletion_monitor::EventMessage::Removed(path) => removed.push(path),
+                crate::library::deletion_monitor::EventMessage::Restored(path) => {
+                    restored.push(path)
+                }
+                crate::library::deletion_monitor::EventMessage::RootChanged(path) => {
+                    changed_roots.push(path)
+                }
+                crate::library::deletion_monitor::EventMessage::Error(error) => errors.push(error),
+            }
+        }
+        for path in restored {
+            if let Some(track_path) = self
+                .state
+                .tracks
+                .iter()
+                .find(|track| crate::library::deletion_monitor::normalize(&track.path) == path)
+                .map(|track| track.path.clone())
+            {
+                self.state.mark_track_available(&track_path, true);
+                self.rows_dirty = true;
+            }
+        }
+        for root in changed_roots {
+            let missing: Vec<_> = self
+                .state
+                .tracks
+                .iter()
+                .enumerate()
+                .filter(|(_, track)| self.state.track_available(track) && !track.path.is_file())
+                .filter(|(_, track)| {
+                    crate::library::deletion_monitor::normalize(&track.path).starts_with(&root)
+                })
+                .map(|(id, track)| (id, track.path.clone()))
+                .collect();
+            for (id, path) in missing {
+                self.state.mark_track_available(&path, false);
+                if self.state.current == Some(id) {
+                    self.handoff += 1;
+                    let _ = self.engine.send(AudioCommand::Stop {
+                        handoff: self.handoff,
+                    });
+                    self.state.current = None;
+                    self.state.status = PlaybackStatus::Stopped;
+                    self.state.position = 0.0;
+                    self.last_track = None;
+                    self.lyrics_dirty = true;
+                }
+                let db = self.directory.join("library.sqlite3");
+                std::thread::spawn(move || {
+                    if let Ok(database) = crate::library::database::Database::open(&db) {
+                        let _ = database.evict_track(&path);
+                    }
+                });
+                self.rows_dirty = true;
+            }
+            let restored: Vec<_> = self
+                .state
+                .tracks
+                .iter()
+                .filter(|track| !self.state.track_available(track) && track.path.is_file())
+                .filter(|track| {
+                    crate::library::deletion_monitor::normalize(&track.path).starts_with(&root)
+                })
+                .map(|track| track.path.clone())
+                .collect();
+            for path in restored {
+                self.state.mark_track_available(&path, true);
+                self.rows_dirty = true;
+            }
+        }
+        for path in removed {
+            if let Some((id, track_path)) = self
+                .state
+                .tracks
+                .iter()
+                .enumerate()
+                .find(|(_, track)| crate::library::deletion_monitor::normalize(&track.path) == path)
+                .map(|(id, track)| (id, track.path.clone()))
+            {
+                self.state.mark_track_available(&track_path, false);
+                if self.state.current == Some(id) {
+                    self.handoff += 1;
+                    let _ = self.engine.send(AudioCommand::Stop {
+                        handoff: self.handoff,
+                    });
+                    self.state.current = None;
+                    self.state.status = PlaybackStatus::Stopped;
+                    self.state.position = 0.0;
+                    self.last_track = None;
+                    self.lyrics_dirty = true;
+                }
+                let db = self.directory.join("library.sqlite3");
+                std::thread::spawn(move || {
+                    if let Ok(database) = crate::library::database::Database::open(&db) {
+                        let _ = database.evict_track(&track_path);
+                    }
+                });
+                self.rows_dirty = true;
+            }
+        }
+        if !errors.is_empty() {
+            self.state.notice = format!("File monitoring paused after an error: {}", errors[0]);
         }
     }
 
@@ -1442,7 +1640,12 @@ impl Controller {
     }
 
     fn refresh_playlist_candidates(&mut self) {
-        let mut songs: Vec<_> = self.state.tracks.iter().collect();
+        let mut songs: Vec<_> = self
+            .state
+            .tracks
+            .iter()
+            .filter(|song| self.state.track_available(song))
+            .collect();
         songs.sort_by_cached_key(|song| {
             (
                 song.title.to_lowercase(),

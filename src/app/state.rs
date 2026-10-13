@@ -74,6 +74,8 @@ pub struct State {
     pub smooth_slides: bool,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
+    /// Paths temporarily hidden from library browsing; vector slots stay stable for queued IDs.
+    pub unavailable_tracks: BTreeSet<PathBuf>,
     pub videos: Vec<crate::video::library::Video>,
     pub video_active: bool,
     pub video_current: Option<usize>,
@@ -116,6 +118,7 @@ impl Default for State {
             smooth_slides: true,
             navigation: Navigation::default(),
             tracks: Vec::new(),
+            unavailable_tracks: BTreeSet::new(),
             videos: Vec::new(),
             video_active: false,
             video_current: None,
@@ -365,14 +368,29 @@ impl State {
                     row("Add Playlist", Target::Action(Action::NewPlaylist)),
                     Row {
                         title: "All Songs".into(),
-                        subtitle: format!("{} songs", self.tracks.len()),
+                        subtitle: format!(
+                            "{} songs",
+                            self.tracks
+                                .iter()
+                                .filter(|t| self.track_available(t))
+                                .count()
+                        ),
                         artwork_id: None,
                         target: Target::Screen(Screen::Songs(Filter::All)),
                     },
                 ];
                 rows.extend(playlists.into_iter().map(|playlist| Row {
                     title: playlist.name.clone(),
-                    subtitle: format!("{} songs", playlist.tracks.len()),
+                    subtitle: format!(
+                            "{} songs",
+                            playlist
+                                .tracks
+                                .iter()
+                                .filter(|path| self.tracks.iter().any(
+                                    |track| &track.path == *path && self.track_available(track)
+                                ))
+                                .count()
+                        ),
                     artwork_id: None,
                     target: Target::Screen(Screen::Songs(Filter::Playlist {
                         id: playlist.id,
@@ -391,6 +409,7 @@ impl State {
                         .tracks
                         .iter()
                         .enumerate()
+                        .filter(|(_, track)| self.track_available(track))
                         .map(|(id, track)| (&track.path, (id, track)))
                         .collect();
                     return self
@@ -416,6 +435,7 @@ impl State {
                     .tracks
                     .iter()
                     .enumerate()
+                    .filter(|(_, track)| self.track_available(track))
                     .filter(|(_, track)| match &self.navigation.current().screen {
                         Screen::Search => track.matches(&self.query),
                         Screen::Songs(Filter::Album { name, artist }) => {
@@ -477,6 +497,9 @@ impl State {
     fn group_rows(&self, group: &Group, artist: Option<&str>) -> Vec<Row> {
         let mut groups: BTreeMap<&str, GroupedTracks<'_>> = BTreeMap::new();
         for (id, track) in self.tracks.iter().enumerate() {
+            if !self.track_available(track) {
+                continue;
+            }
             if artist.is_some_and(|artist| track.artist != artist) {
                 continue;
             }
@@ -574,6 +597,7 @@ impl State {
             Screen::Groups(group) => {
                 self.tracks
                     .iter()
+                    .filter(|track| self.track_available(track))
                     .map(|track| group_name(track, group))
                     .collect::<BTreeSet<_>>()
                     .len()
@@ -582,6 +606,7 @@ impl State {
             Screen::Artist(artist) => {
                 self.tracks
                     .iter()
+                    .filter(|track| self.track_available(track))
                     .filter(|track| &track.artist == artist)
                     .map(|track| track.album.as_str())
                     .collect::<BTreeSet<_>>()
@@ -595,6 +620,7 @@ impl State {
     pub fn merge_library(&mut self, tracks: Vec<Track>) {
         // Existing indexes remain stable for in-flight audio events and the queue.
         for track in tracks {
+            self.unavailable_tracks.remove(&track.path);
             if let Some(existing) = self.tracks.iter_mut().find(|t| t.path == track.path) {
                 *existing = track;
             } else {
@@ -603,6 +629,18 @@ impl State {
         }
         let max = self.selection_count().saturating_sub(1);
         self.navigation.select(self.navigation.selected().min(max));
+    }
+
+    pub fn track_available(&self, track: &Track) -> bool {
+        !self.unavailable_tracks.contains(&track.path)
+    }
+
+    pub fn mark_track_available(&mut self, path: &std::path::Path, available: bool) {
+        if available {
+            self.unavailable_tracks.remove(path);
+        } else {
+            self.unavailable_tracks.insert(path.to_path_buf());
+        }
     }
 
     pub fn lyrics_target(&self) -> Option<usize> {
@@ -677,6 +715,9 @@ impl State {
         let Some(track) = self.tracks.get(id) else {
             return Vec::new();
         };
+        if !self.track_available(track) {
+            return Vec::new();
+        }
         self.video_active = false;
         self.current = Some(id);
         self.status = PlaybackStatus::Loading;
@@ -783,13 +824,27 @@ impl State {
     }
 
     pub fn advance(&mut self, manual: bool) -> Vec<Effect> {
-        if let Some(id) = self.queue.advance(self.repeat, manual) {
-            self.start(id)
-        } else {
-            self.status = PlaybackStatus::Stopped;
-            self.position = self.duration();
-            Vec::new()
+        for _ in 0..self.queue.order.len() {
+            let Some(id) = self.queue.advance(self.repeat, manual) else {
+                break;
+            };
+            if self
+                .tracks
+                .get(id)
+                .is_some_and(|track| self.track_available(track))
+            {
+                return self.start(id);
+            }
+            if !manual
+                && self.repeat == Repeat::Off
+                && self.queue.position + 1 >= self.queue.order.len()
+            {
+                break;
+            }
         }
+        self.status = PlaybackStatus::Stopped;
+        self.position = self.duration();
+        Vec::new()
     }
 
     pub fn apply(&mut self, action: Action) -> Vec<Effect> {

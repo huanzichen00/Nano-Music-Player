@@ -709,6 +709,60 @@ fn library_merge_updates_metadata_without_invalidating_current_or_queue_indexes(
 }
 
 #[test]
+fn unavailable_track_hides_without_reindexing_library_ids() {
+    let mut state = music_state();
+    state.navigation.open(Screen::Songs(Filter::All));
+    let missing_path = state.tracks[1].path.clone();
+    state.mark_track_available(&missing_path, false);
+    let visible: Vec<_> = state
+        .rows()
+        .into_iter()
+        .filter_map(|row| match row.target {
+            Target::Play(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(state.tracks.len(), 3);
+    assert_eq!(visible, vec![0, 2]);
+    state.mark_track_available(&missing_path, true);
+    assert_eq!(
+        state
+            .rows()
+            .iter()
+            .filter_map(|row| match row.target {
+                Target::Play(id) => Some(id),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+}
+
+#[test]
+fn queued_missing_track_is_skipped_and_restoration_keeps_its_slot() {
+    let mut state = music_state();
+    let directory = tempfile::tempdir().unwrap();
+    for (id, track) in state.tracks.iter_mut().enumerate() {
+        track.path = directory.path().join(format!("track-{id}.mp3"));
+        std::fs::write(&track.path, b"temporary audio fixture").unwrap();
+    }
+    state.queue.set(vec![0, 1, 2], 0, false);
+    state.start(0);
+    let missing_path = state.tracks[1].path.clone();
+    std::fs::remove_file(&missing_path).unwrap();
+    state.mark_track_available(&missing_path, false);
+    assert!(matches!(
+        state.advance(true).as_slice(),
+        [Effect::Audio(AudioCommand::Load { id: 2, .. })]
+    ));
+    assert_eq!(state.current, Some(2));
+    std::fs::write(&missing_path, b"restored temporary audio fixture").unwrap();
+    state.mark_track_available(&missing_path, true);
+    assert_eq!(state.tracks[1].path, missing_path);
+    assert_eq!(state.tracks.len(), 3);
+}
+
+#[test]
 fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata() {
     let mut state = music_state();
     state.navigation.open(Screen::Groups(Group::Artists));
@@ -1299,6 +1353,8 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         translation_target: nano_music_player::translation::TargetLanguage::Japanese,
         zoom: 2.0,
         device_mode: false,
+        monitor_deleted_files: true,
+        monitor_roots: vec![directory.path().join("music")],
         window_width: Some(750.0),
         window_height: Some(900.0),
     };
@@ -1312,6 +1368,8 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         nano_music_player::translation::TargetLanguage::Japanese
     );
     assert!(!loaded.device_mode);
+    assert!(loaded.monitor_deleted_files);
+    assert_eq!(loaded.monitor_roots, vec![directory.path().join("music")]);
     assert_eq!(loaded.window_width, Some(750.0));
     assert_eq!(loaded.window_height, Some(900.0));
     assert!(!path.with_extension("json.tmp").exists());

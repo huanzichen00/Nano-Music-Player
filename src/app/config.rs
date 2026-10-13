@@ -14,6 +14,10 @@ pub struct Settings {
     pub translation_target: crate::translation::TargetLanguage,
     pub zoom: f32,
     pub device_mode: bool,
+    #[serde(default = "monitor_default")]
+    pub monitor_deleted_files: bool,
+    #[serde(default)]
+    pub monitor_roots: Vec<PathBuf>,
     pub window_width: Option<f32>,
     pub window_height: Option<f32>,
 }
@@ -29,6 +33,8 @@ impl Default for Settings {
             translation_target: crate::translation::TargetLanguage::English,
             zoom: 1.25,
             device_mode: true,
+            monitor_deleted_files: true,
+            monitor_roots: Vec::new(),
             window_width: None,
             window_height: None,
         }
@@ -36,6 +42,10 @@ impl Default for Settings {
 }
 
 fn smooth_slides_default() -> bool {
+    true
+}
+
+fn monitor_default() -> bool {
     true
 }
 
