@@ -49,10 +49,14 @@ impl ReplayGainInfo {
         let Ok(file) = Probe::open(path).and_then(|probe| probe.read()) else {
             return Self::default();
         };
-        let Some(tag) = file.primary_tag().or_else(|| file.first_tag()) else {
-            return Self::default();
+        // A file may carry ordinary metadata in its primary tag and ReplayGain
+        // in a secondary APE/ID3 tag. Prefer the primary value when it is valid.
+        let number = |key: ItemKey| {
+            file.primary_tag()
+                .into_iter()
+                .chain(file.tags())
+                .find_map(|tag| tag.get_string(&key).and_then(parse_replaygain_number))
         };
-        let number = |key: ItemKey| tag.get_string(&key).and_then(parse_replaygain_number);
         Self {
             track_gain_db: number(ItemKey::ReplayGainTrackGain),
             track_peak: number(ItemKey::ReplayGainTrackPeak),
@@ -61,16 +65,32 @@ impl ReplayGainInfo {
         }
     }
 
-    pub fn linear_gain(self, settings: GainConfig) -> f32 {
-        if settings.mode == GainMode::Off {
-            return 1.0;
+    fn selected_gain(self, mode: GainMode) -> (Option<f32>, Option<f32>) {
+        let track_gain = self.track_gain_db.filter(|gain| gain.is_finite());
+        let album_gain = self.album_gain_db.filter(|gain| gain.is_finite());
+        match mode {
+            GainMode::Off => (None, None),
+            GainMode::Track => (track_gain, self.track_peak),
+            GainMode::Album if album_gain.is_some() => (
+                album_gain,
+                self.album_peak
+                    .filter(|peak| peak.is_finite() && *peak > 0.0)
+                    .or(self.track_peak),
+            ),
+            GainMode::Album => (track_gain, self.track_peak),
         }
-        let (gain, peak) = match settings.mode {
-            GainMode::Off => (0.0, None),
-            GainMode::Track => (self.track_gain_db.unwrap_or(0.0), self.track_peak),
-            GainMode::Album => (self.album_gain_db.unwrap_or(0.0), self.album_peak),
-        };
-        let gain_db = finite_or_zero(gain) + finite_or_zero(settings.preamp_db);
+    }
+
+    pub fn has_gain(self, mode: GainMode) -> bool {
+        self.selected_gain(mode).0.is_some()
+    }
+
+    pub fn linear_gain(self, settings: GainConfig) -> f32 {
+        let (gain, peak) = self.selected_gain(settings.mode);
+        // The preamp belongs to normalization. Untagged or malformed tracks
+        // retain their original level instead of receiving a preamp-only boost.
+        let Some(gain) = gain else { return 1.0 };
+        let gain_db = gain + finite_or_zero(settings.preamp_db);
         let mut linear = 10.0_f32.powf((gain_db / 20.0).clamp(-60.0, 24.0));
         if settings.prevent_clipping
             && let Some(peak) = peak.filter(|p| p.is_finite() && *p > 0.0)
@@ -86,7 +106,11 @@ fn finite_or_zero(value: f32) -> f32 {
 }
 
 fn parse_replaygain_number(raw: &str) -> Option<f32> {
-    let trimmed = raw.trim().trim_end_matches("dB").trim();
+    let trimmed = raw.trim();
+    let trimmed = trimmed
+        .get(trimmed.len().saturating_sub(2)..)
+        .filter(|suffix| suffix.eq_ignore_ascii_case("db"))
+        .map_or(trimmed, |_| trimmed[..trimmed.len() - 2].trim());
     trimmed
         .parse::<f32>()
         .ok()
@@ -94,18 +118,25 @@ fn parse_replaygain_number(raw: &str) -> Option<f32> {
 }
 
 /// Rodio `Sink::set_volume` remains the user volume control. This source applies
-/// normalization before the sink and caps the output as a final clipping guard.
+/// normalization before the sink. The optional final clipping guard is disabled
+/// for ReplayGain Off and when the user disables clipping prevention.
 #[derive(Debug, Clone)]
 pub struct GainSource<S> {
     inner: S,
     gain: f32,
+    prevent_clipping: bool,
 }
 
 impl<S> GainSource<S> {
     pub fn new(inner: S, gain: f32) -> Self {
+        Self::with_clipping_prevention(inner, gain, false)
+    }
+
+    pub fn with_clipping_prevention(inner: S, gain: f32, prevent_clipping: bool) -> Self {
         Self {
             inner,
             gain: if gain.is_finite() { gain.max(0.0) } else { 1.0 },
+            prevent_clipping,
         }
     }
 }
@@ -114,9 +145,14 @@ impl<S: Iterator<Item = f32>> Iterator for GainSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner
-            .next()
-            .map(|sample| (sample * self.gain).clamp(-1.0, 1.0))
+        self.inner.next().map(|sample| {
+            let sample = sample * self.gain;
+            if self.prevent_clipping {
+                sample.clamp(-1.0, 1.0)
+            } else {
+                sample
+            }
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -192,13 +228,160 @@ mod tests {
     }
 
     #[test]
-    fn gain_source_limits_samples() {
-        let source = GainSource::new(rodio::source::SineWave::new(440.0), 2.0);
-        // Check processing without relying on device output.
-        assert!(
-            source
-                .take(100)
-                .all(|sample| (-1.0..=1.0).contains(&sample))
+    fn clipping_prevention_is_optional_and_unity_processing_is_lossless() {
+        let samples = vec![0.75, -0.75, 1.2, -1.2];
+        assert_eq!(
+            GainSource::new(samples.clone().into_iter(), 1.0).collect::<Vec<_>>(),
+            samples
         );
+        assert_eq!(
+            GainSource::with_clipping_prevention(samples.clone().into_iter(), 2.0, false)
+                .collect::<Vec<_>>(),
+            vec![1.5, -1.5, 2.4, -2.4]
+        );
+        assert_eq!(
+            GainSource::with_clipping_prevention(samples.into_iter(), 2.0, true)
+                .collect::<Vec<_>>(),
+            vec![1.0, -1.0, 1.0, -1.0]
+        );
+    }
+
+    #[test]
+    fn missing_metadata_preserves_unity_even_with_preamp_and_peak() {
+        let settings = GainConfig {
+            mode: GainMode::Track,
+            preamp_db: 6.0,
+            prevent_clipping: true,
+        };
+        assert_eq!(ReplayGainInfo::default().linear_gain(settings), 1.0);
+        assert_eq!(
+            ReplayGainInfo {
+                track_peak: Some(2.0),
+                ..Default::default()
+            }
+            .linear_gain(settings),
+            1.0
+        );
+        assert_eq!(
+            ReplayGainInfo {
+                track_gain_db: Some(f32::NAN),
+                ..Default::default()
+            }
+            .linear_gain(settings),
+            1.0
+        );
+    }
+
+    #[test]
+    fn album_mode_falls_back_to_track_gain_and_its_matching_peak() {
+        let settings = GainConfig {
+            mode: GainMode::Album,
+            preamp_db: 6.0,
+            prevent_clipping: true,
+        };
+        let info = ReplayGainInfo {
+            track_gain_db: Some(6.0),
+            track_peak: Some(0.5),
+            album_peak: Some(8.0),
+            ..Default::default()
+        };
+        assert_eq!(info.linear_gain(settings), 2.0);
+        let malformed_album = ReplayGainInfo {
+            album_gain_db: Some(f32::NAN),
+            ..info
+        };
+        assert_eq!(malformed_album.linear_gain(settings), 2.0);
+        assert!(
+            info.linear_gain(GainConfig {
+                prevent_clipping: false,
+                ..settings
+            }) > 3.9
+        );
+        assert_eq!(
+            info.linear_gain(GainConfig {
+                mode: GainMode::Off,
+                ..settings
+            }),
+            1.0
+        );
+    }
+
+    #[test]
+    fn gain_number_accepts_case_insensitive_units_and_rejects_invalid_values() {
+        for raw in [" +3.5 dB ", "+3.5 db", "+3.5 DB", "+3.5"] {
+            assert_eq!(parse_replaygain_number(raw), Some(3.5), "{raw}");
+        }
+        for raw in ["NaN", "inf", "1.0 dB extra", "dB", "音量", ""] {
+            assert_eq!(parse_replaygain_number(raw), None, "{raw}");
+        }
+    }
+
+    #[test]
+    fn reads_actual_replaygain_tags_in_supported_formats() {
+        use lofty::{
+            config::WriteOptions,
+            file::TaggedFileExt,
+            probe::Probe,
+            tag::{ItemKey, Tag, TagExt},
+        };
+
+        for format in ["wav", "flac", "mp3", "m4a"] {
+            let temp = tempfile::tempdir().unwrap();
+            let path = temp.path().join(format!("tagged.{format}"));
+            std::fs::copy(
+                std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures")
+                    .join(format!("quiet.{format}")),
+                &path,
+            )
+            .unwrap();
+            let file = Probe::open(&path).unwrap().read().unwrap();
+            let mut tag = Tag::new(file.file_type().primary_tag_type());
+            for (key, value) in [
+                (ItemKey::ReplayGainTrackGain, "-6.0 dB"),
+                (ItemKey::ReplayGainTrackPeak, "0.25"),
+                (ItemKey::ReplayGainAlbumGain, "+3.0 dB"),
+                (ItemKey::ReplayGainAlbumPeak, "0.75"),
+            ] {
+                tag.insert_text(key, value.to_owned());
+            }
+            tag.save_to_path(&path, WriteOptions::default()).unwrap();
+            assert_eq!(
+                ReplayGainInfo::read(&path),
+                ReplayGainInfo {
+                    track_gain_db: Some(-6.0),
+                    track_peak: Some(0.25),
+                    album_gain_db: Some(3.0),
+                    album_peak: Some(0.75),
+                },
+                "{format}"
+            );
+        }
+    }
+
+    #[test]
+    fn finds_replaygain_in_secondary_tag() {
+        use lofty::{
+            config::WriteOptions,
+            tag::{ItemKey, Tag, TagExt, TagType},
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("tagged.mp3");
+        std::fs::copy(
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/quiet.mp3"),
+            &path,
+        )
+        .unwrap();
+        let mut primary = Tag::new(TagType::Id3v2);
+        primary.insert_text(ItemKey::TrackTitle, "ordinary title".to_owned());
+        primary
+            .save_to_path(&path, WriteOptions::default())
+            .unwrap();
+        let mut secondary = Tag::new(TagType::Ape);
+        secondary.insert_text(ItemKey::ReplayGainTrackGain, "-4 dB".to_owned());
+        secondary
+            .save_to_path(&path, WriteOptions::default())
+            .unwrap();
+        assert_eq!(ReplayGainInfo::read(&path).track_gain_db, Some(-4.0));
     }
 }
