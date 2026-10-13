@@ -739,6 +739,32 @@ fn unavailable_track_hides_without_reindexing_library_ids() {
 }
 
 #[test]
+fn availability_changes_preserve_selected_path_and_clamp_removed_selection() {
+    let mut state = music_state();
+    state.navigation.open(Screen::Songs(Filter::All));
+    let selected_id = 2;
+    let selected_path = state.tracks[selected_id].path.clone();
+    let selected_row = state
+        .rows()
+        .iter()
+        .position(|row| matches!(row.target, Target::Play(id) if id == selected_id))
+        .unwrap();
+    state.navigation.select(selected_row);
+    state.mark_track_available(&state.tracks[0].path.clone(), false);
+    let selected_after = state
+        .rows()
+        .iter()
+        .position(
+            |row| matches!(row.target, Target::Play(id) if state.tracks[id].path == selected_path),
+        )
+        .unwrap();
+    assert_eq!(state.navigation.selected(), selected_after);
+
+    state.mark_track_available(&selected_path, false);
+    assert!(state.navigation.selected() < state.selection_count().max(1));
+}
+
+#[test]
 fn queued_missing_track_is_skipped_and_restoration_keeps_its_slot() {
     let mut state = music_state();
     let directory = tempfile::tempdir().unwrap();

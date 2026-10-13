@@ -127,6 +127,11 @@ fn restart_loads_annotations_and_controls_preserve_credentials_and_original_lyri
     )))
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("settings.json"),
+        r#"{"monitor_deleted_files":false}"#,
+    )
+    .unwrap();
     let path = directory.path().join("song.mp3");
     let original = track(path.clone(), "Japanese song");
     let romaji = Romaji::new(

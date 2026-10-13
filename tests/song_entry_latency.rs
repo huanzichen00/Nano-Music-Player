@@ -16,6 +16,14 @@ fn initialize_platform() {
     .unwrap();
 }
 
+fn disable_file_monitor(directory: &std::path::Path) {
+    std::fs::write(
+        directory.join("settings.json"),
+        r#"{"monitor_deleted_files":false}"#,
+    )
+    .unwrap();
+}
+
 fn wait_for_cover(controller: &mut Controller, ui: &AppWindow) {
     let resolution = (240.0 * ui.get_display_scale() * ui.window().scale_factor()).ceil() as u32;
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -43,6 +51,7 @@ fn wait_for_cover(controller: &mut Controller, ui: &AppWindow) {
 fn song_metadata_is_immediate_and_background_covers_follow_the_current_track() {
     initialize_platform();
     let directory = tempfile::tempdir().unwrap();
+    disable_file_monitor(directory.path());
     let ui = AppWindow::new().unwrap();
     let mut controller = Controller::new(directory.path().to_path_buf());
     controller.initialize(&ui);
@@ -177,6 +186,7 @@ fn profile_song_entry_with_library_covers() {
     tracks.truncate(8);
     assert!(!tracks.is_empty());
     let directory = tempfile::tempdir().unwrap();
+    disable_file_monitor(directory.path());
     let ui = AppWindow::new().unwrap();
     let mut controller = Controller::new(directory.path().to_path_buf());
     controller.initialize(&ui);

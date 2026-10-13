@@ -1,13 +1,13 @@
 use super::artwork::decode_thumbnail;
 use crate::library::{Track, scanner};
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     hash::{Hash, Hasher},
     io::{Cursor, Read},
     path::PathBuf,
     sync::{
         Arc, Condvar, Mutex,
-        mpsc::{self, Receiver},
+        mpsc::{self, Receiver, SyncSender, TrySendError},
     },
     thread,
 };
@@ -30,6 +30,152 @@ pub(super) struct Prepared<T> {
 pub(super) enum ImportEvent {
     SelectionClosed,
     Completed(Result<Option<Prepared<scanner::ScanResult>>, String>),
+}
+
+struct FileWorkBatch {
+    evict: BTreeSet<PathBuf>,
+    refresh: BTreeMap<PathBuf, u64>,
+}
+
+pub(super) enum FileWorkEvent {
+    Restored {
+        generation: u64,
+        prepared: Box<Prepared<Track>>,
+    },
+    Error {
+        path: PathBuf,
+        generation: u64,
+        message: String,
+    },
+}
+
+/// A bounded, coalescing worker for scanner-cache evictions and restored files.
+/// Pending work is deduplicated by path and remains local if the worker queue is full.
+pub(super) struct FileWorker {
+    requests: SyncSender<FileWorkBatch>,
+    events: Receiver<FileWorkEvent>,
+    pending_evict: BTreeSet<PathBuf>,
+    pending_refresh: BTreeMap<PathBuf, u64>,
+}
+
+impl FileWorker {
+    pub(super) fn new(database: PathBuf, previews: PathBuf) -> Self {
+        let (request_sender, request_receiver) = mpsc::sync_channel::<FileWorkBatch>(4);
+        let (event_sender, events) = mpsc::sync_channel::<FileWorkEvent>(32);
+        thread::spawn(move || {
+            while let Ok(mut batch) = request_receiver.recv() {
+                while let Ok(next) = request_receiver.try_recv() {
+                    batch.evict.extend(next.evict);
+                    batch.refresh.extend(next.refresh);
+                }
+                let database_handle = match crate::library::database::Database::open(&database) {
+                    Ok(database_handle) => Some(database_handle),
+                    Err(error) => {
+                        for (path, generation) in &batch.refresh {
+                            let _ = event_sender.send(FileWorkEvent::Error {
+                                path: path.clone(),
+                                generation: *generation,
+                                message: error.clone(),
+                            });
+                        }
+                        None
+                    }
+                };
+                if let Some(database_handle) = database_handle {
+                    for path in batch.evict {
+                        let _ = database_handle.evict_track(&path);
+                    }
+                    for (path, generation) in batch.refresh {
+                        match scanner::refresh_track(&database_handle, &path) {
+                            Ok(track) => {
+                                let prepared = Prepared {
+                                    previews: prepare(std::slice::from_ref(&track), &previews),
+                                    value: track,
+                                };
+                                if event_sender
+                                    .send(FileWorkEvent::Restored {
+                                        generation,
+                                        prepared: Box::new(prepared),
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                            Err(message) => {
+                                if event_sender
+                                    .send(FileWorkEvent::Error {
+                                        path,
+                                        generation,
+                                        message,
+                                    })
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        Self {
+            requests: request_sender,
+            events,
+            pending_evict: BTreeSet::new(),
+            pending_refresh: BTreeMap::new(),
+        }
+    }
+
+    pub(super) fn evict(&mut self, path: PathBuf) {
+        self.pending_evict.insert(path);
+        self.flush();
+    }
+
+    pub(super) fn refresh(&mut self, path: PathBuf, generation: u64) {
+        self.pending_refresh.insert(path, generation);
+        self.flush();
+    }
+
+    pub(super) fn flush(&mut self) {
+        const BATCH_LIMIT: usize = 128;
+        if self.pending_evict.is_empty() && self.pending_refresh.is_empty() {
+            return;
+        }
+        let evict: BTreeSet<_> = self
+            .pending_evict
+            .iter()
+            .take(BATCH_LIMIT)
+            .cloned()
+            .collect();
+        let refresh: BTreeMap<_, _> = self
+            .pending_refresh
+            .iter()
+            .take(BATCH_LIMIT)
+            .map(|(path, generation)| (path.clone(), *generation))
+            .collect();
+        for path in &evict {
+            self.pending_evict.remove(path);
+        }
+        for path in refresh.keys() {
+            self.pending_refresh.remove(path);
+        }
+        match self.requests.try_send(FileWorkBatch { evict, refresh }) {
+            Ok(()) => {}
+            Err(TrySendError::Full(batch)) => {
+                self.pending_evict.extend(batch.evict);
+                self.pending_refresh.extend(batch.refresh);
+            }
+            Err(TrySendError::Disconnected(batch)) => {
+                self.pending_evict.extend(batch.evict);
+                self.pending_refresh.extend(batch.refresh);
+            }
+        }
+    }
+
+    pub(super) fn try_event(&self) -> Result<FileWorkEvent, mpsc::TryRecvError> {
+        self.events.try_recv()
+    }
 }
 
 // Publish library metadata together with its tiny covers, never decode on entry.

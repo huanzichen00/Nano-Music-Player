@@ -5,7 +5,7 @@ use lofty::{
     probe::Probe,
 };
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::mpsc::{self, Receiver},
     thread,
     time::UNIX_EPOCH,
@@ -58,22 +58,7 @@ pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
                     ) {
                         continue;
                     }
-                    use std::hash::{Hash, Hasher};
-                    let mut stamp = std::collections::hash_map::DefaultHasher::new();
-                    for file in std::iter::once(path.to_path_buf())
-                        .chain(super::lyrics::sidecar_candidates(path))
-                    {
-                        file.to_string_lossy().hash(&mut stamp);
-                        if let Ok(metadata) = file.metadata() {
-                            metadata.len().hash(&mut stamp);
-                            metadata
-                                .modified()
-                                .ok()
-                                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-                                .hash(&mut stamp);
-                        }
-                    }
-                    let modified = stamp.finish() & i64::MAX as u64;
+                    let modified = metadata_stamp(path);
                     let mut track = if let Some(track) = database.cached(path, modified) {
                         track
                     } else {
@@ -102,6 +87,32 @@ pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
         let _ = sender.send(ImportEvent::Completed(result));
     });
     receiver
+}
+
+/// Re-read and persist a single restored file using the same cache stamp as imports.
+/// Called on the deletion worker, never on the UI thread.
+pub fn refresh_track(database: &Database, path: &Path) -> Result<Track, String> {
+    let mut track = read_track(path.to_path_buf())?;
+    database.apply_lyrics(&mut track)?;
+    database.save(&track, metadata_stamp(path))?;
+    Ok(track)
+}
+
+fn metadata_stamp(path: &Path) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut stamp = std::collections::hash_map::DefaultHasher::new();
+    for file in std::iter::once(path.to_path_buf()).chain(super::lyrics::sidecar_candidates(path)) {
+        file.to_string_lossy().hash(&mut stamp);
+        if let Ok(metadata) = file.metadata() {
+            metadata.len().hash(&mut stamp);
+            metadata
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .hash(&mut stamp);
+        }
+    }
+    stamp.finish() & i64::MAX as u64
 }
 
 pub fn load(database_path: PathBuf) -> Receiver<Result<Vec<Track>, String>> {

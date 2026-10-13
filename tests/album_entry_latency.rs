@@ -21,8 +21,17 @@ fn platform() {
     .unwrap();
 }
 
+fn disable_file_monitor(directory: &std::path::Path) {
+    std::fs::write(
+        directory.join("settings.json"),
+        r#"{"monitor_deleted_files":false}"#,
+    )
+    .unwrap();
+}
+
 fn load_fixture(tracks: &[Track]) -> (tempfile::TempDir, Controller, AppWindow) {
     let directory = tempfile::tempdir().unwrap();
+    disable_file_monitor(directory.path());
     let db = Database::open(&directory.path().join("library.sqlite3")).unwrap();
     for track in tracks {
         db.save(track, 0).unwrap();

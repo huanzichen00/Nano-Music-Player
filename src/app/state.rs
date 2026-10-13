@@ -618,6 +618,7 @@ impl State {
     }
 
     pub fn merge_library(&mut self, tracks: Vec<Track>) {
+        let selected_path = self.selected_track_path();
         // Existing indexes remain stable for in-flight audio events and the queue.
         for track in tracks {
             self.unavailable_tracks.remove(&track.path);
@@ -627,8 +628,7 @@ impl State {
                 self.tracks.push(track);
             }
         }
-        let max = self.selection_count().saturating_sub(1);
-        self.navigation.select(self.navigation.selected().min(max));
+        self.restore_selection(selected_path);
     }
 
     pub fn track_available(&self, track: &Track) -> bool {
@@ -636,11 +636,36 @@ impl State {
     }
 
     pub fn mark_track_available(&mut self, path: &std::path::Path, available: bool) {
+        let selected_path = self.selected_track_path();
         if available {
             self.unavailable_tracks.remove(path);
         } else {
             self.unavailable_tracks.insert(path.to_path_buf());
         }
+        self.restore_selection(selected_path);
+    }
+
+    fn selected_track_path(&self) -> Option<PathBuf> {
+        self.rows()
+            .get(self.navigation.selected())
+            .and_then(|row| match row.target {
+                Target::Play(id) => self.tracks.get(id).map(|track| track.path.clone()),
+                _ => None,
+            })
+    }
+
+    fn restore_selection(&mut self, selected_path: Option<PathBuf>) {
+        let selected = selected_path.and_then(|path| {
+            self.rows().iter().position(|row| {
+                matches!(row.target, Target::Play(id) if self.tracks.get(id).is_some_and(|track| track.path == path))
+            })
+        });
+        let selected = selected.unwrap_or_else(|| {
+            self.navigation
+                .selected()
+                .min(self.selection_count().saturating_sub(1))
+        });
+        self.navigation.select(selected);
     }
 
     pub fn lyrics_target(&self) -> Option<usize> {
