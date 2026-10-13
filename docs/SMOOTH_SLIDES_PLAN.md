@@ -67,3 +67,9 @@ Acceptance: no bitmap snapshots, no duplicate navigation observed during the tes
 - Now Playing now lays out each lyric row from the preferred heights of the original, translated, and romaji text. A transition must preserve `lyric-scroll-y` and let those live measured rows render; do not flatten them into a snapshot.
 - The preview consumes live seed, song, busy, and stage properties. It must not be recreated or have its stage reset when an unrelated screen transition is interrupted.
 - The isolated prototype parses and compiles with Slint 1.18.1. Its runtime harness verifies directional offsets, rapid retarget requests, disabling motion during flight, and no later movement from the canceled transition. A software-rendered mid-flight image was visually inspected. Touch-driven swipes and native backend timing remain unverified.
+
+## Repeated navigation repair — 2026-10-13
+
+The album/list transition leak and hidden Home page motion were reproduced and repaired in a separate project chat, integrated as `462dfc9`. Completion now checks the active navigation generation, and an interrupted slide explicitly restarts its timer deadline. Settling clears both screen offsets and releases outgoing rows. Screen transitions reset both Home page hosts; outgoing Home stays static and current Home gestures wait until the screen settles.
+
+`tests/screen_motion.rs` covers repeated album/list navigation, near-deadline interruptions, pointer row activation after settling, restoring Home after page-two navigation, horizontal-wheel accumulation, Smooth Slides toggling, and Device/Screen modes. Its snapshots render different source/intermediate/destination frames and the settled Home matches its original frame. An intermediate album composition and settled Home were visually inspected. This supersedes the earlier limitation about production intermediate frames above; native animation timing and OS reduced-motion integration remain unverified.
