@@ -14,7 +14,9 @@ use crate::{
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
     library::{Track, playlists, romaji, scanner},
-    ui::{AppWindow, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow},
+    ui::{
+        AppWindow, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow, SubtitleChoice,
+    },
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::{
@@ -47,7 +49,11 @@ pub struct Controller {
     video_engine: crate::video::engine::Engine,
     video_loading: Option<Receiver<Result<Vec<crate::video::library::Video>, String>>>,
     video_import: Option<Receiver<crate::video::import::Event>>,
+    subtitle_import: Option<Receiver<(u64, PathBuf, Option<PathBuf>)>>,
+    subtitle_tracks: Vec<crate::video::engine::SubtitleTrack>,
+    subtitle_cursor: usize,
     pending_media: Option<PendingMedia>,
+    pending_subtitle: Option<crate::video::subtitles::SubtitlePreference>,
     pending_seek: Option<f64>,
     handoff: u64,
     last_landscape: bool,
@@ -158,6 +164,12 @@ impl Controller {
             crate::translation::Cache::load(&directory.join("translations.json"))
                 .unwrap_or_default();
         let video_loading = Some(crate::video::import::load(directory.join("videos.json")));
+        match crate::video::subtitles::SubtitleAssociations::load(
+            &directory.join("video-subtitles.json"),
+        ) {
+            Ok(associations) => state.video_subtitles = associations,
+            Err(error) => state.notice = format!("Subtitle preferences error: {error}"),
+        }
         Self {
             state,
             dispatcher: Dispatcher::new(keymap),
@@ -165,7 +177,11 @@ impl Controller {
             video_engine: crate::video::engine::Engine::default(),
             video_loading,
             video_import: None,
+            subtitle_import: None,
+            subtitle_tracks: Vec::new(),
+            subtitle_cursor: 0,
             pending_media: None,
+            pending_subtitle: None,
             pending_seek: None,
             handoff: 0,
             last_landscape: false,
@@ -280,6 +296,76 @@ impl Controller {
         if self.dialog_open || self.shortcut_capture.is_some() {
             return false;
         }
+        if ui.get_subtitle_menu_open() {
+            if editing {
+                return true;
+            }
+            let Some(key) = Key::from_slint(event.text.as_str()) else {
+                return true;
+            };
+            let press = KeyPress {
+                key,
+                repeat: event.repeat,
+                modifiers: Modifiers {
+                    primary: event.modifiers.control,
+                    secondary: event.modifiers.meta,
+                    alt: event.modifiers.alt,
+                    shift: event.modifiers.shift,
+                },
+            };
+            let resolved = self.dispatcher.dispatch(
+                &press,
+                Context {
+                    surface: crate::input::Surface::Library,
+                    text_input: false,
+                    reference_open: false,
+                    native_dialog: false,
+                },
+            );
+            let mut choices = self.subtitle_choices();
+            match resolved {
+                Dispatch::Action(Action::Home) => {
+                    ui.set_subtitle_menu_open(false);
+                    self.execute(ui, Action::Home);
+                }
+                Dispatch::Action(Action::Back) => {
+                    ui.set_subtitle_menu_open(false);
+                    ui.invoke_focus_screen();
+                }
+                Dispatch::Action(Action::SelectNext)
+                | Dispatch::Action(Action::NavigateRight)
+                | Dispatch::Action(Action::Right) => {
+                    self.subtitle_cursor = (self.subtitle_cursor + 1) % choices.len().max(1);
+                    for (index, choice) in choices.iter_mut().enumerate() {
+                        choice.selected = index == self.subtitle_cursor;
+                    }
+                    ui.set_subtitle_menu_selected(self.subtitle_cursor as i32);
+                    ui.set_subtitle_choices(ModelRc::new(VecModel::from(choices)));
+                }
+                Dispatch::Action(Action::SelectPrevious)
+                | Dispatch::Action(Action::NavigateLeft)
+                | Dispatch::Action(Action::Left) => {
+                    self.subtitle_cursor = self
+                        .subtitle_cursor
+                        .checked_sub(1)
+                        .unwrap_or(choices.len().saturating_sub(1));
+                    for (index, choice) in choices.iter_mut().enumerate() {
+                        choice.selected = index == self.subtitle_cursor;
+                    }
+                    ui.set_subtitle_menu_selected(self.subtitle_cursor as i32);
+                    ui.set_subtitle_choices(ModelRc::new(VecModel::from(choices)));
+                }
+                Dispatch::Action(Action::Activate) => {
+                    if let Some(choice) = choices.get(self.subtitle_cursor) {
+                        self.choose_video_subtitle(choice.id);
+                    }
+                    ui.set_subtitle_menu_open(false);
+                    self.sync(ui);
+                }
+                _ => {}
+            }
+            return true;
+        }
         let Some(key) = Key::from_slint(event.text.as_str()) else {
             return false;
         };
@@ -347,6 +433,7 @@ impl Controller {
     }
 
     fn dismiss_overlays_for_home(&mut self, ui: &AppWindow) {
+        ui.set_subtitle_menu_open(false);
         if ui.get_genius_preview_open() {
             self.genius_command(ui, "close");
             ui.set_genius_preview_open(false);
@@ -663,7 +750,9 @@ impl Controller {
 
     fn send_video(&mut self, command: crate::video::engine::Command) {
         use crate::video::engine::Command;
-        if matches!(command, Command::Load { .. }) {
+        if let Command::Load { video, .. } = &command {
+            self.pending_subtitle = Some(self.state.video_subtitles.get(&video.path));
+            self.subtitle_tracks.clear();
             self.handoff += 1;
             self.pending_seek = None;
             self.pending_media = Some(PendingMedia::Video {
@@ -676,8 +765,12 @@ impl Controller {
                 self.media_error(error);
             }
         } else if self.pending_media.is_some() {
-            if let Command::Seek { seconds, .. } = command {
-                self.pending_seek = Some(seconds);
+            match command {
+                Command::Seek { seconds, .. } => self.pending_seek = Some(seconds),
+                Command::Subtitle { preference, .. } => {
+                    self.pending_subtitle = Some(preference);
+                }
+                _ => {}
             }
         } else if let Err(error) = self.video_engine.send(command) {
             self.media_error(error);
@@ -706,6 +799,17 @@ impl Controller {
             }
         }
         if let Err(error) = self.video_engine.send(command) {
+            self.media_error(error);
+            return;
+        }
+        if let Some(preference) = self.pending_subtitle.take()
+            && let Err(error) = self
+                .video_engine
+                .send(crate::video::engine::Command::Subtitle {
+                    generation: self.state.video_generation,
+                    preference,
+                })
+        {
             self.media_error(error);
         }
     }
@@ -745,7 +849,189 @@ impl Controller {
         ));
     }
 
+    /// Persist the user's explicit subtitle choice for the active video and
+    /// apply it to the current generation. UI menus call this for Off,
+    /// Automatic, embedded tracks, and imported/replaced sidecars.
+    pub fn set_video_subtitle(&mut self, preference: crate::video::subtitles::SubtitlePreference) {
+        let Some(path) = self
+            .state
+            .video_current
+            .and_then(|id| self.state.videos.get(id))
+            .map(|video| video.path.clone())
+        else {
+            return;
+        };
+        let preference = match preference {
+            crate::video::subtitles::SubtitlePreference::External(path) => {
+                let valid_extension = path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "ass" | "ssa"));
+                if !valid_extension || !path.is_file() {
+                    self.state.notice = format!(
+                        "Subtitle file is missing or unsupported: {}",
+                        path.display()
+                    );
+                    return;
+                }
+                match std::fs::canonicalize(path) {
+                    Ok(path) => crate::video::subtitles::SubtitlePreference::External(path),
+                    Err(error) => {
+                        self.state.notice = format!("Could not open subtitle file: {error}");
+                        return;
+                    }
+                }
+            }
+            other => other,
+        };
+        self.state.video_subtitles.set(&path, preference.clone());
+        if let Err(error) = self
+            .state
+            .video_subtitles
+            .save(&self.directory.join("video-subtitles.json"))
+        {
+            self.state.notice = format!("Could not save subtitle preference: {error}");
+        }
+        if self.state.video_active {
+            self.send_video(crate::video::engine::Command::Subtitle {
+                generation: self.state.video_generation,
+                preference,
+            });
+        }
+    }
+
+    fn subtitle_choices(&self) -> Vec<SubtitleChoice> {
+        let selected = self
+            .state
+            .video_current
+            .and_then(|id| self.state.videos.get(id))
+            .map(|video| self.state.video_subtitles.get(&video.path))
+            .unwrap_or_default();
+        let mut choices = vec![
+            SubtitleChoice {
+                id: -2,
+                label: self.text("Automatic"),
+                selected: selected == crate::video::subtitles::SubtitlePreference::Automatic,
+            },
+            SubtitleChoice {
+                id: -1,
+                label: self.text("Off"),
+                selected: selected == crate::video::subtitles::SubtitlePreference::Off,
+            },
+        ];
+        choices.extend(self.subtitle_tracks.iter().map(|track| {
+            let preference = if track.external {
+                track.external_path.clone().map_or(
+                    crate::video::subtitles::SubtitlePreference::Embedded(track.id),
+                    crate::video::subtitles::SubtitlePreference::External,
+                )
+            } else {
+                crate::video::subtitles::SubtitlePreference::Embedded(track.id)
+            };
+            SubtitleChoice {
+                id: track.id as i32,
+                label: if track.title.is_empty() {
+                    if track.language.is_empty() {
+                        format!(
+                            "{}{}",
+                            self.text(if track.external { "External" } else { "Track" }),
+                            track.id
+                        )
+                        .into()
+                    } else {
+                        format!("{} · {}", track.language, track.id).into()
+                    }
+                } else {
+                    format!("{} · {}", track.title, track.id).into()
+                },
+                selected: selected == preference,
+            }
+        }));
+        choices
+    }
+
+    fn choose_video_subtitle(&mut self, id: i32) {
+        let preference = match id {
+            -2 => crate::video::subtitles::SubtitlePreference::Automatic,
+            -1 => crate::video::subtitles::SubtitlePreference::Off,
+            _ => {
+                let Some(track) = self
+                    .subtitle_tracks
+                    .iter()
+                    .find(|track| track.id == i64::from(id))
+                else {
+                    return;
+                };
+                if track.external {
+                    track.external_path.clone().map_or(
+                        crate::video::subtitles::SubtitlePreference::Embedded(track.id),
+                        crate::video::subtitles::SubtitlePreference::External,
+                    )
+                } else {
+                    crate::video::subtitles::SubtitlePreference::Embedded(track.id)
+                }
+            }
+        };
+        self.set_video_subtitle(preference);
+    }
+
+    fn begin_subtitle_import(&mut self) {
+        if self.subtitle_import.is_some() || self.dialog_open {
+            return;
+        }
+        let Some((generation, video_path)) = self
+            .state
+            .video_current
+            .filter(|_| self.state.video_active)
+            .and_then(|id| {
+                self.state
+                    .videos
+                    .get(id)
+                    .map(|video| (self.state.video_generation, video.path.clone()))
+            })
+        else {
+            return;
+        };
+        let title = self.text("Import / Replace…").to_string();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let selected = rfd::FileDialog::new()
+                .set_title(&title)
+                .add_filter("ASS / SSA Subtitles", &["ass", "ssa"])
+                .pick_file();
+            let _ = sender.send((generation, video_path, selected));
+        });
+        self.dialog_open = true;
+        self.subtitle_import = Some(receiver);
+    }
+
+    fn subtitle_import_matches(&self, generation: u64, video_path: &std::path::Path) -> bool {
+        self.state.video_active
+            && self.state.video_generation == generation
+            && self
+                .state
+                .video_current
+                .and_then(|id| self.state.videos.get(id))
+                .is_some_and(|video| video.path == video_path)
+    }
+
     fn poll_videos(&mut self, ui: &AppWindow) {
+        if let Some(result) = self
+            .subtitle_import
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok())
+        {
+            self.subtitle_import = None;
+            self.dialog_open = false;
+            if let (generation, video_path, Some(path)) = result
+                && self.subtitle_import_matches(generation, &video_path)
+            {
+                self.set_video_subtitle(crate::video::subtitles::SubtitlePreference::External(
+                    path,
+                ));
+                ui.set_subtitle_choices(ModelRc::new(VecModel::from(self.subtitle_choices())));
+            }
+        }
         if let Some(result) = self
             .video_loading
             .as_ref()
@@ -793,6 +1079,18 @@ impl Controller {
         }
         while let Ok(event) = self.video_engine.events.try_recv() {
             match event {
+                crate::video::engine::Event::SubtitleTracks { generation, tracks }
+                    if self.state.video_active && generation == self.state.video_generation =>
+                {
+                    self.subtitle_tracks = tracks;
+                    ui.set_subtitle_choices(ModelRc::new(VecModel::from(self.subtitle_choices())));
+                }
+                crate::video::engine::Event::SubtitleError {
+                    generation,
+                    message,
+                } if self.state.video_active && generation == self.state.video_generation => {
+                    self.state.notice = format!("Subtitle error: {message}");
+                }
                 crate::video::engine::Event::Stopped { handoff } => {
                     self.finish_music_handoff(handoff)
                 }
@@ -1301,7 +1599,14 @@ impl Controller {
         }
         if self.last_video_generation != self.state.video_generation {
             self.last_video_generation = self.state.video_generation;
+            self.subtitle_tracks.clear();
+            self.subtitle_cursor = 0;
+            ui.set_subtitle_menu_open(false);
+            ui.set_subtitle_choices(ModelRc::new(VecModel::from(self.subtitle_choices())));
             ui.set_video_frame(slint::Image::default());
+        }
+        if screen != &Screen::VideoPlaying && ui.get_subtitle_menu_open() {
+            ui.set_subtitle_menu_open(false);
         }
         ui.set_video_overlay(self.state.video_overlay);
         ui.set_video_title(
@@ -2767,9 +3072,58 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     });
     let weak = ui.as_weak();
     let state = controller.clone();
+    ui.on_subtitle_command(move |name| {
+        if let Some(ui) = weak.upgrade() {
+            let mut controller = state.borrow_mut();
+            match name.as_str() {
+                "open" if controller.state.video_active => {
+                    let choices = controller.subtitle_choices();
+                    controller.subtitle_cursor = choices
+                        .iter()
+                        .position(|choice| choice.selected)
+                        .unwrap_or(0);
+                    ui.set_subtitle_menu_selected(controller.subtitle_cursor as i32);
+                    ui.set_subtitle_choices(ModelRc::new(VecModel::from(choices)));
+                    ui.set_subtitle_menu_open(true);
+                }
+                "close" => ui.set_subtitle_menu_open(false),
+                "import" if controller.state.video_active => {
+                    ui.set_subtitle_menu_open(false);
+                    controller.begin_subtitle_import();
+                }
+                "remove" if controller.state.video_active => {
+                    controller
+                        .set_video_subtitle(crate::video::subtitles::SubtitlePreference::Automatic);
+                    ui.set_subtitle_choices(ModelRc::new(VecModel::from(
+                        controller.subtitle_choices(),
+                    )));
+                }
+                _ => {}
+            }
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_subtitle_select(move |id| {
+        if let Some(ui) = weak.upgrade() {
+            let mut controller = state.borrow_mut();
+            if controller.state.video_active {
+                controller.choose_video_subtitle(id);
+                ui.set_subtitle_choices(ModelRc::new(VecModel::from(
+                    controller.subtitle_choices(),
+                )));
+                ui.set_subtitle_menu_open(false);
+            }
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
     ui.on_command(move |name| {
         if let Some(ui) = weak.upgrade() {
             let mut controller = state.borrow_mut();
+            if matches!(name.as_str(), "home" | "back") && ui.get_subtitle_menu_open() {
+                ui.set_subtitle_menu_open(false);
+            }
             match name.as_str() {
                 "translate_lyrics" | "regenerate_translation" => controller.start_translation(&ui),
                 "cancel_translation" => {
@@ -2867,6 +3221,47 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
 fn format_time(seconds: f64) -> String {
     let seconds = seconds.max(0.0) as u64;
     format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
+#[cfg(test)]
+mod subtitle_import_controller_tests {
+    use super::*;
+
+    fn video(path: PathBuf, title: &str) -> crate::video::library::Video {
+        crate::video::library::Video {
+            path,
+            title: title.into(),
+            duration: 4.0,
+            width: 320,
+            height: 180,
+            display_aspect: 16.0 / 9.0,
+            video_codec: "h264".into(),
+            audio_codec: None,
+        }
+    }
+
+    #[test]
+    fn delayed_subtitle_picker_result_requires_same_video_generation_and_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut controller = Controller::new(directory.path().to_path_buf());
+        let first = directory.path().join("first.mp4");
+        let second = directory.path().join("second.mp4");
+        controller
+            .state
+            .merge_videos(vec![video(first.clone(), "First")]);
+        controller.state.video_current = Some(0);
+        controller.state.video_active = true;
+        controller.state.video_generation = 8;
+        assert!(controller.subtitle_import_matches(8, &first));
+        controller
+            .state
+            .merge_videos(vec![video(second.clone(), "Second")]);
+        controller.state.video_current = Some(1);
+        controller.state.video_generation = 9;
+        assert!(!controller.subtitle_import_matches(8, &first));
+        assert!(!controller.subtitle_import_matches(9, &first));
+        assert!(controller.subtitle_import_matches(9, &second));
+    }
 }
 
 #[cfg(test)]

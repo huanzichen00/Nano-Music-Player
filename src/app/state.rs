@@ -77,6 +77,7 @@ pub struct State {
     /// Paths temporarily hidden from library browsing; vector slots stay stable for queued IDs.
     pub unavailable_tracks: BTreeSet<PathBuf>,
     pub videos: Vec<crate::video::library::Video>,
+    pub video_subtitles: crate::video::subtitles::SubtitleAssociations,
     pub video_active: bool,
     pub video_current: Option<usize>,
     pub video_generation: u64,
@@ -120,6 +121,7 @@ impl Default for State {
             tracks: Vec::new(),
             unavailable_tracks: BTreeSet::new(),
             videos: Vec::new(),
+            video_subtitles: crate::video::subtitles::SubtitleAssociations::default(),
             video_active: false,
             video_current: None,
             video_generation: 0,
@@ -852,13 +854,18 @@ impl State {
             self.navigation.open(Screen::VideoPlaying);
         }
         self.navigation.select(1);
-        vec![Effect::Video(crate::video::engine::Command::Load {
+        let mut effects = vec![Effect::Video(crate::video::engine::Command::Load {
             generation: self.video_generation,
-            video,
+            video: video.clone(),
             start: 0.0,
             volume: self.effective_volume(),
             paused: false,
-        })]
+        })];
+        effects.push(Effect::Video(crate::video::engine::Command::Subtitle {
+            generation: self.video_generation,
+            preference: self.video_subtitles.get(&video.path),
+        }));
+        effects
     }
 
     pub fn advance(&mut self, manual: bool) -> Vec<Effect> {

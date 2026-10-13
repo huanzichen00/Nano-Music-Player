@@ -7,7 +7,8 @@ use nano_music_player::{
     },
     audio::PlaybackStatus,
     library::{Track, lyrics::Lyrics},
-    ui::AppWindow,
+    ui::{AppWindow, SubtitleChoice},
+    video::subtitles::SubtitlePreference,
     video::{Status, library::Video, orientation},
 };
 use slint::{
@@ -219,6 +220,152 @@ fn whole_device_rotation_controls_modes_zoom_and_portrait_restoration() {
         .execute(&ui, Action::ConfigureDeepSeek);
     assert!(ui.get_deepseek_settings_open());
     assert_size(&ui, true, false, zoom);
+}
+
+#[test]
+fn subtitle_menu_pointer_selection_persists_per_video() {
+    let directory = tempfile::tempdir().unwrap();
+    let (ui, controller) = setup(directory.path());
+    let path = directory.path().join("local-generated.mp4");
+    controller.borrow_mut().state.merge_videos(vec![Video {
+        path: path.clone(),
+        title: "Subtitle fixture".into(),
+        duration: 4.0,
+        width: 320,
+        height: 180,
+        display_aspect: 16.0 / 9.0,
+        video_codec: "h264".into(),
+        audio_codec: None,
+    }]);
+    open_video(&ui, &controller, 1);
+    ui.invoke_subtitle_command("open".into());
+    assert!(ui.get_subtitle_menu_open());
+    // The second row is Off. Click the rendered row rather than invoking the
+    // selection callback so the hit target and controller wiring are covered.
+    let factor = ui.window().scale_factor();
+    let position = slint::LogicalPosition::new(300.0 / factor, 194.0 / factor);
+    ui.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    ui.window().dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+    assert!(!ui.get_subtitle_menu_open());
+    assert_eq!(
+        controller.borrow().state.video_subtitles.get(&path),
+        SubtitlePreference::Off
+    );
+    ui.invoke_subtitle_command("open".into());
+    let keys: [slint::SharedString; 2] = [
+        slint::platform::Key::J.into(),
+        slint::platform::Key::Return.into(),
+    ];
+    for key in keys {
+        ui.window()
+            .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+        ui.window()
+            .dispatch_event(WindowEvent::KeyReleased { text: key });
+    }
+    assert!(!ui.get_subtitle_menu_open());
+    assert_eq!(
+        controller.borrow().state.video_subtitles.get(&path),
+        SubtitlePreference::Automatic
+    );
+    ui.invoke_subtitle_command("open".into());
+    let key: slint::SharedString = slint::platform::Key::Escape.into();
+    ui.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: key.clone() });
+    ui.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: key });
+    assert!(!ui.get_subtitle_menu_open());
+    assert_eq!(
+        ui.get_screen(),
+        9,
+        "Back closes the subtitle menu before leaving video"
+    );
+    let sidecar = directory.path().join("chosen.ass");
+    std::fs::write(&sidecar, "generated subtitle fixture").unwrap();
+    controller
+        .borrow_mut()
+        .set_video_subtitle(SubtitlePreference::External(sidecar.clone()));
+    let canonical_sidecar = std::fs::canonicalize(&sidecar).unwrap();
+    assert_eq!(
+        controller.borrow().state.video_subtitles.get(&path),
+        SubtitlePreference::External(canonical_sidecar.clone())
+    );
+    controller
+        .borrow_mut()
+        .set_video_subtitle(SubtitlePreference::External(
+            directory.path().join("missing.srt"),
+        ));
+    assert_eq!(
+        controller.borrow().state.video_subtitles.get(&path),
+        SubtitlePreference::External(canonical_sidecar)
+    );
+    let reopened = Controller::new(directory.path().to_path_buf());
+    assert_eq!(
+        reopened.state.video_subtitles.get(&path),
+        SubtitlePreference::External(std::fs::canonicalize(&sidecar).unwrap())
+    );
+    ui.invoke_subtitle_command("remove".into());
+    assert_eq!(
+        controller.borrow().state.video_subtitles.get(&path),
+        SubtitlePreference::Automatic
+    );
+    assert!(
+        sidecar.is_file(),
+        "removing an association must preserve the original subtitle file"
+    );
+    assert_eq!(
+        nano_music_player::video::subtitles::SubtitleAssociations::load(
+            &directory.path().join("video-subtitles.json"),
+        )
+        .unwrap()
+        .get(&path),
+        SubtitlePreference::Automatic
+    );
+}
+
+#[test]
+fn subtitle_menu_many_tracks_renders_in_both_landscape_modes() {
+    let directory = tempfile::tempdir().unwrap();
+    let (ui, controller) = setup(directory.path());
+    controller.borrow_mut().state.merge_videos(vec![Video {
+        path: directory.path().join("landscape-menu.mp4"),
+        title: "Landscape menu fixture".into(),
+        duration: 4.0,
+        width: 320,
+        height: 180,
+        display_aspect: 16.0 / 9.0,
+        video_codec: "h264".into(),
+        audio_codec: None,
+    }]);
+    open_video(&ui, &controller, 1);
+    let mut choices = vec![
+        SubtitleChoice {
+            id: -2,
+            label: "Automatic".into(),
+            selected: true,
+        },
+        SubtitleChoice {
+            id: -1,
+            label: "Off".into(),
+            selected: false,
+        },
+    ];
+    choices.extend((0..24).map(|id| SubtitleChoice {
+        id,
+        label: format!("Embedded subtitle track {id} · Japanese captions").into(),
+        selected: false,
+    }));
+    ui.set_subtitle_choices(slint::ModelRc::new(slint::VecModel::from(choices)));
+    ui.set_subtitle_menu_open(true);
+    assert!(ui.window().take_snapshot().unwrap().width() > 0);
+    controller.borrow_mut().execute(&ui, Action::ScreenMode);
+    assert!(ui.get_subtitle_menu_open());
+    assert!(ui.window().take_snapshot().unwrap().width() > 0);
 }
 
 fn wait_for(

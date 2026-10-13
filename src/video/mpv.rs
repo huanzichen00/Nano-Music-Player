@@ -17,6 +17,8 @@ use std::{
     },
 };
 
+const SUBTITLE_COMMAND_TAG: u64 = 1 << 63;
+
 type Handle = *mut c_void;
 #[repr(C)]
 struct Param {
@@ -275,6 +277,17 @@ impl Session {
     }
 
     fn async_command(&self, values: &[&str]) -> Result<(), String> {
+        self.async_command_with_userdata(values, self.generation)
+    }
+
+    fn async_subtitle_command(&self, values: &[&str]) -> Result<(), String> {
+        self.async_command_with_userdata(
+            values,
+            SUBTITLE_COMMAND_TAG | (self.generation & !SUBTITLE_COMMAND_TAG),
+        )
+    }
+
+    fn async_command_with_userdata(&self, values: &[&str], userdata: u64) -> Result<(), String> {
         let strings: Vec<_> = values
             .iter()
             .map(|v| CString::new(*v))
@@ -284,7 +297,7 @@ impl Session {
         pointers.push(ptr::null());
         // SAFETY: mpv copies the null-terminated array and strings before returning.
         self.api
-            .check(unsafe { (self.api.command)(self.handle, self.generation, pointers.as_ptr()) })
+            .check(unsafe { (self.api.command)(self.handle, userdata, pointers.as_ptr()) })
     }
 
     pub fn command(&mut self, command: Command) -> Result<(), String> {
@@ -304,13 +317,13 @@ impl Session {
                 preference,
             } if generation == self.generation => match preference {
                 super::subtitles::SubtitlePreference::Automatic => {
-                    self.async_command(&["set", "sid", "auto"])?;
+                    self.async_subtitle_command(&["set", "sid", "auto"])?;
                 }
                 super::subtitles::SubtitlePreference::Off => {
-                    self.async_command(&["set", "sid", "no"])?;
+                    self.async_subtitle_command(&["set", "sid", "no"])?;
                 }
                 super::subtitles::SubtitlePreference::Embedded(id) if id > 0 => {
-                    self.async_command(&["set", "sid", &id.to_string()])?;
+                    self.async_subtitle_command(&["set", "sid", &id.to_string()])?;
                 }
                 super::subtitles::SubtitlePreference::Embedded(_) => {
                     return Err("Invalid embedded subtitle track ID".into());
@@ -320,7 +333,7 @@ impl Session {
                         return Err(format!("Subtitle file not found: {}", path.display()));
                     }
                     let path = path.to_str().ok_or("Subtitle path is not valid UTF-8")?;
-                    self.async_command(&["sub-add", path, "select"])?;
+                    self.async_subtitle_command(&["sub-add", path, "select"])?;
                 }
             },
             Command::Pause { generation, paused } if generation == self.generation => {
@@ -373,7 +386,17 @@ impl Session {
             match event.kind {
                 0 => break,
                 5 => {
-                    self.api.check(event.error)?;
+                    if event.userdata & SUBTITLE_COMMAND_TAG != 0 {
+                        let message = unsafe { CStr::from_ptr((self.api.error)(event.error)) }
+                            .to_string_lossy()
+                            .into_owned();
+                        let _ = events.send(Event::SubtitleError {
+                            generation: self.generation,
+                            message,
+                        });
+                    } else {
+                        self.api.check(event.error)?;
+                    }
                 }
                 7 if !event.data.is_null() => {
                     // SAFETY: END_FILE points to mpv_event_end_file; read its ABI-stable prefix.
@@ -527,6 +550,7 @@ unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
         let mut external = false;
         let mut title = String::new();
         let mut language = String::new();
+        let mut external_path = None;
         for (key, value) in map_keys.iter().zip(values) {
             if key.is_null() {
                 continue;
@@ -539,7 +563,7 @@ unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
                 }
                 "id" if value.format == 4 => id = Some(unsafe { value.value.int64 }),
                 "external" if value.format == 3 => external = unsafe { value.value.flag } != 0,
-                "title" | "lang" if value.format == 1 => {
+                "title" | "lang" | "external-filename" if value.format == 1 => {
                     let ptr = unsafe { value.value.string };
                     if !ptr.is_null() {
                         let text = unsafe { CStr::from_ptr(ptr) }
@@ -547,6 +571,8 @@ unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
                             .into_owned();
                         if key == "title" {
                             title = text
+                        } else if key == "external-filename" {
+                            external_path = Some(text.into());
                         } else {
                             language = text
                         }
@@ -561,6 +587,7 @@ unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
                 title,
                 language,
                 external,
+                external_path,
             });
         }
     }

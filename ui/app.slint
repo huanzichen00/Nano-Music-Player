@@ -107,6 +107,7 @@ export component AppWindow inherits Window {
     in property <string> video-title;
     in property <bool> subtitle-menu-open;
     in property <[SubtitleChoice]> subtitle-choices;
+    in property <int> subtitle-menu-selected;
     private property <length> base-width: video-landscape ? (device-mode ? 296px * 76.5 / 39.6 : 432px) : (device-mode ? 296px : 240px);
     private property <length> base-height: video-landscape ? (device-mode ? 296px : 240px) : (device-mode ? 296px * 76.5 / 39.6 : 432px);
     in property <string> screen-title;
@@ -558,30 +559,36 @@ export component AppWindow inherits Window {
             Rectangle {
                 x: 16px * root.s; y: 18px * root.s;
                 width: parent.width - 32px * root.s;
-                height: min(parent.height - 36px * root.s, (190px + root.subtitle-choices.length * 30px) * root.s);
+                height: min(parent.height - 36px * root.s, 260px * root.s);
                 background: #22252b; border-width: 1px * root.s; border-color: #69717e; border-radius: 8px * root.s;
                 Text { x: 12px * root.s; y: 8px * root.s; width: parent.width - 24px * root.s; height: 24px * root.s; text: I18n.tr("Subtitles"); color: white; font-size: 15px * root.s; font-weight: 700; }
-                for choice[index] in root.subtitle-choices: Rectangle {
-                    x: 8px * root.s; y: (36px + index * 28px) * root.s;
-                    width: parent.width - 16px * root.s; height: 26px * root.s;
-                    background: choice.selected ? #3478c8 : #343943; border-radius: 4px * root.s;
-                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: choice.label; color: white; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; }
-                    TouchArea { clicked => { root.subtitle-select(choice.id); } }
+                Flickable {
+                    x: 8px * root.s; y: 36px * root.s;
+                    width: parent.width - 16px * root.s;
+                    height: max(26px * root.s, parent.height - 142px * root.s);
+                    content-y: max(0px, (root.subtitle-menu-selected - 1) * 28px * root.s);
+                    for choice[index] in root.subtitle-choices: Rectangle {
+                        x: 0px; y: index * 28px * root.s;
+                        width: parent.width; height: 26px * root.s;
+                        background: choice.selected ? #3478c8 : #343943; border-radius: 4px * root.s;
+                        Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: choice.label; color: white; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; }
+                        TouchArea { clicked => { root.subtitle-select(choice.id); } }
+                    }
                 }
                 Rectangle {
-                    x: 8px * root.s; y: (40px + root.subtitle-choices.length * 28px) * root.s;
+                    x: 8px * root.s; y: parent.height - 98px * root.s;
                     width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
                     Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Import / Replace…"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
                     TouchArea { clicked => { root.subtitle-command("import"); } }
                 }
                 Rectangle {
-                    x: 8px * root.s; y: (70px + root.subtitle-choices.length * 28px) * root.s;
+                    x: 8px * root.s; y: parent.height - 66px * root.s;
                     width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
                     Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Remove External Subtitle"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
                     TouchArea { clicked => { root.subtitle-command("remove"); } }
                 }
                 Rectangle {
-                    x: 8px * root.s; y: (100px + root.subtitle-choices.length * 28px) * root.s;
+                    x: 8px * root.s; y: parent.height - 34px * root.s;
                     width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
                     Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Close"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
                     TouchArea { clicked => { root.subtitle-command("close"); } }

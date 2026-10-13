@@ -335,6 +335,27 @@ fn ass_sidecar_is_composited_and_seek_synchronized() {
     engine
         .send(Command::Subtitle {
             generation: 91,
+            preference: super::subtitles::SubtitlePreference::External(
+                dir.path().join("missing.ass"),
+            ),
+        })
+        .unwrap();
+    let subtitle_error_deadline = Instant::now() + Duration::from_secs(2);
+    let mut subtitle_error_seen = false;
+    while Instant::now() < subtitle_error_deadline {
+        while let Ok(event) = engine.events.try_recv() {
+            subtitle_error_seen |= matches!(event, Event::SubtitleError { generation: 91, .. });
+        }
+        if subtitle_error_seen {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(subtitle_error_seen);
+    assert_eq!(engine.take_progress().unwrap().status, Status::Paused);
+    engine
+        .send(Command::Subtitle {
+            generation: 91,
             preference: super::subtitles::SubtitlePreference::External(ass),
         })
         .unwrap();
@@ -385,6 +406,72 @@ fn ass_sidecar_is_composited_and_seek_synchronized() {
     assert!(
         green_after_end < 100,
         "subtitle remained visible beyond its ASS end time: {green_after_end}"
+    );
+    let replacement = dir.path().join("manual-replacement.ass");
+    let replacement_script = std::fs::read_to_string(dir.path().join("styled.ass"))
+        .unwrap()
+        .replace("&H0000FF00", "&H00FF0000")
+        .replace("STYLED TEST", "MANUAL REPLACEMENT");
+    std::fs::write(&replacement, replacement_script).unwrap();
+    engine
+        .send(Command::Seek {
+            generation: 91,
+            seconds: 1.0,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 91 && p.status == Status::Paused && (p.position - 1.0).abs() < 0.15
+    });
+    engine
+        .send(Command::Subtitle {
+            generation: 91,
+            preference: super::subtitles::SubtitlePreference::External(replacement),
+        })
+        .unwrap();
+    engine
+        .send(Command::Pause {
+            generation: 91,
+            paused: false,
+        })
+        .unwrap();
+    wait(&engine, |p| p.generation == 91 && p.position > 1.2);
+    engine
+        .send(Command::Pause {
+            generation: 91,
+            paused: true,
+        })
+        .unwrap();
+    thread::sleep(Duration::from_millis(250));
+    let replacement_frame = engine.take_frame().unwrap();
+    let blue = replacement_frame
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[2] > 170 && p[0] < 100 && p[1] < 100)
+        .count();
+    assert!(
+        blue > 100,
+        "manual replacement did not override the discovered sidecar: {blue}"
+    );
+    engine
+        .send(Command::Subtitle {
+            generation: 91,
+            preference: super::subtitles::SubtitlePreference::Off,
+        })
+        .unwrap();
+    thread::sleep(Duration::from_millis(250));
+    let off_frame = engine.take_frame().unwrap();
+    let colored = off_frame
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| (p[1] > 170 || p[2] > 170) && p[0] < 100)
+        .count();
+    assert!(
+        colored < 100,
+        "subtitle pixels remained after selecting Off: {colored}"
     );
 }
 

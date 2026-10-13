@@ -545,6 +545,24 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("Subtitles", "字幕", "字幕"),
     ("Import / Replace…", "导入 / 替换…", "インポート / 置換…"),
     ("Remove External Subtitle", "移除外部字幕", "外部字幕を削除"),
+    ("External", "外部", "外部"),
+    ("Track", "轨道", "トラック"),
+    ("Subtitle error", "字幕错误", "字幕エラー"),
+    (
+        "Subtitle file is missing or unsupported",
+        "字幕文件不存在或格式不受支持",
+        "字幕ファイルが見つからないか、形式に対応していません",
+    ),
+    (
+        "Could not open subtitle file",
+        "无法打开字幕文件",
+        "字幕ファイルを開けませんでした",
+    ),
+    (
+        "Could not save subtitle preference",
+        "无法保存字幕设置",
+        "字幕設定を保存できませんでした",
+    ),
     ("Remove Lyrics", "移除歌词", "歌詞を削除"),
     ("Use Automatic Lyrics", "使用自动歌词", "自動歌詞を使用"),
     ("Manual", "手动", "手動"),
@@ -992,6 +1010,7 @@ pub fn notice(language: Language, text: &str) -> String {
         "Invalid settings.json: ",
         "Invalid shortcuts.json: ",
         "Playback error: ",
+        "Subtitle error: ",
         "Import failed: ",
         "Video library error: ",
         "Video import failed: ",
@@ -1003,6 +1022,18 @@ pub fn notice(language: Language, text: &str) -> String {
                 "{} {}",
                 translate(language, prefix.trim_end_matches(' ')),
                 detail
+            );
+        }
+    }
+    for prefix in [
+        "Subtitle file is missing or unsupported: ",
+        "Could not open subtitle file: ",
+        "Could not save subtitle preference: ",
+    ] {
+        if let Some(detail) = text.strip_prefix(prefix) {
+            return format!(
+                "{}: {detail}",
+                translate(language, prefix.trim_end_matches([':', ' ']))
             );
         }
     }

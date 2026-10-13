@@ -56,15 +56,30 @@ render pass; do not flatten ASS to plain text or add a second UI overlay rendere
    selection, automatic discovery, manual precedence, replacement/removal,
    persistence, seeking/timing, rotation/aspect, stale sessions and audio handoff.
 
-## Current isolated implementation
+## Implemented support and verification
 
-`src/video/subtitles.rs` defines preference states, deterministic sidecar
-discovery, and an atomic JSON association store. The store is intended for
-`video-subtitles.json`, keyed by the video path. The worker accepts
-`Command::Subtitle { generation, preference }`, and emits `Event::SubtitleTracks`
-with `SubtitleTrack { id, title, language, external }` records for menu population.
-The native rendering fixture verifies ASS color/style composition and timed
-visibility across an exact seek. App controller/UI wiring, track-list native
-enumeration assertions, embedded muxed-track fixture, replacement/removal UX, and
-full persistence round-trip through app restart still need to be completed before
-describing the app feature as complete.
+Per-video preferences are stored atomically in `video-subtitles.json`, keyed by
+video path. Automatic discovery follows mpv `sub-auto=all` and `sid=auto`; an
+explicit external path is added with `sub-add ... select`, while embedded IDs,
+Off and Automatic map to mpv subtitle selection commands. Manual paths are
+canonicalized and restricted to existing `.ass`/`.ssa` files before persistence.
+Track-list events expose ID, title, language, external status and external path.
+Subtitle command and load errors are reported without stopping video playback.
+
+The playback menu offers Automatic, Off, embedded/external track selection,
+Import/Replace and Remove. Preferences survive controller recreation. The native
+picker captures the active video path and generation; a delayed result is ignored
+if either changed. Its native-dialog state blocks shortcuts until the picker
+closes. The menu handles configured J/K and H/L navigation, Enter, Back and Home,
+and its track list scrolls within a fixed footer. Labels and errors are localized
+in English, Chinese and Japanese.
+
+Generated native fixtures verified styled ASS color/bold composition in copied
+RGB frames, event timing after seek, manual replacement precedence over a
+matching discovered sidecar, Off, embedded track enumeration/selection, and a
+nonfatal missing subtitle. UI tests cover pointer selection, keyboard selection
+and Back, persisted replacement/removal without touching the original subtitle,
+invalid path rejection, and many-track landscape rendering in Device and Screen
+Mode. Rotation/aspect and audio handoff retain the existing video pipeline and
+have their existing independent video tests. Re-run the full suite and strict
+lint after any native platform/runtime upgrade.

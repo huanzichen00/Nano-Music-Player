@@ -57,6 +57,10 @@ pub enum Event {
         generation: Generation,
         tracks: Vec<SubtitleTrack>,
     },
+    SubtitleError {
+        generation: Generation,
+        message: String,
+    },
     Error {
         generation: Generation,
         message: String,
@@ -69,6 +73,7 @@ pub struct SubtitleTrack {
     pub title: String,
     pub language: String,
     pub external: bool,
+    pub external_path: Option<std::path::PathBuf>,
 }
 
 #[derive(Debug)]
@@ -142,12 +147,20 @@ impl Engine {
                         }
                     }
                     Ok(command) => {
+                        let subtitle_command = matches!(command, Command::Subtitle { .. });
                         if let Some(active) = &mut session
                             && let Err(message) = active.command(command)
                         {
-                            let progress = active.error_snapshot();
-                            session = None;
-                            publish_error(&output, &events, progress, message);
+                            if subtitle_command {
+                                let _ = events.send(Event::SubtitleError {
+                                    generation: active.generation,
+                                    message,
+                                });
+                            } else {
+                                let progress = active.error_snapshot();
+                                session = None;
+                                publish_error(&output, &events, progress, message);
+                            }
                         }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
