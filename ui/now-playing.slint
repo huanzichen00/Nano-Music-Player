@@ -61,6 +61,7 @@ export component NowPlayingView inherits Rectangle {
     in property <bool> translation-visible;
     in property <int> active-lyric;
     in-out property <length> lyric-scroll-y;
+    out property <length> lyric-content-height: 0px;
     callback activated(int);
     callback toggle-overlay;
     callback genius-requested;
@@ -134,6 +135,7 @@ export component NowPlayingView inherits Rectangle {
                     TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); clicked => { root.toggle-overlay(); } }
                     words := VerticalLayout {
                         x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
+                        changed preferred-height => { root.lyric-content-height = self.preferred-height; }
                         for line[index] in root.lyric-lines: Rectangle {
                             property <string> romaji: root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "";
                             property <string> translation: root.translation-visible && index < root.translated-lines.length ? root.translated-lines[index] : "";

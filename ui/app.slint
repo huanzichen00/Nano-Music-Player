@@ -116,6 +116,7 @@ export component AppWindow inherits Window {
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
     out property <length> content-height: keyboard.height;
+    out property <float> lyric-content-height: now-playing.lyric-content-height / 1px;
     private property <float> s: min(keyboard.width / root.base-width, keyboard.height / root.base-height);
     callback key-event(KeyEvent, bool) -> bool;
     callback command(string);
