@@ -51,6 +51,9 @@ pub enum Effect {
     ConfigureDeepSeek,
     GeniusPreview,
     NewPlaylist,
+    EditPlaylist {
+        id: i64,
+    },
     GenerateRomaji {
         id: usize,
     },
@@ -1057,6 +1060,12 @@ impl State {
                 return vec![Effect::WindowPreferencesChanged];
             }
             NewPlaylist => return vec![Effect::NewPlaylist],
+            EditPlaylist => {
+                if let Screen::Songs(Filter::Playlist { id, .. }) = self.navigation.current().screen
+                {
+                    return vec![Effect::EditPlaylist { id }];
+                }
+            }
             ZoomIn | ZoomOut => {
                 self.zoom =
                     (self.zoom + if action == ZoomIn { 0.25 } else { -0.25 }).clamp(0.75, 3.0);

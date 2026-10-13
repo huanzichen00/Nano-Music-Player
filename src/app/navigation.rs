@@ -111,6 +111,18 @@ impl Navigation {
             });
         }
     }
+    pub fn rename_playlist(&mut self, id: i64, name: &str) {
+        for entry in &mut self.stack {
+            if let Screen::Songs(Filter::Playlist {
+                id: entry_id,
+                name: entry_name,
+            }) = &mut entry.screen
+                && *entry_id == id
+            {
+                *entry_name = name.to_owned();
+            }
+        }
+    }
     pub fn back(&mut self) {
         if self.stack.len() > 1 {
             self.stack.pop();

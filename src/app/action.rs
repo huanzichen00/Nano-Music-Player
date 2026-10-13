@@ -53,6 +53,7 @@ pub enum Action {
     ConfigureDeepSeek,
     JumpToLetter,
     NewPlaylist,
+    EditPlaylist,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,7 +101,7 @@ impl Action {
             | Self::ZoomOut
             | Self::ShowShortcuts
             | Self::CloseShortcuts => Category::Application,
-            Self::NewPlaylist => Category::Application,
+            Self::NewPlaylist | Self::EditPlaylist => Category::Application,
             Self::Settings
             | Self::Shortcuts
             | Self::RestoreShortcuts
@@ -162,6 +163,7 @@ impl Action {
             Self::ToggleAlwaysOnTop => "Always on Top",
             Self::ToggleSmoothSlides => "Smooth Slides",
             Self::NewPlaylist => "New Playlist…",
+            Self::EditPlaylist => "Edit Playlist…",
             Self::ZoomIn => "Zoom in",
             Self::ZoomOut => "Zoom out",
             Self::ShowShortcuts => "Keyboard shortcuts",
@@ -230,6 +232,7 @@ impl Action {
         Self::ScreenMode,
         Self::ToggleAlwaysOnTop,
         Self::NewPlaylist,
+        Self::EditPlaylist,
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ShowShortcuts,

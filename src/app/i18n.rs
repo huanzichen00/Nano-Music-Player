@@ -41,6 +41,24 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Edit", "编辑", "編集"),
+    ("Edit Playlist…", "编辑播放列表…", "プレイリストを編集…"),
+    ("Edit Playlist", "编辑播放列表", "プレイリストを編集"),
+    ("Changes not saved", "更改尚未保存", "変更は未保存です"),
+    (
+        "Done saves changes; Cancel discards",
+        "完成保存更改，取消放弃更改",
+        "完了で保存、キャンセルで破棄",
+    ),
+    ("Unavailable song", "歌曲不可用", "利用できない曲"),
+    (
+        "Playlist no longer exists",
+        "播放列表已不存在",
+        "プレイリストが見つかりません",
+    ),
+    ("Empty playlist", "空播放列表", "空のプレイリスト"),
+    ("Add", "添加", "追加"),
+    ("Delete", "删除", "削除"),
     ("Import Videos", "导入视频", "ビデオを読み込む"),
     ("Import Videos…", "导入视频…", "ビデオを読み込む…"),
     (

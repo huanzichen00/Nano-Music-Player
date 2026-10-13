@@ -76,3 +76,53 @@ fn validation_and_storage_failures_leave_no_partial_playlist() {
     assert!(playlists::create(&database, "atomic", &[PathBuf::from("valid.flac")]).is_err());
     assert!(playlists::load(&database).unwrap().is_empty());
 }
+
+#[test]
+fn editing_preserves_identity_and_order_and_allows_an_empty_playlist() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("library.sqlite3");
+    let missing = directory.path().join("missing.flac");
+    let original =
+        playlists::create(&database, "Old name", std::slice::from_ref(&missing)).unwrap();
+    let paths = vec![PathBuf::from("added.flac"), missing];
+    let edited = playlists::update(&database, original.id, " New Name ", &paths).unwrap();
+    assert_eq!(edited.id, original.id);
+    assert_eq!(edited.name, "New Name");
+    assert_eq!(playlists::load(&database).unwrap(), vec![edited]);
+    let empty = playlists::update(&database, original.id, "NEW NAME", &[]).unwrap();
+    assert_eq!(playlists::load(&database).unwrap(), vec![empty]);
+    assert!(playlists::update(&database, original.id + 1, "Lost", &paths).is_err());
+    assert_eq!(playlists::load(&database).unwrap().len(), 1);
+}
+
+#[test]
+fn failed_edits_leave_original_name_and_tracks_intact() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("library.sqlite3");
+    let paths = vec![PathBuf::from("one.flac"), PathBuf::from("two.flac")];
+    let original = playlists::create(&database, "Original", &paths).unwrap();
+    playlists::create(&database, "Taken", &[PathBuf::from("other.flac")]).unwrap();
+    assert!(playlists::update(&database, original.id, "tAKEN", &[]).is_err());
+    assert!(playlists::update(&database, original.id, " ", &paths).is_err());
+    assert!(
+        playlists::update(
+            &database,
+            original.id,
+            "Repeat",
+            &[paths[0].clone(), paths[0].clone()]
+        )
+        .is_err()
+    );
+    let connection = Connection::open(&database).unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_edit BEFORE INSERT ON playlist_tracks WHEN NEW.position = 1 BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+    assert!(
+        playlists::update(
+            &database,
+            original.id,
+            "Renamed",
+            &[paths[1].clone(), paths[0].clone()]
+        )
+        .is_err()
+    );
+    assert_eq!(playlists::load(&database).unwrap()[0], original);
+}

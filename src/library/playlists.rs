@@ -71,27 +71,7 @@ pub fn load(database: &Path) -> Result<Vec<Playlist>, String> {
 }
 
 pub fn create(database: &Path, name: &str, tracks: &[PathBuf]) -> Result<Playlist, String> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("playlist name cannot be empty".into());
-    }
-    if name.chars().any(char::is_control) {
-        return Err("playlist name contains control characters".into());
-    }
-    if name.chars().count() > 100 {
-        return Err("playlist name cannot exceed 100 characters".into());
-    }
-    if tracks.is_empty() {
-        return Err("playlist must contain at least one track".into());
-    }
-    let track_paths = tracks
-        .iter()
-        .map(|path| path_text(path))
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut seen = std::collections::HashSet::new();
-    if track_paths.iter().any(|path| !seen.insert(path)) {
-        return Err("playlist track paths must be unique".into());
-    }
+    let (name, track_paths) = validate(name, tracks, false)?;
 
     let connection = open(database)?;
     let transaction = connection
@@ -106,6 +86,78 @@ pub fn create(database: &Path, name: &str, tracks: &[PathBuf]) -> Result<Playlis
     })
 }
 
+fn validate<'a>(
+    name: &'a str,
+    tracks: &[PathBuf],
+    allow_empty: bool,
+) -> Result<(&'a str, Vec<String>), String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("playlist name cannot be empty".into());
+    }
+    if name.chars().any(char::is_control) {
+        return Err("playlist name contains control characters".into());
+    }
+    if name.chars().count() > 100 {
+        return Err("playlist name cannot exceed 100 characters".into());
+    }
+    if tracks.is_empty() && !allow_empty {
+        return Err("playlist must contain at least one track".into());
+    }
+    let track_paths = tracks
+        .iter()
+        .map(|path| path_text(path))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut seen = std::collections::HashSet::new();
+    if track_paths.iter().any(|path| !seen.insert(path)) {
+        return Err("playlist track paths must be unique".into());
+    }
+
+    Ok((name, track_paths))
+}
+
+/// Replace the name and ordered paths atomically, retaining the playlist identity.
+/// Missing paths stay recorded; availability is checked by the controller for new additions.
+pub fn update(
+    database: &Path,
+    id: i64,
+    name: &str,
+    tracks: &[PathBuf],
+) -> Result<Playlist, String> {
+    let (name, track_paths) = validate(name, tracks, true)?;
+    let connection = open(database)?;
+    let transaction = connection
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    let changed = transaction
+        .execute(
+            "UPDATE playlists SET name = ?, name_key = ? WHERE id = ?",
+            params![name, name.to_lowercase(), id],
+        )
+        .map_err(name_error)?;
+    if changed == 0 {
+        return Err("playlist no longer exists".into());
+    }
+    transaction
+        .execute("DELETE FROM playlist_tracks WHERE playlist_id = ?", [id])
+        .map_err(|error| error.to_string())?;
+    insert_tracks(&transaction, id, &track_paths)?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(Playlist {
+        id,
+        name: name.to_owned(),
+        tracks: tracks.to_vec(),
+    })
+}
+
+fn name_error(error: rusqlite::Error) -> String {
+    if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation) {
+        "a playlist with that name already exists".to_owned()
+    } else {
+        error.to_string()
+    }
+}
+
 fn insert_in_transaction(
     transaction: &Transaction<'_>,
     name: &str,
@@ -117,14 +169,13 @@ fn insert_in_transaction(
             "INSERT INTO playlists (name, name_key) VALUES (?, ?)",
             params![name, name_key],
         )
-        .map_err(|error| {
-            if error.sqlite_error_code() == Some(rusqlite::ErrorCode::ConstraintViolation) {
-                "a playlist with that name already exists".to_owned()
-            } else {
-                error.to_string()
-            }
-        })?;
+        .map_err(name_error)?;
     let id = transaction.last_insert_rowid();
+    insert_tracks(transaction, id, tracks)?;
+    Ok(id)
+}
+
+fn insert_tracks(transaction: &Transaction<'_>, id: i64, tracks: &[String]) -> Result<(), String> {
     for (position, path) in tracks.iter().enumerate() {
         transaction
             .execute(
@@ -133,5 +184,5 @@ fn insert_in_transaction(
             )
             .map_err(|error| error.to_string())?;
     }
-    Ok(id)
+    Ok(())
 }
