@@ -17,6 +17,12 @@ pub trait JsonProvider {
     fn json(&self, system: &str, input: &Value) -> Result<Value, String>;
 }
 
+impl JsonProvider for crate::ai::DeepSeek {
+    fn json(&self, system: &str, input: &Value) -> Result<Value, String> {
+        crate::ai::DeepSeek::json(self, system, input)
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Cancellation(std::sync::Arc<std::sync::atomic::AtomicBool>);
 
@@ -26,6 +32,30 @@ impl Cancellation {
     }
     pub fn is_cancelled(&self) -> bool {
         self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+/// Nonblocking admission gate; callers queue/retry Busy rather than creating unbounded workers.
+pub struct RequestGate(std::sync::atomic::AtomicUsize);
+impl RequestGate {
+    pub const fn new(max_in_flight: usize) -> Self {
+        Self(std::sync::atomic::AtomicUsize::new(max_in_flight))
+    }
+    pub fn try_acquire(&self) -> Result<RequestPermit<'_>, Error> {
+        self.0
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |available| available.checked_sub(1),
+            )
+            .map(|_| RequestPermit(self))
+            .map_err(|_| Error::Busy)
+    }
+}
+pub struct RequestPermit<'a>(&'a RequestGate);
+impl Drop for RequestPermit<'_> {
+    fn drop(&mut self) {
+        self.0.0.fetch_add(1, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -48,6 +78,16 @@ pub fn generate(
     }
     let response = serde_json::to_string(&response).map_err(|_| Error::InvalidResponse)?;
     request.validate_response(&response)
+}
+
+pub fn generate_bounded(
+    request: &Request,
+    provider: &impl JsonProvider,
+    cancellation: &Cancellation,
+    gate: &RequestGate,
+) -> Result<Translation, Error> {
+    let _permit = gate.try_acquire()?;
+    generate(request, provider, cancellation)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -294,6 +334,7 @@ pub enum Error {
     Storage,
     Provider,
     Cancelled,
+    Busy,
 }
 
 #[cfg(test)]
