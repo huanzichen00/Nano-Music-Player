@@ -1,6 +1,6 @@
 //! Decoder opening, gain processing, and first-sample/EOF lifecycle.
 use super::intent::{PlaybackIntent, SourceIdentity, SourceTicket};
-use crate::audio::gain::{GainConfig, GainSource, ReplayGainInfo};
+use crate::audio::gain::{GainConfig, GainMode, GainSource, ReplayGainInfo};
 use rodio::{Decoder, Source};
 use std::{
     fs::File,
@@ -163,7 +163,13 @@ pub(super) fn open_source(
     path: &std::path::Path,
     settings: GainConfig,
 ) -> Result<GainSource<Decoder<std::io::BufReader<File>>>, String> {
-    let info = ReplayGainInfo::read(path);
+    // Off neither applies tags nor a final clipping guard. Avoid a second file
+    // open/tag parse on this common path without changing any decoded samples.
+    let info = if settings.mode == GainMode::Off {
+        ReplayGainInfo::default()
+    } else {
+        ReplayGainInfo::read(path)
+    };
     let gain = info.linear_gain(settings);
     open_decoder(
         path,

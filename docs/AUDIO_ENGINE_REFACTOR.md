@@ -94,3 +94,70 @@ the command worker indefinitely on an output-callback feedback channel. Seeks
 still require ordinary file I/O to complete; no hard wall-clock I/O bound is
 claimed. Buffered/resampled or hardware-queued samples already generated before
 a control change cannot be recalled.
+
+## Metadata and final review
+
+ReplayGain Off now bypasses Lofty entirely. Enabled modes read tags without
+calculating unused file properties. The gain formula, album-to-track fallback,
+peak limiting, optional final clamp and per-sample multiplication are unchanged.
+Tagged WAV/FLAC/MP3/M4A decoder samples remain identical in Off mode. A seek
+regression also changes file tags after loading and verifies that the original
+resolved gain is retained.
+
+The opt-in `profile_source_opening` test performs 1,000 warmed fixture opens per
+format without a pass/fail timing threshold. Example debug measurements from
+this host (milliseconds per 1,000 opens):
+
+| ReplayGain Off | Before tag-probe removal | After |
+| --- | ---: | ---: |
+| WAV | 90.9 | 82.1 |
+| FLAC | 228.9 | 222.4 |
+| MP3 | 564.0 | 537.1 |
+| M4A | 731.6 | 686.6 |
+
+These are small cached synthetic files and single profile runs, not a controlled
+throughput or callback-latency benchmark. The concrete saving is one metadata
+probe/file open per Off load or prefetch. No steady-state speedup or underrun
+improvement is claimed.
+
+Final independent review caught output failure arriving after an unread
+successor start. The backend now stops output and drains the completed callback
+notifications before marking failure, preserving the transition and reporting
+the successor's ID. An injected failure regression checks the precise
+Transitioned/Error ordering and absence of further progress/completion.
+
+Native video verification also passed:
+`cargo test --test video_ui actual_video_import_frames_rotation_and_music_handoff -- --ignored`.
+It uses generated temporary media and exercises video import, transport and the
+acknowledged return to music. The two playback runtime tests use real macOS
+output; physical output-device disconnection is tested only by event injection,
+not by unplugging or disabling a device.
+
+## Completed verification
+
+- `cargo fmt --all` and `cargo fmt --all -- --check`: pass.
+- `cargo check`: pass.
+- `cargo test --no-fail-fast --quiet`: **268 passed, 0 failed, 13 ignored**,
+  including 153 non-ignored library tests. Audio coverage grew from 21 to
+  **38 non-ignored tests**, plus the manual source-opening profile.
+- `cargo test --test playback_runtime -- --ignored --test-threads=1`:
+  **2 passed** on real macOS output after the final core change.
+- The generated-media native video handoff test: **1 passed** separately.
+- `cargo clippy --all-targets`: completes with only the three existing warnings
+  outside audio listed above. `-D warnings` fails on those existing lints;
+  all-target strict checking passes when only those three lint classes are
+  allowed. No audio warnings, dependency changes or UI/controller changes.
+- `git diff --check`: pass. The user's original `FEATURE_PLAN.md` matches its
+  initial SHA-256 byte-for-byte and is excluded from every commit.
+
+The original sample-boundary, repeat-ID, gain/tag and queue/state tests continue
+to pass. Added tests cover slow first-sample cancellation and retirement,
+replacement overlap, EOF and boundary seeking, latest-seek ordering, successor
+intent after seek, failed seek/prefetch recovery, stale output errors, duplicate
+EOF and authoritative transition/error ordering. The public Engine command and
+event interfaces remain unchanged.
+
+Remaining unverified behavior: audible output gaps/clipping/artifacts; hardware
+continuity across differing sample rates/channel layouts; physical output loss;
+physical media keys and Control Center; native Windows/Linux builds. The Rodio
+callback I/O/decoder-error/queued-cancellation limitations above remain explicit.

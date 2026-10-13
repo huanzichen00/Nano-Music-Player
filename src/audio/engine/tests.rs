@@ -4,20 +4,20 @@ use crate::audio::gain::GainSource;
 use rodio::buffer::SamplesBuffer;
 use rodio::{Sink, Source};
 
+struct GatedSample {
+    entered: Sender<()>,
+    release: Receiver<()>,
+}
+impl Iterator for GatedSample {
+    type Item = f32;
+    fn next(&mut self) -> Option<f32> {
+        self.entered.send(()).unwrap();
+        self.release.recv().unwrap();
+        Some(0.9)
+    }
+}
 #[test]
 fn cancellation_during_first_sample_does_not_wait_for_decoder_or_publish_start() {
-    struct GatedSample {
-        entered: Sender<()>,
-        release: Receiver<()>,
-    }
-    impl Iterator for GatedSample {
-        type Item = f32;
-        fn next(&mut self) -> Option<f32> {
-            self.entered.send(()).unwrap();
-            self.release.recv().unwrap();
-            Some(0.9)
-        }
-    }
     let intent = Arc::new(PlaybackIntent::default());
     intent.prepare(load(1));
     let queued = intent.prepare(append(2, 7));
@@ -942,4 +942,124 @@ fn duplicate_eof_cannot_reemit_completion() {
         })
         .unwrap();
     assert!(h.poll().is_empty());
+}
+
+fn write_gain(path: &std::path::Path, db: &str) {
+    use lofty::{
+        config::WriteOptions,
+        file::TaggedFileExt,
+        probe::Probe,
+        tag::{ItemKey, Tag, TagExt},
+    };
+    let file = Probe::open(path).unwrap().read().unwrap();
+    let mut tag = Tag::new(file.file_type().primary_tag_type());
+    tag.insert_text(ItemKey::ReplayGainTrackGain, db.into());
+    tag.insert_text(ItemKey::ReplayGainTrackPeak, "2.0".into());
+    tag.save_to_path(path, WriteOptions::default()).unwrap();
+}
+
+#[test]
+fn replaygain_off_preserves_tagged_decoder_samples_in_all_formats() {
+    use crate::audio::gain::GainMode;
+    for format in ["wav", "flac", "mp3", "m4a"] {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(format!("tagged.{format}"));
+        std::fs::copy(fixture(format), &path).unwrap();
+        write_gain(&path, "+12.0 dB");
+        let expected = rodio::Decoder::try_from(std::fs::File::open(&path).unwrap())
+            .unwrap()
+            .collect::<Vec<_>>();
+        let actual = open_source(
+            &path,
+            GainConfig {
+                mode: GainMode::Off,
+                preamp_db: 6.0,
+                prevent_clipping: true,
+            },
+        )
+        .unwrap()
+        .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "{format}: Off changed samples");
+    }
+}
+
+#[test]
+fn seeking_keeps_loaded_gain_when_file_tags_change() {
+    use crate::audio::gain::GainMode;
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("tagged.wav");
+    std::fs::copy(fixture("wav"), &path).unwrap();
+    write_gain(&path, "-6.0 dB");
+    let mut h = WorkerHarness::new();
+    h.send(AudioCommand::LoadWithGain {
+        id: 1,
+        path: path.clone(),
+        volume: 0.5,
+        paused: false,
+        gain: GainConfig {
+            mode: GainMode::Track,
+            preamp_db: 0.0,
+            prevent_clipping: false,
+        },
+    });
+    h.output.by_ref().take(777).for_each(drop);
+    write_gain(&path, "+6.0 dB");
+    h.send(AudioCommand::Seek(0.1));
+    let actual = h.output.by_ref().take(2_000).collect::<Vec<_>>();
+
+    let mut reference = WorkerHarness::new();
+    reference.send(AudioCommand::Load {
+        id: 1,
+        path,
+        volume: 0.5,
+        paused: false,
+    });
+    reference.send(AudioCommand::Seek(0.1));
+    let expected = reference.output.by_ref().take(2_000).collect::<Vec<_>>();
+    let gain = 10.0_f32.powf(-6.0 / 20.0);
+    // Ignore the one frame Rodio's resampler can have generated before seeking.
+    assert_eq!(actual.len(), expected.len());
+    assert!(expected[2..].iter().any(|sample| *sample != 0.0));
+    for (actual, expected) in actual[2..].iter().zip(&expected[2..]) {
+        assert!(
+            (*actual - expected * gain).abs() < 0.000001,
+            "seek changed loaded normalization"
+        );
+    }
+}
+
+#[test]
+fn replacement_retires_a_decoder_still_preparing_its_first_sample() {
+    let intent = Arc::new(PlaybackIntent::default());
+    let queued = intent.prepare(load(1));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (tx, rx) = mpsc::channel();
+    let mut source = EndNotifyingSource::new(
+        GainSource::new(
+            GatedSample {
+                entered: entered_tx,
+                release: release_rx,
+            },
+            1.0,
+        ),
+        tx,
+        1,
+        SourceTicket {
+            source: queued.source.unwrap(),
+            token: None,
+        },
+        queued.epoch,
+        Arc::clone(&intent),
+    );
+    let retired = Arc::clone(&source.retired);
+    let consuming = thread::spawn(move || source.next());
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let seeking = intent.prepare(AudioCommand::Seek(0.1));
+    let replacement = seeking.source.unwrap();
+    assert!(intent.replace_playing(replacement, seeking.epoch, &retired));
+    release_tx.send(()).unwrap();
+    assert_eq!(consuming.join().unwrap(), None);
+    assert!(rx.try_recv().is_err());
+    assert_eq!(intent.snapshot().playing.unwrap().source, replacement);
 }

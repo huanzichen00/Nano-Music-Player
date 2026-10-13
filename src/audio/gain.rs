@@ -44,9 +44,13 @@ impl ReplayGainInfo {
     /// Read standard ReplayGain tags using the already-present Lofty dependency.
     /// Missing, malformed, or unreadable metadata always falls back to unity gain.
     pub fn read(path: &Path) -> Self {
-        use lofty::{file::TaggedFileExt, probe::Probe, tag::ItemKey};
+        use lofty::{config::ParseOptions, file::TaggedFileExt, probe::Probe, tag::ItemKey};
 
-        let Ok(file) = Probe::open(path).and_then(|probe| probe.read()) else {
+        let Ok(file) = Probe::open(path).and_then(|probe| {
+            probe
+                .options(ParseOptions::new().read_properties(false))
+                .read()
+        }) else {
             return Self::default();
         };
         // A file may carry ordinary metadata in its primary tag and ReplayGain
