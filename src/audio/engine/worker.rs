@@ -89,6 +89,10 @@ impl AudioWorker {
                 continue;
             }
             self.backend.stop();
+            // Stopping output first completes any in-flight callback. Its
+            // source-start notification is authoritative even when failure
+            // follows immediately, so adopt it before reporting the error.
+            self.drain_sources();
             let state = self.intent.snapshot();
             if let Some(current) = self.playback.current {
                 if current.source.generation == state.generation
@@ -438,4 +442,67 @@ pub(super) fn run(
         worker.poll();
     }
     worker.backend.stop();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn output_loss_after_unread_successor_start_reports_the_successor() {
+        let intent = Arc::new(PlaybackIntent::default());
+        let (tx, rx) = mpsc::channel();
+        let mut worker = AudioWorker::new(tx, Arc::clone(&intent));
+        let (mixer, mut output) = rodio::mixer::mixer(1, 44_100);
+        worker.backend.mixer = Some(mixer);
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/quiet.wav");
+        worker.process(intent.prepare(AudioCommand::Load {
+            id: 1,
+            path: path.clone(),
+            volume: 1.0,
+            paused: false,
+        }));
+        worker.process(intent.prepare(AudioCommand::AppendNext {
+            token: 9,
+            id: 2,
+            path,
+            gain: GainConfig::default(),
+        }));
+        for _ in 0..15_000 {
+            output.next();
+            if intent
+                .snapshot()
+                .playing
+                .is_some_and(|ticket| ticket.token == Some(9))
+            {
+                break;
+            }
+        }
+        assert_eq!(intent.snapshot().playing.unwrap().token, Some(9));
+        worker
+            .failure_sender
+            .send(OutputFailure {
+                stream: worker.backend.stream_serial,
+                message: "output disconnected".into(),
+            })
+            .unwrap();
+        worker.poll();
+        let events = super::super::AudioEvents {
+            receiver: rx,
+            intent,
+        };
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            AudioEvent::Transitioned {
+                from: 1,
+                to: 2,
+                token: 9
+            }
+        ));
+        assert!(matches!(
+            events.try_recv().unwrap(),
+            AudioEvent::Error { id: Some(2), .. }
+        ));
+        assert!(events.try_recv().is_err());
+    }
 }
