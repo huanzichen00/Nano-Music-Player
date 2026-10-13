@@ -209,6 +209,15 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         "leftward swipe enters the next page from the right"
     );
     assert!(ui.get_home_outgoing_transition_offset() < 0.0);
+    // The outgoing Videos icon must not activate Settings on the new Home page.
+    let outgoing_icon_x = 170.0 + ui.get_home_outgoing_transition_offset() / ui.get_display_scale();
+    click(&ui, outgoing_icon_x, 80.0);
+    assert_eq!(
+        ui.get_screen(),
+        0,
+        "departing Home icons must not activate a different screen"
+    );
+    assert_eq!(ui.get_home_page(), 1);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     ui.window().dispatch_event(WindowEvent::PointerScrolled {
         position: display_point(&ui, 60.0, 80.0),

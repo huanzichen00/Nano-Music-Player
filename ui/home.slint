@@ -107,7 +107,7 @@ export component HomeView inherits Rectangle {
         x: -root.page-direction * root.page-progress * root.width; y: 0px;
         width: parent.width; height: parent.height; s: root.s;
         page: root.outgoing-page; selected: root.selected;
-        activated(index) => { root.activated(index); }
+        // Departing icons are display-only; current-page activation stays below.
     }
     HomeIconPage {
         x: root.page-transition-active ? root.page-direction * (1.0 - root.page-progress) * root.width : 0px;
