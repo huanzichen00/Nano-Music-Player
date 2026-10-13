@@ -31,7 +31,7 @@ export component LibraryView inherits Rectangle {
         background: root.selected == 0 ? @linear-gradient(180deg, #4794e4, #1666bb) : @linear-gradient(180deg, #f5f7f9, #d4d9df);
         Image { source: @image-url("../assets/icons/music.svg"); colorize: root.selected == 0 ? white : #3c78b1; x: 8px * root.s; y: 8px * root.s; width: 14px * root.s; height: 14px * root.s; }
         Text { x: 28px * root.s; width: parent.width - 40px * root.s; height: parent.height; text: I18n.tr("Add Playlist"); color: root.selected == 0 ? white : #1e69b4; font-size: 12px * root.s; font-weight: 700; vertical-alignment: center; }
-        TouchArea { mouse-cursor: pointer; clicked => { if root.enabled { root.activated(0); } } }
+        TouchArea { clicked => { if root.enabled { root.activated(0); } } }
     }
     Rectangle {
         visible: root.search;
@@ -86,7 +86,7 @@ export component LibraryView inherits Rectangle {
                 x: parent.width - 18px * root.s; y: (parent.height - self.height) / 2; width: 7px * root.s; height: 12px * root.s;
                 source: @image-url("../assets/icons/chevron-right.svg"); colorize: root.selected == index ? #fff : #aaa;
             }
-            TouchArea { mouse-cursor: pointer; clicked => { root.activated(index); } }
+            TouchArea { clicked => { root.activated(index); } }
         }
         if root.rows.length == 0: Text {
             width: root.width; height: 160px * root.s;

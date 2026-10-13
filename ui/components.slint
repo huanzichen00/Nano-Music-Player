@@ -14,7 +14,7 @@ export component NanoActionButton inherits Rectangle {
     border-color: root.primary ? #255e99 : #9ba3ab;
     background: !root.enabled ? #d9dee3 : (touch.pressed ? #8795a4 : (root.primary ? @linear-gradient(180deg, #619ed7, #2b6caf) : @linear-gradient(180deg, #fff, #d7dce2)));
     Text { text: I18n.tr(root.label); font-size: root.text-size; font-weight: 600; color: !root.enabled ? #88929d : (root.primary ? white : #263441); horizontal-alignment: center; vertical-alignment: center; }
-    touch := TouchArea { enabled: root.enabled; mouse-cursor: pointer; clicked => { root.clicked(); } }
+    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
 
 export component NanoSlider inherits Rectangle {
@@ -44,7 +44,7 @@ export component NanoSlider inherits Rectangle {
         border-color: root.selected ? #65b9ff : transparent;
     }
     touch := TouchArea {
-        enabled: root.enabled; mouse-cursor: pointer;
+        enabled: root.enabled;
         property <float> pressed-value;
         pointer-event(event) => {
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -71,7 +71,7 @@ export component IconButton inherits Rectangle {
         width: root.icon-size; height: root.icon-size;
         x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; image-fit: contain;
     }
-    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    touch := TouchArea { clicked => { root.clicked(); } }
 }
 
 export component AppIcon inherits Rectangle {
@@ -94,5 +94,5 @@ export component AppIcon inherits Rectangle {
     }
     if root.selected: Rectangle { x: 8px * root.s; y: -2px * root.s; width: 76px * root.s; height: self.width; border-radius: self.width / 2; background: transparent; border-color: white; border-width: 2px * root.s; }
     Text { y: 78px * root.s; height: 20px * root.s; text: root.label; color: white; font-size: 13px * root.s; font-weight: root.selected ? 700 : 500; horizontal-alignment: center; }
-    TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    TouchArea { clicked => { root.clicked(); } }
 }

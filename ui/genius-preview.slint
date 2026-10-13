@@ -16,7 +16,7 @@ export component GeniusPreview inherits Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
         background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
         Text { x: 48px * root.s; width: parent.width - 96px * root.s; text: "Genius"; color: #252a30; font-size: 16px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-        Text { x: 6px * root.s; width: 44px * root.s; text: I18n.tr("Close"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; TouchArea { mouse-cursor: pointer; clicked => { root.command("close"); } } }
+        Text { x: 6px * root.s; width: 44px * root.s; text: I18n.tr("Close"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; TouchArea { clicked => { root.command("close"); } } }
     }
     Rectangle {
         x: 0px; width: root.width; y: 32px * root.s; height: 26px * root.s; background: #e1ebf5;

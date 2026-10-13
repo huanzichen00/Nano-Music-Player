@@ -68,6 +68,30 @@ fn scroll(ui: &AppWindow, x: f32, y: f32, delta_x: f32, delta_y: f32) {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
 }
 
+fn drag(ui: &AppWindow, start: (f32, f32), end: (f32, f32)) {
+    ui.window().dispatch_event(WindowEvent::PointerPressed {
+        position: display_point(ui, start.0, start.1),
+        button: slint::platform::PointerEventButton::Left,
+    });
+    // Gesture recognizers defer forwarding presses briefly to distinguish taps
+    // from swipes. Model a real drag over several frames, not an instant jump.
+    for step in 1..=10 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(20));
+        let fraction = step as f32 / 10.0;
+        ui.window().dispatch_event(WindowEvent::PointerMoved {
+            position: display_point(
+                ui,
+                start.0 + (end.0 - start.0) * fraction,
+                start.1 + (end.1 - start.1) * fraction,
+            ),
+        });
+    }
+    ui.window().dispatch_event(WindowEvent::PointerReleased {
+        position: display_point(ui, end.0, end.1),
+        button: slint::platform::PointerEventButton::Left,
+    });
+}
+
 fn snapshot(ui: &AppWindow, name: &str) {
     let image = ui
         .window()
@@ -309,11 +333,84 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         "scrolling lyrics does not toggle artwork"
     );
     snapshot(&ui, "lyrics-scrolled");
+    {
+        let current = controller.borrow().state.current;
+        let queue = controller.borrow().state.queue.order.clone();
+        let status = controller.borrow().state.status;
+        let scale = ui.get_display_scale();
+        scroll(&ui, 120.0, 200.0, -80.0 * scale, 0.0);
+        scroll(&ui, 120.0, 200.0, 5.0 * scale, 0.0);
+        assert_eq!(ui.get_screen(), 2, "leftward and short scrolling stay put");
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(600));
+        scroll(&ui, 120.0, 200.0, 30.0 * scale, 0.0);
+        assert_eq!(ui.get_screen(), 2, "old wheel deltas expire");
+        scroll(&ui, 120.0, 200.0, 3.0 * scale, 40.0 * scale);
+        assert_eq!(
+            ui.get_screen(),
+            2,
+            "predominantly vertical scrolling stays in lyrics"
+        );
+        scroll(&ui, 120.0, 200.0, 18.0 * scale, 0.0);
+        assert_eq!(
+            ui.get_screen(),
+            2,
+            "vertical motion clears horizontal accumulation"
+        );
+        scroll(&ui, 120.0, 200.0, 18.0 * scale, 0.0);
+        assert_eq!(ui.get_screen_title(), "Search");
+        let parent_selection = ui.get_selected();
+        assert_eq!(controller.borrow().state.current, current);
+        assert_eq!(controller.borrow().state.queue.order, queue);
+        assert_eq!(controller.borrow().state.status, status);
+        assert_eq!(controller.borrow().state.position, 11.0);
+
+        controller.borrow_mut().execute(&ui, Action::NowPlaying);
+        drag(&ui, (90.0, 200.0), (150.0, 200.0));
+        assert_eq!(
+            ui.get_screen_title(),
+            "Search",
+            "rightward lyrics swipe goes Back"
+        );
+        assert_eq!(ui.get_selected(), parent_selection);
+        controller.borrow_mut().execute(&ui, Action::NowPlaying);
+        let volume = controller.borrow().state.volume;
+        drag(&ui, (60.0, 121.0), (165.0, 121.0));
+        assert_eq!(ui.get_screen(), 2, "seek drag must not navigate Back");
+        assert!(controller.borrow().state.position > 11.0);
+        drag(&ui, (60.0, 413.0), (160.0, 413.0));
+        assert_eq!(ui.get_screen(), 2, "volume drag must not navigate Back");
+        assert!(controller.borrow().state.volume > volume);
+        ui.invoke_volume_changed(volume);
+        controller.borrow_mut().state.position = 11.0;
+        controller.borrow_mut().execute(&ui, Action::NowPlaying);
+        drag(&ui, (110.0, 45.0), (120.0, 45.0));
+        assert_eq!(ui.get_screen(), 2, "short drag stays put");
+        drag(&ui, (90.0, 45.0), (150.0, 45.0));
+        assert_eq!(ui.get_screen_title(), "Search", "metadata swipe goes Back");
+        controller.borrow_mut().execute(&ui, Action::NowPlaying);
+        ui.invoke_open_genius_preview();
+        scroll(&ui, 120.0, 200.0, 80.0 * scale, 0.0);
+        click(&ui, 20.0, 13.0);
+        assert_eq!(ui.get_screen(), 2, "modal blocks playback navigation");
+        ui.invoke_genius_action("close".into());
+        snapshot(&ui, "now-playing-back");
+        click(&ui, 20.0, 13.0);
+        assert_eq!(
+            ui.get_screen_title(),
+            "Search",
+            "visible Back returns to parent"
+        );
+        assert_eq!(ui.get_selected(), parent_selection);
+        controller.borrow_mut().execute(&ui, Action::NowPlaying);
+    }
     click(&ui, 120.0, 200.0);
     assert!(
         !ui.get_lyrics_visible(),
         "tap lyrics to return to artwork without an extra button"
     );
+    drag(&ui, (90.0, 200.0), (150.0, 200.0));
+    assert_eq!(ui.get_screen_title(), "Search", "artwork swipe goes Back");
+    controller.borrow_mut().execute(&ui, Action::NowPlaying);
     tap(&ui, "y");
     assert!(ui.get_lyrics_visible());
     tap(&ui, Key::LeftArrow);
@@ -553,6 +650,20 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
     assert_eq!(ui.get_active_lyric(), 0);
     assert_eq!(ui.get_lyric_scroll_y(), 0.0);
+    drag(&ui, (120.0, 285.0), (120.0, 205.0));
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
+    assert_eq!(
+        ui.get_screen(),
+        2,
+        "vertical lyrics drag stays in Now Playing"
+    );
+    assert!(ui.get_lyrics_visible());
+    assert!(
+        ui.get_lyric_scroll_y() < 0.0,
+        "vertical drag still scrolls lyrics"
+    );
+    ui.invoke_seek_changed(0.0);
+    i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(200));
 
     // Geometry regression: arbitrary user resizes converge to the same logical proportions.
     for mode in [Action::ScreenMode, Action::DeviceMode] {

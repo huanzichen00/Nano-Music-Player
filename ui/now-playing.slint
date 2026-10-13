@@ -1,8 +1,41 @@
 import { IconButton, NanoSlider } from "components.slint";
 import { I18n } from "i18n.slint";
 
+// Wrap only artwork/text, keeping seek and volume drags outside the recognizer.
+component PlaybackBackArea inherits SwipeGestureHandler {
+    in property <float> s;
+    callback back;
+    property <length> accumulated-x;
+    handle-swipe-right: true;
+    swiped => {
+        let dx = self.current-position.x - self.pressed-position.x;
+        let dy = self.current-position.y - self.pressed-position.y;
+        if dx > 24px * root.s && dx > 1.5 * abs(dy) { root.back(); }
+    }
+    changed enabled => { root.accumulated-x = 0px; wheel-timeout.stop(); }
+    wheel-timeout := Timer {
+        interval: 500ms; running: false;
+        triggered => { root.accumulated-x = 0px; self.stop(); }
+    }
+    TouchArea {
+        enabled: root.enabled;
+        scroll-event(event) => {
+            if abs(event.delta-x) > 1.5 * abs(event.delta-y) {
+                root.accumulated-x = max(0px, root.accumulated-x + event.delta-x);
+                wheel-timeout.start(); wheel-timeout.restart();
+                if root.accumulated-x > 32px * root.s {
+                    root.accumulated-x = 0px; wheel-timeout.stop(); root.back();
+                }
+                accept
+            } else { root.accumulated-x = 0px; wheel-timeout.stop(); reject }
+        }
+        @children
+    }
+}
+
 export component NowPlayingView inherits Rectangle {
     in property <float> s;
+    in property <bool> navigation-enabled: true;
     in property <int> selected;
     in property <bool> selection-visible;
     in property <bool> playing;
@@ -31,16 +64,21 @@ export component NowPlayingView inherits Rectangle {
     callback genius-requested;
     callback seek-changed(float);
     callback volume-changed(float);
+    callback back;
     background: #13141a;
 
     // The title strip, full-width cover and transport follow the seventh-generation nano.
-    Rectangle {
+    PlaybackBackArea {
         x: 0px; y: 0px; width: root.width; height: 56px * root.s;
-        background: @linear-gradient(180deg, #454650, #292b34 50%, #181a23);
-        Rectangle { x: 0px; y: 0px; width: parent.width; height: 1px * root.s; background: #ffffff15; }
-        Text { x: 10px * root.s; y: 3px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.artist : "iPod nano"; color: #e7e8ee; horizontal-alignment: center; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
-        Text { x: 8px * root.s; y: 18px * root.s; width: parent.width - 16px * root.s; height: 19px * root.s; text: root.has-track ? root.title : I18n.tr("No song selected"); color: white; horizontal-alignment: center; font-size: 15px * root.s; font-weight: 700; overflow: elide; }
-        Text { x: 10px * root.s; y: 37px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.album : I18n.tr("Choose a song from Music"); color: #e7e8ee; horizontal-alignment: center; font-size: 11px * root.s; font-weight: 600; overflow: elide; }
+        s: root.s; enabled: root.navigation-enabled;
+        back => { root.back(); }
+        Rectangle {
+            background: @linear-gradient(180deg, #454650, #292b34 50%, #181a23);
+            Rectangle { x: 0px; y: 0px; width: parent.width; height: 1px * root.s; background: #ffffff15; }
+            Text { x: 10px * root.s; y: 3px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.artist : "iPod nano"; color: #e7e8ee; horizontal-alignment: center; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
+            Text { x: 8px * root.s; y: 18px * root.s; width: parent.width - 16px * root.s; height: 19px * root.s; text: root.has-track ? root.title : I18n.tr("No song selected"); color: white; horizontal-alignment: center; font-size: 15px * root.s; font-weight: 700; overflow: elide; }
+            Text { x: 10px * root.s; y: 37px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.album : I18n.tr("Choose a song from Music"); color: #e7e8ee; horizontal-alignment: center; font-size: 11px * root.s; font-weight: 600; overflow: elide; }
+        }
     }
     art := Rectangle {
         y: 56px * root.s; width: root.width; height: root.height - 56px * root.s - 110px * root.s; clip: true;
@@ -51,7 +89,11 @@ export component NowPlayingView inherits Rectangle {
             width: 116px * root.s; height: 128px * root.s;
             source: @image-url("../assets/icons/music.svg"); colorize: #dce8f3;
         }
-        TouchArea { mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
+        PlaybackBackArea {
+            s: root.s; enabled: root.navigation-enabled;
+            back => { root.back(); }
+            TouchArea { clicked => { root.toggle-overlay(); } }
+        }
         if root.overlay-visible || (root.selection-visible && root.selected >= 4): Rectangle {
             background: root.lyrics-visible ? #151b2e88 : transparent;
             // Playback position sits over the cover, above the secondary controls.
@@ -79,40 +121,44 @@ export component NowPlayingView inherits Rectangle {
                 }
                 if root.repeat-mode == "One": Text { x: 15px * root.s; y: 12px * root.s; width: 10px * root.s; height: 12px * root.s; text: "1"; color: #94eeff; font-size: 8px * root.s; font-weight: 700; horizontal-alignment: center; }
             }
-            if root.lyrics-visible: lyrics-scroll := Flickable {
+            if root.lyrics-visible: PlaybackBackArea {
                 y: 102px * root.s; height: parent.height - self.y;
-                content-height: max(self.height, words.preferred-height);
-                content-y <=> root.lyric-scroll-y;
-                // Taps dismiss the overlay; wheel and touch drags only scroll the lyrics.
-                TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
-                words := VerticalLayout {
-                    x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
-                    for line[index] in root.lyric-lines: Rectangle {
-                        property <string> romaji: root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "";
-                        min-height: max(32px * root.s, lyric-text.preferred-height + (self.romaji != "" ? romaji-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
-                        property <bool> active: root.active-lyric == index;
-                        changed active => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
-                        changed y => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
-                        background: self.active ? #ffffff18 : transparent;
-                        lyric-text := Text {
-                            x: 10px * root.s; y: 5px * root.s; width: parent.width - 20px * root.s;
-                            text: line; color: parent.active ? white : #eef0f5;
-                            font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
-                            horizontal-alignment: left;
+                s: root.s; enabled: root.navigation-enabled;
+                back => { root.back(); }
+                lyrics-scroll := Flickable {
+                    content-height: max(self.height, words.preferred-height);
+                    content-y <=> root.lyric-scroll-y;
+                    // Taps dismiss the overlay; vertical gestures scroll and rightward gestures return Back.
+                    TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); clicked => { root.toggle-overlay(); } }
+                    words := VerticalLayout {
+                        x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
+                        for line[index] in root.lyric-lines: Rectangle {
+                            property <string> romaji: root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "";
+                            min-height: max(32px * root.s, lyric-text.preferred-height + (self.romaji != "" ? romaji-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
+                            property <bool> active: root.active-lyric == index;
+                            changed active => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
+                            changed y => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
+                            background: self.active ? #ffffff18 : transparent;
+                            lyric-text := Text {
+                                x: 10px * root.s; y: 5px * root.s; width: parent.width - 20px * root.s;
+                                text: line; color: parent.active ? white : #eef0f5;
+                                font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
+                                horizontal-alignment: left;
+                            }
+                            romaji-text := Text {
+                                visible: parent.romaji != "";
+                                x: 10px * root.s; y: lyric-text.y + lyric-text.preferred-height + 3px * root.s;
+                                width: parent.width - 20px * root.s;
+                                text: parent.romaji; color: parent.active ? #c9ecff : #d0d8e7;
+                                font-weight: parent.active ? 600 : 400; font-size: 10px * root.s; wrap: word-wrap;
+                                horizontal-alignment: left;
+                            }
+                            TouchArea { clicked => { root.toggle-overlay(); } }
                         }
-                        romaji-text := Text {
-                            visible: parent.romaji != "";
-                            x: 10px * root.s; y: lyric-text.y + lyric-text.preferred-height + 3px * root.s;
-                            width: parent.width - 20px * root.s;
-                            text: parent.romaji; color: parent.active ? #c9ecff : #d0d8e7;
-                            font-weight: parent.active ? 600 : 400; font-size: 10px * root.s; wrap: word-wrap;
-                            horizontal-alignment: left;
-                        }
-                        TouchArea { mouse-cursor: pointer; clicked => { root.toggle-overlay(); } }
                     }
+                    if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: I18n.tr("No lyrics available"); font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
+                    animate content-y { duration: 180ms; easing: ease-out; }
                 }
-                if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: I18n.tr("No lyrics available"); font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
-                animate content-y { duration: 180ms; easing: ease-out; }
             }
         }
     }
@@ -128,6 +174,6 @@ export component NowPlayingView inherits Rectangle {
             clicked => { root.activated(index); }
         }
         NanoSlider { x: 15px * root.s; y: 80px * root.s; width: 182px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
-        Image { x: 211px * root.s; y: 83px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: #a6e8ff; image-fit: contain; TouchArea { mouse-cursor: pointer; clicked => { root.activated(3); } } }
+        Image { x: 211px * root.s; y: 83px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: #a6e8ff; image-fit: contain; TouchArea { clicked => { root.activated(3); } } }
     }
 }

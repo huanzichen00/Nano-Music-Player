@@ -241,7 +241,7 @@ export component AppWindow inherits Window {
                 background: home-touch.pressed ? #deddd5 : #eeede5;
                 border-width: 1px * root.s; border-color: #b9bdc2;
                 Rectangle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; width: 30px * root.s; height: self.width; border-radius: self.width / 2; border-width: 1.5px * root.s; border-color: #a7adb5; background: transparent; }
-                home-touch := TouchArea { mouse-cursor: pointer; clicked => { root.command("home"); keyboard.focus(); } }
+                home-touch := TouchArea { clicked => { root.command("home"); keyboard.focus(); } }
             }
         }
         display := Rectangle {
@@ -259,9 +259,15 @@ export component AppWindow inherits Window {
                 x: 0px; y: 0px; height: 26px * root.s;
                 background: root.screen == 0 || root.screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
                 if !root.artwork-list && !root.playlist-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
+                if root.screen == 2: Rectangle {
+                    x: 0px; y: 0px; width: 65px * root.s; height: parent.height;
+                    Image { x: 6px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: white; }
+                    Text { x: 17px * root.s; width: parent.width - self.x; text: I18n.tr("Back"); font-size: 11px * root.s; color: white; vertical-alignment: center; overflow: elide; }
+                    TouchArea { enabled: now-playing.navigation-enabled; clicked => { root.command("back"); keyboard.focus(); } }
+                }
                 if root.artwork-list || root.playlist-list: Text { x: 20px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
                 if root.artwork-list || root.playlist-list: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
-                if root.artwork-list || root.playlist-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; mouse-cursor: pointer; clicked => { root.command("back"); keyboard.focus(); } }
+                if root.artwork-list || root.playlist-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
                 if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.screen == 0 || root.screen == 2 ? #eee : #2a73be; }
                 Rectangle {
                     x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
@@ -278,7 +284,7 @@ export component AppWindow inherits Window {
                     x: 5px * root.s; y: 6px * root.s; width: 39px * root.s; height: 26px * root.s;
                     border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: @linear-gradient(180deg, #d9e0e5, #99a3af);
                     Image { source: @image-url("../assets/icons/chevron-left.svg"); colorize: #fff; x: 14px * root.s; y: 6px * root.s; width: 10px * root.s; height: 14px * root.s; }
-                    TouchArea { mouse-cursor: pointer; clicked => { root.command("back"); keyboard.focus(); } }
+                    TouchArea { clicked => { root.command("back"); keyboard.focus(); } }
                 }
             }
             library := LibraryView {
@@ -295,6 +301,7 @@ export component AppWindow inherits Window {
             if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
             now-playing := NowPlayingView {
                 visible: root.screen == 2; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                navigation-enabled: root.screen == 2 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 selected: root.selected; selection-visible: root.keyboard-navigation; playing: root.playing; has-track: root.has-track;
                 title: root.track-title; artist: root.track-artist; album: root.track-album; artwork: root.artwork;
                 volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
@@ -307,6 +314,7 @@ export component AppWindow inherits Window {
                 genius-requested => { root.open-genius-preview(); }
                 seek-changed(value) => { root.seek-changed(value); }
                 volume-changed(value) => { root.volume-changed(value); }
+                back => { root.command("back"); keyboard.focus(); }
             }
         }
         if root.shortcut-editor-open: ShortcutEditor {
@@ -348,7 +356,7 @@ export component AppWindow inherits Window {
                 x: 12px; y: 16px; width: parent.width - 24px; height: parent.height - 32px;
                 background: #f4f5f6; border-radius: 6px; border-width: 1px; border-color: #899098;
                 Text { x: 16px; y: 10px; height: 24px; text: I18n.tr("Keyboard Shortcuts"); font-size: 18px; font-weight: 700; color: #222; }
-                Text { x: parent.width - 38px; y: 10px; width: 26px; height: 24px; text: "×"; font-size: 22px; color: #555; horizontal-alignment: center; TouchArea { mouse-cursor: pointer; clicked => { root.command("close_shortcuts"); } } }
+                Text { x: parent.width - 38px; y: 10px; width: 26px; height: 24px; text: "×"; font-size: 22px; color: #555; horizontal-alignment: center; TouchArea { clicked => { root.command("close_shortcuts"); } } }
                 Text { x: 16px; y: 40px; width: parent.width - 32px; height: 64px; text: I18n.tr("Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nDefaults: H/J/K/L = back/down/up/open.\nY: lyrics. Shift + H: Home."); font-size: 11px; color: #666; }
                 Flickable {
                     x: 12px; y: 112px; width: parent.width - 24px; height: parent.height - 126px;

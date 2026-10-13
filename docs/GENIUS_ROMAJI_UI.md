@@ -1,6 +1,6 @@
 # Genius preview and romaji UI
 
-Status: all three original UI phases and the manual playlist integration are verified. Playlist selection, ordering, transactional saving, failures/retry and restart are connected to the real library. The combined macOS build is awaiting native delivery.
+Status: all three original UI phases and the manual playlist integration are verified. Playlist selection, ordering, transactional saving, failures/retry and restart are connected to the real library. The combined macOS build is packaged and running; native creation of a two-song playlist and retention of all 42 original tracks are verified.
 
 ## Phase 1 — Genius interface preview (verified)
 

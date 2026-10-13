@@ -49,7 +49,7 @@ export component PlaylistEditor inherits Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
         background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
         Text { x: 68px * root.s; width: parent.width - 78px * root.s; text: I18n.tr(root.review ? "Review Playlist" : "New Playlist"); color: #252a30; font-size: 14px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-        Text { x: 6px * root.s; width: 56px * root.s; text: I18n.tr("Cancel"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; TouchArea { mouse-cursor: pointer; clicked => { root.command("cancel", ""); } } }
+        Text { x: 6px * root.s; width: 56px * root.s; text: I18n.tr("Cancel"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; TouchArea { clicked => { root.command("cancel", ""); } } }
     }
     Rectangle {
         visible: !root.review;
@@ -78,7 +78,7 @@ export component PlaylistEditor inherits Rectangle {
             Rectangle { x: 10px * root.s; y: 15px * root.s; width: 18px * root.s; height: self.width; border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #93a4b5; background: song.selected ? #3183cc : #f5f8fb; Text { text: song.selected ? "✓" : ""; color: white; font-size: 13px * root.s; horizontal-alignment: center; vertical-alignment: center; } }
             Text { x: 38px * root.s; y: 5px * root.s; width: parent.width - 48px * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.selected-row == index && !root.name-focused ? white : #263441; overflow: elide; }
             Text { x: 38px * root.s; y: 28px * root.s; width: parent.width - 48px * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.selected-row == index && !root.name-focused ? #e1efff : #929292; overflow: elide; }
-            TouchArea { mouse-cursor: pointer; clicked => { if !root.saving && !root.library-loading { root.selected-row = index; root.command("toggle", song.id); } } }
+            TouchArea { clicked => { if !root.saving && !root.library-loading { root.selected-row = index; root.command("toggle", song.id); } } }
         }
         if root.candidates.length == 0: Text { x: 16px * root.s; width: root.width - 32px * root.s; height: 170px * root.s; text: I18n.tr(root.library-loading ? "Loading music library…" : "Import music to choose songs."); color: #788390; font-size: 12px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
     }
@@ -92,7 +92,7 @@ export component PlaylistEditor inherits Rectangle {
             Text { x: 9px * root.s; width: 20px * root.s; text: index + 1; font-size: 11px * root.s; color: root.selected-row == index ? #e1efff : #93a0ae; vertical-alignment: center; }
             Text { x: 34px * root.s; y: 5px * root.s; width: parent.width - 44px * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.selected-row == index ? white : #263441; overflow: elide; }
             Text { x: 34px * root.s; y: 28px * root.s; width: parent.width - 44px * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.selected-row == index ? #e1efff : #929292; overflow: elide; }
-            TouchArea { mouse-cursor: pointer; clicked => { root.selected-row = index; } }
+            TouchArea { clicked => { root.selected-row = index; } }
         }
     }
     if root.review: Rectangle {

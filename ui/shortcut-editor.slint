@@ -8,7 +8,7 @@ component EditorButton inherits Rectangle {
     border-radius: 5px * root.s; border-width: 1px * root.s; border-color: root.primary ? #255e99 : #9ba3ab;
     background: touch.pressed ? #8795a4 : (root.primary ? @linear-gradient(180deg, #619ed7, #2b6caf) : @linear-gradient(180deg, #fff, #d7dce2));
     Text { text: I18n.tr(root.label); font-size: 12px * root.s; font-weight: 600; color: root.primary ? white : #263441; horizontal-alignment: center; vertical-alignment: center; }
-    touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    touch := TouchArea { clicked => { root.clicked(); } }
 }
 
 export component ShortcutEditor inherits Rectangle {
