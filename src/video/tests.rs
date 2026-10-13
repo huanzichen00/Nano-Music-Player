@@ -352,6 +352,88 @@ fn ass_sidecar_is_composited_and_seek_synchronized() {
 }
 
 #[test]
+#[ignore = "Requires libmpv/libass and ffmpeg; validates embedded subtitle track discovery and selection"]
+fn embedded_ass_track_is_enumerated_and_selectable() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("base.mp4");
+    let ass = dir.path().join("embedded.ass");
+    let path = dir.path().join("embedded.mkv");
+    fixture(&base);
+    std::fs::write(&ass, "[Script Info]\nScriptType: v4.00+\nPlayResX: 320\nPlayResY: 180\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Arial,42,&H0000FF00,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,20,1\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.50,0:00:03.50,Default,,0,0,0,,EMBEDDED STYLE\n").unwrap();
+    let ffmpeg = std::env::var_os("NANO_FFMPEG").unwrap_or_else(|| "ffmpeg".into());
+    assert!(
+        Process::new(ffmpeg)
+            .args(["-v", "error", "-y", "-i"])
+            .arg(&base)
+            .arg("-i")
+            .arg(&ass)
+            .args(["-map", "0", "-map", "1:s:0", "-c", "copy"])
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let video = library::probe(&path).unwrap();
+    let engine = Engine::new(true);
+    engine
+        .send(Command::Load {
+            generation: 92,
+            video,
+            start: 1.0,
+            volume: 0.0,
+            paused: true,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 92 && p.status == Status::Paused
+    });
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let embedded = loop {
+        if let Ok(Event::SubtitleTracks {
+            generation: 92,
+            tracks,
+        }) = engine.events.recv_timeout(Duration::from_millis(50))
+            && let Some(track) = tracks.into_iter().find(|track| !track.external)
+        {
+            break track;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "embedded subtitle track list did not arrive"
+        );
+    };
+    engine
+        .send(Command::Subtitle {
+            generation: 92,
+            preference: super::subtitles::SubtitlePreference::Embedded(embedded.id),
+        })
+        .unwrap();
+    engine
+        .send(Command::Pause {
+            generation: 92,
+            paused: false,
+        })
+        .unwrap();
+    wait(&engine, |p| p.generation == 92 && p.position > 1.3);
+    engine
+        .send(Command::Pause {
+            generation: 92,
+            paused: true,
+        })
+        .unwrap();
+    thread::sleep(Duration::from_millis(200));
+    let frame = engine.take_frame().unwrap();
+    let green = frame
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|p| p[1] > 170 && p[0] < 100 && p[2] < 100)
+        .count();
+    assert!(green > 100, "embedded ASS was not composited: {green}");
+}
+
+#[test]
 #[ignore = "Requires libmpv, ffmpeg and a real default audio output"]
 fn native_default_audio_output_clock() {
     let dir = tempfile::tempdir().unwrap();

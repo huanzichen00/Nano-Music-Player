@@ -493,7 +493,7 @@ impl Session {
 }
 
 unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
-    if !matches!(node.format, 8 | 9) {
+    if !matches!(node.format, 7 | 8) {
         return Vec::new();
     }
     // SAFETY: mpv owns the node list for this event; pointers are read only until
@@ -509,7 +509,7 @@ unsafe fn subtitle_tracks(node: &Node) -> Vec<super::engine::SubtitleTrack> {
     let entries = unsafe { std::slice::from_raw_parts(list.values, list.count as usize) };
     let mut tracks = Vec::new();
     for entry in entries {
-        if entry.format != 9 {
+        if entry.format != 8 {
             continue;
         }
         let map_ptr = unsafe { entry.value.list };
