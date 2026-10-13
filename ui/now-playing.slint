@@ -57,6 +57,8 @@ export component NowPlayingView inherits Rectangle {
     in property <[string]> lyric-lines;
     in property <[string]> romaji-lines;
     in property <bool> romaji-visible;
+    in property <[string]> translated-lines;
+    in property <bool> translation-visible;
     in property <int> active-lyric;
     in-out property <length> lyric-scroll-y;
     callback activated(int);
@@ -134,7 +136,8 @@ export component NowPlayingView inherits Rectangle {
                         x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
                         for line[index] in root.lyric-lines: Rectangle {
                             property <string> romaji: root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "";
-                            min-height: max(32px * root.s, lyric-text.preferred-height + (self.romaji != "" ? romaji-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
+                            property <string> translation: root.translation-visible && index < root.translated-lines.length ? root.translated-lines[index] : "";
+                            min-height: max(32px * root.s, lyric-text.preferred-height + (self.translation != "" ? translation-text.preferred-height + 3px * root.s : 0px) + (self.romaji != "" ? romaji-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
                             property <bool> active: root.active-lyric == index;
                             changed active => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
                             changed y => { if self.active { root.lyric-scroll-y = max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y)); } }
@@ -145,9 +148,17 @@ export component NowPlayingView inherits Rectangle {
                                 font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
                                 horizontal-alignment: left;
                             }
+                            translation-text := Text {
+                                visible: parent.translation != "";
+                                x: 10px * root.s; y: lyric-text.y + lyric-text.preferred-height + 3px * root.s;
+                                width: parent.width - 20px * root.s;
+                                text: parent.translation; color: parent.active ? #ffe4ad : #f0d5a4;
+                                font-weight: parent.active ? 600 : 400; font-size: 11px * root.s; wrap: word-wrap;
+                                horizontal-alignment: left;
+                            }
                             romaji-text := Text {
                                 visible: parent.romaji != "";
-                                x: 10px * root.s; y: lyric-text.y + lyric-text.preferred-height + 3px * root.s;
+                                x: 10px * root.s; y: translation-text.y + (parent.translation != "" ? translation-text.preferred-height + 3px * root.s : 0px);
                                 width: parent.width - 20px * root.s;
                                 text: parent.romaji; color: parent.active ? #c9ecff : #d0d8e7;
                                 font-weight: parent.active ? 600 : 400; font-size: 10px * root.s; wrap: word-wrap;

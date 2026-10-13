@@ -5,10 +5,12 @@ use rand::seq::SliceRandom;
 pub struct Queue {
     pub order: Vec<usize>,
     pub position: usize,
+    canonical_order: Vec<usize>,
 }
 
 impl Queue {
     pub fn set(&mut self, tracks: Vec<usize>, start: usize, shuffle: bool) {
+        self.canonical_order = tracks.clone();
         self.order = tracks;
         self.position = self.order.iter().position(|id| *id == start).unwrap_or(0);
         if shuffle {
@@ -51,6 +53,7 @@ impl Queue {
 
     pub fn shuffle(&mut self) {
         let current = self.current();
+        self.order = self.canonical_order.clone();
         self.order.shuffle(&mut rand::rng());
         if let Some(current) = current {
             self.position = self.order.iter().position(|id| *id == current).unwrap_or(0);
@@ -62,7 +65,7 @@ impl Queue {
 
     pub fn unshuffle(&mut self) {
         let current = self.current();
-        self.order.sort_unstable();
+        self.order = self.canonical_order.clone();
         if let Some(current) = current {
             self.position = self.order.iter().position(|id| *id == current).unwrap_or(0);
         }

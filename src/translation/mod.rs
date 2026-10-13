@@ -90,9 +90,12 @@ pub fn generate_bounded(
     generate(request, provider, cancellation)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum TargetLanguage {
+    #[default]
     English,
     SimplifiedChinese,
     Japanese,

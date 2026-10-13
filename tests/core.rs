@@ -1025,7 +1025,7 @@ fn shuffle_and_unshuffle_preserve_the_playing_track_and_membership() {
         queue.shuffle();
     }
     queue.unshuffle();
-    assert_eq!(queue.order, [0, 1, 2, 3, 4]);
+    assert_eq!(queue.order, [3, 0, 4, 1, 2]);
     assert_eq!(queue.current(), Some(4));
 }
 
@@ -1293,6 +1293,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         font: nano_music_player::app::typography::Font::Classic,
         always_on_top: true,
         romaji_visible: false,
+        translation_target: nano_music_player::translation::TargetLanguage::Japanese,
         zoom: 2.0,
         device_mode: false,
         window_width: Some(750.0),
@@ -1302,6 +1303,10 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     let loaded = Settings::load(&path).unwrap();
     assert_eq!(loaded.zoom, 2.0);
     assert!(!loaded.romaji_visible);
+    assert_eq!(
+        loaded.translation_target,
+        nano_music_player::translation::TargetLanguage::Japanese
+    );
     assert!(!loaded.device_mode);
     assert_eq!(loaded.window_width, Some(750.0));
     assert_eq!(loaded.window_height, Some(900.0));

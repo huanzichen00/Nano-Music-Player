@@ -5,7 +5,7 @@ import "fonts/maple-mono/MapleMono-Bold.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-Regular.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-Bold.ttf";
-import { LibraryView, LibraryRow, ListMetrics } from "library.slint";
+import { LibraryView, LibraryRow, GeniusRow, ListMetrics } from "library.slint";
 import { VideoView } from "video.slint";
 import { VideoDeviceFrame } from "video-device.slint";
 import { NowPlayingView } from "now-playing.slint";
@@ -16,6 +16,7 @@ import { PlaylistEditor, PlaylistCandidate } from "playlist-editor.slint";
 import { I18n } from "i18n.slint";
 export { I18n }
 export { LibraryRow }
+export { GeniusRow }
 export { ListMetrics }
 export { PlaylistCandidate }
 export struct ShortcutRow { category: string, title: string, keys: string }
@@ -48,6 +49,7 @@ export component AppWindow inherits Window {
     in property <string> clock-text;
     in property <bool> playing;
     in property <bool> has-track;
+    in property <string> track-path;
     in property <string> track-title;
     in property <string> track-artist;
     in property <string> track-album;
@@ -76,12 +78,18 @@ export component AppWindow inherits Window {
     in property <[string]> lyric-lines;
     in property <[string]> romaji-lines;
     in property <bool> romaji-visible;
+    in property <[string]> translated-lines;
+    in property <bool> translation-visible;
     in property <bool> deepseek-settings-open;
     in property <bool> deepseek-key-configured;
     in property <string> deepseek-message;
     in-out property <string> deepseek-api-key;
     in-out property <string> deepseek-model: "deepseek-flash";
     in-out property <bool> genius-preview-open;
+    in-out property <string> genius-seed-path;
+    in property <[GeniusRow]> genius-songs;
+    in property <string> genius-message;
+    in property <bool> genius-busy;
     out property <int> genius-preview-stage: genius-preview.stage;
     out property <int> genius-preview-variation: genius-preview.variation;
     private property <string> genius-seed-title;
@@ -132,6 +140,7 @@ export component AppWindow inherits Window {
         root.genius-seed-available = root.has-track;
         root.genius-seed-title = root.has-track ? root.track-title : I18n.tr("No song selected");
         root.genius-seed-artist = root.has-track ? root.track-artist : "";
+        root.genius-seed-path = root.track-path;
         genius-preview.stage = 0;
         genius-preview.variation = 0;
         root.genius-preview-open = true;
@@ -178,7 +187,15 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Previous Track"); activated => { root.command("previous_track"); } }
             MenuItem { title: I18n.tr("Now Playing"); activated => { root.command("now_playing"); } }
             MenuItem { title: I18n.tr("Lyrics for Track…"); activated => { root.command("manage_lyrics"); } }
-            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.playlist-editor-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-requested(); } }
+            MenuItem { title: I18n.tr("Translate Lyrics"); enabled: root.has-track; activated => { root.command("translate_lyrics"); } }
+            MenuItem { title: I18n.tr("Regenerate Translation"); enabled: root.has-track; activated => { root.command("regenerate_translation"); } }
+            MenuItem { title: I18n.tr("Cancel Translation"); activated => { root.command("cancel_translation"); } }
+            MenuItem { title: I18n.tr("Show / Hide Translation"); activated => { root.command("toggle_translation"); } }
+            MenuItem { title: I18n.tr("Remove Translation"); enabled: root.has-track; activated => { root.command("remove_translation"); } }
+            MenuItem { title: I18n.tr("Translation: English"); activated => { root.command("translation_target_en"); } }
+            MenuItem { title: I18n.tr("Translation: 简体中文"); activated => { root.command("translation_target_zh"); } }
+            MenuItem { title: I18n.tr("Translation: 日本語"); activated => { root.command("translation_target_ja"); } }
+            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.playlist-editor-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-preview(); } }
         }
         Menu {
             title: I18n.tr("View");
@@ -319,6 +336,7 @@ export component AppWindow inherits Window {
                 shuffle: root.shuffle; repeat-mode: root.repeat-mode;
                 overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.lyric-lines; active-lyric: root.active-lyric;
                 romaji-lines: root.romaji-lines; romaji-visible: root.romaji-visible;
+                translated-lines: root.translated-lines; translation-visible: root.translation-visible;
                 lyric-scroll-y <=> root.lyric-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 toggle-overlay => { root.command("toggle_overlay"); keyboard.focus(); }
@@ -355,6 +373,7 @@ export component AppWindow inherits Window {
             visible: root.genius-preview-open;
             x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y; width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; seed-title: root.genius-seed-title; seed-artist: root.genius-seed-artist; seed-available: root.genius-seed-available;
+            songs: root.genius-songs; message: root.genius-message; busy: root.genius-busy;
             command(name) => { root.genius-action(name); }
         }
         playlist-editor := PlaylistEditor {

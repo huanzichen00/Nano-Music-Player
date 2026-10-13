@@ -8,6 +8,8 @@ pub struct Settings {
     pub font: super::typography::Font,
     pub always_on_top: bool,
     pub romaji_visible: bool,
+    #[serde(default)]
+    pub translation_target: crate::translation::TargetLanguage,
     pub zoom: f32,
     pub device_mode: bool,
     pub window_width: Option<f32>,
@@ -21,6 +23,7 @@ impl Default for Settings {
             font: super::typography::Font::Classic,
             always_on_top: true,
             romaji_visible: true,
+            translation_target: crate::translation::TargetLanguage::English,
             zoom: 1.25,
             device_mode: true,
             window_width: None,

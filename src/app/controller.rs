@@ -55,6 +55,26 @@ pub struct Controller {
     romaji_request: Option<romaji::Request>,
     romaji_store: romaji::Store,
     romaji_touched: HashSet<PathBuf>,
+    translation_cache: crate::translation::Cache,
+    translation_request: Option<
+        Receiver<(
+            crate::translation::Request,
+            Result<crate::translation::Translation, crate::translation::Error>,
+        )>,
+    >,
+    translation_request_id: u64,
+    translation_visible: bool,
+    translation_cancel: Option<crate::translation::Cancellation>,
+    genius_seed: Option<PathBuf>,
+    genius_request: Option<
+        Receiver<(
+            crate::genius::Request,
+            Result<crate::genius::ResultSet, crate::genius::Error>,
+        )>,
+    >,
+    genius_rows: Vec<crate::ui::GeniusRow>,
+    genius_variation: u64,
+    genius_cancel: Option<crate::genius::Cancellation>,
     lyrics_dirty: bool,
     dialog_open: bool,
     last_screen: Option<Screen>,
@@ -108,6 +128,9 @@ impl Controller {
         });
         let loading = Some(library_receiver);
         let romaji_store = romaji::Store::new(directory.join("library.sqlite3"));
+        let translation_cache =
+            crate::translation::Cache::load(&directory.join("translations.json"))
+                .unwrap_or_default();
         let video_loading = Some(crate::video::import::load(directory.join("videos.json")));
         Self {
             state,
@@ -134,6 +157,16 @@ impl Controller {
             romaji_request: None,
             romaji_store,
             romaji_touched: HashSet::new(),
+            translation_cache,
+            translation_request: None,
+            translation_request_id: 0,
+            translation_visible: false,
+            translation_cancel: None,
+            genius_seed: None,
+            genius_request: None,
+            genius_rows: Vec::new(),
+            genius_variation: 0,
+            genius_cancel: None,
             lyrics_dirty: true,
             dialog_open: false,
             last_screen: None,
@@ -739,6 +772,7 @@ impl Controller {
             font: self.state.font,
             always_on_top: self.state.always_on_top,
             romaji_visible: self.state.romaji_visible,
+            translation_target: self.settings.translation_target,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
             window_width: Some(saved_width),
@@ -841,6 +875,8 @@ impl Controller {
             ui.invoke_focus_screen();
         }
         self.poll_romaji(ui);
+        self.poll_translation(ui);
+        self.poll_genius(ui);
         self.poll_playlists(ui);
         self.poll_videos(ui);
         while let Ok(event) = self.engine.events.try_recv() {
@@ -942,6 +978,15 @@ impl Controller {
             self.state.status == PlaybackStatus::Playing
         });
         ui.set_has_track(self.state.current.is_some());
+        ui.set_track_path(
+            self.state
+                .current
+                .and_then(|id| self.state.tracks.get(id))
+                .map_or_else(String::new, |track| {
+                    track.path.to_string_lossy().into_owned()
+                })
+                .into(),
+        );
         ui.set_volume(self.state.volume);
         ui.set_muted(self.state.muted);
         ui.set_shuffle(self.state.shuffle);
@@ -964,6 +1009,7 @@ impl Controller {
         ui.set_reference_open(self.state.reference_open);
         ui.set_lyrics_visible(self.state.lyrics_visible);
         ui.set_romaji_visible(self.state.romaji_visible);
+        ui.set_translation_visible(self.translation_visible);
         ui.set_overlay_visible(self.state.overlay_visible);
         ui.set_track_count(if self.state.queue.order.is_empty() {
             "".into()
@@ -1149,6 +1195,30 @@ impl Controller {
                 }),
             )));
             ui.set_timed_lyrics(track.is_some_and(|t| !t.lyrics.timed.is_empty()));
+            let translated = track.and_then(|track| {
+                let request = crate::translation::Request {
+                    request_id: 0,
+                    track_id: track.path.clone(),
+                    target: self.settings.translation_target,
+                    provider_version: format!(
+                        "{}:{}",
+                        crate::translation::PROMPT_VERSION,
+                        crate::ai::DEFAULT_MODEL
+                    ),
+                    source: Self::translation_source(track),
+                };
+                self.translation_cache.get(&request.cache_key())
+            });
+            ui.set_translated_lines(ModelRc::new(VecModel::from(translated.map_or_else(
+                Vec::new,
+                |translation| {
+                    translation
+                        .lines
+                        .iter()
+                        .map(|line| line.as_str().into())
+                        .collect()
+                },
+            ))));
             let romaji = track.and_then(|track| {
                 self.state
                     .romaji
@@ -1530,6 +1600,382 @@ impl Controller {
         }
     }
 
+    fn translation_source(track: &Track) -> Vec<crate::translation::SourceLine> {
+        if track.lyrics.timed.is_empty() {
+            track
+                .lyrics
+                .plain
+                .iter()
+                .map(|text| crate::translation::SourceLine {
+                    at_ms: None,
+                    text: text.clone(),
+                })
+                .collect()
+        } else {
+            track
+                .lyrics
+                .timed
+                .iter()
+                .map(|line| crate::translation::SourceLine {
+                    at_ms: Some(line.at_ms),
+                    text: line.text.clone(),
+                })
+                .collect()
+        }
+    }
+
+    fn start_translation(&mut self, ui: &AppWindow) {
+        if self.translation_request.is_some() {
+            self.state.notice = "Translation is already running".into();
+            return;
+        }
+        let Some(track) = self
+            .state
+            .current
+            .and_then(|id| self.state.tracks.get(id))
+            .cloned()
+        else {
+            self.state.notice = "Choose a song first".into();
+            self.sync(ui);
+            return;
+        };
+        if track.lyrics.is_empty() {
+            self.state.notice = "No lyrics available".into();
+            self.sync(ui);
+            return;
+        }
+        self.translation_request_id = self.translation_request_id.wrapping_add(1);
+        let request = crate::translation::Request {
+            request_id: self.translation_request_id,
+            track_id: track.path.clone(),
+            target: self.settings.translation_target,
+            provider_version: format!(
+                "{}:{}",
+                crate::translation::PROMPT_VERSION,
+                crate::ai::DEFAULT_MODEL
+            ),
+            source: Self::translation_source(&track),
+        };
+        let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let cancellation = crate::translation::Cancellation::default();
+        let worker_cancellation = cancellation.clone();
+        std::thread::spawn(move || {
+            let result = settings
+                .map_err(|_| crate::translation::Error::Provider)
+                .and_then(|settings| {
+                    crate::ai::DeepSeek::new(&settings)
+                        .map_err(|_| crate::translation::Error::Provider)
+                })
+                .and_then(|provider| {
+                    crate::translation::generate(&request, &provider, &worker_cancellation)
+                });
+            let _ = sender.send((request, result));
+        });
+        self.translation_request = Some(receiver);
+        self.translation_cancel = Some(cancellation);
+        self.state.notice = "Generating translation…".into();
+        self.sync(ui);
+    }
+
+    fn poll_translation(&mut self, ui: &AppWindow) {
+        let Some(receiver) = self.translation_request.as_ref() else {
+            return;
+        };
+        let Ok((request, result)) = receiver.try_recv() else {
+            return;
+        };
+        self.translation_request = None;
+        self.translation_cancel = None;
+        let current = self.state.current.and_then(|id| self.state.tracks.get(id));
+        let current_source = current.map(Self::translation_source).unwrap_or_default();
+        match result {
+            Ok(translation)
+                if current.is_some_and(|track| {
+                    request.accepts(
+                        &translation,
+                        self.translation_request_id,
+                        &track.path,
+                        self.settings.translation_target,
+                        &current_source,
+                        &format!(
+                            "{}:{}",
+                            crate::translation::PROMPT_VERSION,
+                            crate::ai::DEFAULT_MODEL
+                        ),
+                    )
+                }) =>
+            {
+                self.translation_cache.insert(translation);
+                match self
+                    .translation_cache
+                    .save(&self.directory.join("translations.json"))
+                {
+                    Ok(()) => {
+                        self.translation_visible = true;
+                        self.state.notice = "Translation ready".into();
+                    }
+                    Err(_) => self.state.notice = "Could not save translation cache".into(),
+                }
+            }
+            Ok(_) => self.state.notice = "Lyrics or target changed; translation discarded".into(),
+            Err(crate::translation::Error::Cancelled) => {
+                self.state.notice = "Translation cancelled".into()
+            }
+            Err(_) => self.state.notice = "Translation failed; try again".into(),
+        }
+        self.lyrics_dirty = true;
+        self.sync(ui);
+    }
+
+    fn set_translation_target(
+        &mut self,
+        ui: &AppWindow,
+        target: crate::translation::TargetLanguage,
+    ) {
+        self.settings.translation_target = target;
+        if let Some(token) = self.translation_cancel.take() {
+            token.cancel();
+        }
+        self.translation_visible = false;
+        self.lyrics_dirty = true;
+        self.save_settings(ui);
+        self.sync(ui);
+    }
+
+    fn start_genius(&mut self, ui: &AppWindow, refresh: bool) {
+        if self.genius_request.is_some() {
+            return;
+        }
+        if !refresh || self.genius_seed.is_none() {
+            self.genius_seed = self
+                .state
+                .current
+                .and_then(|id| self.state.tracks.get(id))
+                .map(|track| track.path.clone());
+            self.genius_variation = 0;
+            self.genius_rows.clear();
+        } else {
+            self.genius_variation = self.genius_variation.wrapping_add(1);
+        }
+        let Some(seed) = self.genius_seed.clone() else {
+            ui.set_genius_message(self.text("Choose a song first"));
+            return;
+        };
+        let revision = self.library_revision();
+        let seed_signature = self
+            .state
+            .tracks
+            .iter()
+            .find(|track| track.path == seed)
+            .map(|track| {
+                format!(
+                    "{}\0{}\0{}",
+                    track.title.trim().to_lowercase(),
+                    track.artist.trim().to_lowercase(),
+                    track.album.trim().to_lowercase()
+                )
+            });
+        let mut seen = HashSet::new();
+        let mut candidates = Vec::new();
+        for (index, track) in self.state.tracks.iter().enumerate() {
+            if !track.path.is_file() {
+                continue;
+            }
+            let signature = format!(
+                "{}\0{}\0{}",
+                track.title.trim().to_lowercase(),
+                track.artist.trim().to_lowercase(),
+                track.album.trim().to_lowercase()
+            );
+            if track.path != seed
+                && (Some(&signature) == seed_signature.as_ref() || !seen.insert(signature.clone()))
+            {
+                continue;
+            }
+            seen.insert(signature);
+            candidates.push(crate::genius::Candidate {
+                id: format!("candidate-{index}"),
+                path: track.path.clone(),
+                title: track.title.chars().take(160).collect(),
+                artist: track.artist.chars().take(160).collect(),
+                album: track.album.chars().take(160).collect(),
+                genre: track.genre.chars().take(80).collect(),
+                duration_seconds: track.duration.max(0.0),
+            });
+        }
+        let request = crate::genius::Request {
+            request_id: self.genius_variation + 1,
+            seed_path: seed,
+            library_revision: revision,
+            variation: self.genius_variation,
+            limit: 24,
+            candidates,
+        };
+        if request.validate().is_err() {
+            ui.set_genius_message(self.text("Not enough available local songs"));
+            return;
+        }
+        let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cancellation = crate::genius::Cancellation::default();
+        let worker_cancellation = cancellation.clone();
+        std::thread::spawn(move || {
+            let result = settings
+                .map_err(|_| crate::genius::Error::Provider)
+                .and_then(|settings| {
+                    crate::ai::DeepSeek::new(&settings).map_err(|_| crate::genius::Error::Provider)
+                })
+                .and_then(|provider| {
+                    crate::genius::generate(&request, &provider, &worker_cancellation)
+                });
+            let _ = tx.send((request, result));
+        });
+        self.genius_request = Some(rx);
+        self.genius_cancel = Some(cancellation);
+        ui.set_genius_busy(true);
+        ui.set_genius_message(self.text("Generating…"));
+    }
+
+    fn library_revision(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for track in &self.state.tracks {
+            track.path.hash(&mut h);
+        }
+        h.finish()
+    }
+
+    fn poll_genius(&mut self, ui: &AppWindow) {
+        let Some(receiver) = &self.genius_request else {
+            return;
+        };
+        let Ok((request, result)) = receiver.try_recv() else {
+            return;
+        };
+        self.genius_request = None;
+        self.genius_cancel = None;
+        ui.set_genius_busy(false);
+        if self.genius_seed.as_deref() != Some(request.seed_path.as_path())
+            || self.library_revision() != request.library_revision
+        {
+            ui.set_genius_message(self.text("Library or seed changed; result discarded"));
+            return;
+        }
+        match result {
+            Ok(result) => {
+                self.genius_rows.clear();
+                if let Some(seed) = self
+                    .state
+                    .tracks
+                    .iter()
+                    .find(|track| track.path == request.seed_path)
+                {
+                    self.genius_rows.push(crate::ui::GeniusRow {
+                        title: seed.title.clone().into(),
+                        artist: seed.artist.clone().into(),
+                        path: seed.path.to_string_lossy().into_owned().into(),
+                    });
+                }
+                for path in result.ordered_paths {
+                    if let Some(track) = self
+                        .state
+                        .tracks
+                        .iter()
+                        .find(|track| track.path == path && track.path.is_file())
+                    {
+                        self.genius_rows.push(crate::ui::GeniusRow {
+                            title: track.title.clone().into(),
+                            artist: track.artist.clone().into(),
+                            path: track.path.to_string_lossy().into_owned().into(),
+                        });
+                    }
+                }
+                ui.set_genius_songs(slint::ModelRc::new(slint::VecModel::from(
+                    self.genius_rows.clone(),
+                )));
+                ui.set_genius_message(self.text(if result.sparse {
+                    "Short local playlist"
+                } else {
+                    "Genius playlist ready"
+                }));
+            }
+            Err(_) => ui.set_genius_message(self.text("Genius failed; retry is available")),
+        }
+    }
+
+    fn genius_command(&mut self, ui: &AppWindow, command: &str) {
+        match command {
+            "create" => {
+                self.genius_seed = Some(PathBuf::from(ui.get_genius_seed_path().as_str()));
+                self.genius_rows.clear();
+                self.start_genius(ui, false);
+            }
+            "refresh" => self.start_genius(ui, true),
+            "close" => {
+                if let Some(token) = self.genius_cancel.take() {
+                    token.cancel();
+                }
+                self.genius_request = None;
+            }
+            "play" => {
+                let ids: Vec<usize> = self
+                    .genius_rows
+                    .iter()
+                    .filter_map(|row| {
+                        self.state.tracks.iter().position(|track| {
+                            track.path.to_string_lossy() == row.path.as_str()
+                                && track.path.is_file()
+                        })
+                    })
+                    .collect();
+                if ids.is_empty() {
+                    return;
+                }
+                let keep = self.state.current.filter(|id| ids.contains(id));
+                let start = keep.unwrap_or(ids[0]);
+                let position = self.state.position;
+                self.state.queue.set(ids, start, false);
+                if self.state.shuffle {
+                    self.state.queue.shuffle();
+                }
+                if keep.is_some() {
+                    self.state.position = position;
+                    self.send_music(crate::audio::engine::AudioCommand::Seek(position));
+                } else if let Some(effect) = self.state.start(start).into_iter().next() {
+                    self.effects(ui, vec![effect]);
+                }
+                self.sync(ui);
+            }
+            "save" => {
+                let paths: Vec<PathBuf> = self
+                    .genius_rows
+                    .iter()
+                    .map(|row| PathBuf::from(row.path.as_str()))
+                    .filter(|path| path.is_file())
+                    .collect();
+                let seed = self
+                    .genius_seed
+                    .as_ref()
+                    .and_then(|path| self.state.tracks.iter().find(|track| &track.path == path));
+                let name = seed
+                    .map(|track| format!("{} - {}", track.artist, track.title))
+                    .unwrap_or_else(|| "Genius Mix".into());
+                match playlists::create(&self.directory.join("library.sqlite3"), &name, &paths) {
+                    Ok(playlist) => {
+                        self.state.playlists.push(playlist);
+                        ui.set_genius_message(self.text("Genius playlist saved"));
+                    }
+                    Err(_) => {
+                        ui.set_genius_message(self.text("Could not save Genius playlist; retry"))
+                    }
+                }
+                self.sync(ui);
+            }
+            _ => {}
+        }
+    }
+
     pub fn deepseek_command(&mut self, ui: &AppWindow, command: &str) {
         if !ui.get_deepseek_settings_open() {
             return;
@@ -1653,9 +2099,15 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     let state = controller.clone();
     ui.on_open_genius_requested(move || {
         if let Some(ui) = weak.upgrade() {
-            let mut controller = state.borrow_mut();
-            controller.prepare_portrait_dialog(&ui);
+            state.borrow_mut().prepare_portrait_dialog(&ui);
             ui.invoke_open_genius_preview();
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_genius_command(move |command| {
+        if let Some(ui) = weak.upgrade() {
+            state.borrow_mut().genius_command(&ui, &command);
         }
     });
     let weak = ui.as_weak();
@@ -1688,9 +2140,64 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     let weak = ui.as_weak();
     let state = controller.clone();
     ui.on_command(move |name| {
-        if let (Some(ui), Some(action)) = (weak.upgrade(), Action::parse(&name)) {
-            ui.set_keyboard_navigation(false);
-            state.borrow_mut().execute(&ui, action);
+        if let Some(ui) = weak.upgrade() {
+            let mut controller = state.borrow_mut();
+            match name.as_str() {
+                "translate_lyrics" | "regenerate_translation" => controller.start_translation(&ui),
+                "cancel_translation" => {
+                    if let Some(token) = controller.translation_cancel.as_ref() {
+                        token.cancel();
+                    }
+                    controller.translation_request_id =
+                        controller.translation_request_id.wrapping_add(1);
+                    controller.state.notice = "Translation cancellation requested".into();
+                    controller.sync(&ui);
+                }
+                "toggle_translation" => {
+                    controller.translation_visible = !controller.translation_visible;
+                    controller.lyrics_dirty = true;
+                    controller.sync(&ui);
+                }
+                "remove_translation" => {
+                    if let Some(track) = controller
+                        .state
+                        .current
+                        .and_then(|id| controller.state.tracks.get(id))
+                    {
+                        let request = crate::translation::Request {
+                            request_id: 0,
+                            track_id: track.path.clone(),
+                            target: controller.settings.translation_target,
+                            provider_version: format!(
+                                "{}:{}",
+                                crate::translation::PROMPT_VERSION,
+                                crate::ai::DEFAULT_MODEL
+                            ),
+                            source: Controller::translation_source(track),
+                        };
+                        controller.translation_cache.remove(&request.cache_key());
+                        let _ = controller
+                            .translation_cache
+                            .save(&controller.directory.join("translations.json"));
+                        controller.translation_visible = false;
+                        controller.lyrics_dirty = true;
+                        controller.sync(&ui);
+                    }
+                }
+                "translation_target_en" => controller
+                    .set_translation_target(&ui, crate::translation::TargetLanguage::English),
+                "translation_target_zh" => controller.set_translation_target(
+                    &ui,
+                    crate::translation::TargetLanguage::SimplifiedChinese,
+                ),
+                "translation_target_ja" => controller
+                    .set_translation_target(&ui, crate::translation::TargetLanguage::Japanese),
+                _ if Action::parse(&name).is_some() => {
+                    ui.set_keyboard_navigation(false);
+                    controller.execute(&ui, Action::parse(&name).unwrap());
+                }
+                _ => {}
+            }
         }
     });
     let weak = ui.as_weak();

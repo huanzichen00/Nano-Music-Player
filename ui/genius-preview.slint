@@ -1,12 +1,15 @@
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
+import { GeniusRow } from "library.slint";
 
-// This component demonstrates an interface. It has no recommendation, audio or storage backend.
 export component GeniusPreview inherits Rectangle {
     in property <float> s: 1;
     in property <string> seed-title;
     in property <string> seed-artist;
     in property <bool> seed-available;
+    in property <[GeniusRow]> songs;
+    in property <bool> busy;
+    in property <string> message;
     in-out property <int> stage;
     in-out property <int> variation;
     callback command(string);
@@ -20,41 +23,34 @@ export component GeniusPreview inherits Rectangle {
     }
     Rectangle {
         x: 0px; width: root.width; y: 32px * root.s; height: 26px * root.s; background: #e1ebf5;
-        Text { x: 10px * root.s; width: parent.width - 20px * root.s; text: I18n.tr("Mock preview · example songs"); color: #49637c; font-size: 10px * root.s; horizontal-alignment: center; vertical-alignment: center; }
+        Text { x: 10px * root.s; width: parent.width - 20px * root.s; text: root.busy ? I18n.tr("Generating…") : I18n.tr("Genius playlist"); color: #49637c; font-size: 10px * root.s; horizontal-alignment: center; vertical-alignment: center; }
     }
     Text { x: 10px * root.s; y: 64px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s; text: root.seed-title; color: #263441; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
     Text { x: 10px * root.s; y: 87px * root.s; width: parent.width - 20px * root.s; height: 17px * root.s; text: root.seed-artist; color: #788390; font-size: 11px * root.s; overflow: elide; }
     Text {
         x: 10px * root.s; y: 107px * root.s; width: parent.width - 20px * root.s; height: 24px * root.s;
-        text: I18n.tr(root.stage == 0 ? "Create an example playlist" : (root.stage == 2 ? "Play preview only · audio unchanged" : (root.stage == 3 ? "Save preview only · nothing stored" : "Example playlist ready")));
+        text: root.message != "" ? root.message : I18n.tr(root.stage == 0 ? "Create Genius playlist" : (root.stage == 2 ? "Playing Genius playlist" : (root.stage == 3 ? "Genius playlist saved" : "Genius playlist ready")));
         color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center;
     }
     if root.stage == 0: Text {
         x: 16px * root.s; y: 151px * root.s; width: parent.width - 32px * root.s; height: 163px * root.s;
-        text: root.seed-available ? I18n.tr("Genius will build a playlist around this song.\n\nThis interface preview uses example songs. Recommendations are not connected yet.") : I18n.tr("Choose a song from Music");
+        text: root.seed-available ? I18n.tr("Create a playlist based on this song.") : I18n.tr("Choose a song from Music");
         color: #6c7885; font-size: 12px * root.s; wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
     }
     if root.stage > 0: Flickable {
         x: 0px; width: root.width; y: 133px * root.s; height: root.height - self.y - 82px * root.s;
-        content-height: 6 * 36px * root.s;
-        for song[index] in [
-            root.seed-title,
-            mod(root.variation, 2) == 0 ? "Evening Walk" : "Quiet Streets",
-            mod(root.variation, 2) == 0 ? "Blue Lantern" : "Soft Rain",
-            mod(root.variation, 2) == 0 ? "After the Rain" : "Distant Lights",
-            mod(root.variation, 2) == 0 ? "Small Hours" : "Morning Air",
-            "A New Day",
-        ]: Rectangle {
+        content-height: root.songs.length * 36px * root.s;
+        for song[index] in root.songs: Rectangle {
             x: 0px; width: root.width; y: index * 36px * root.s; height: 36px * root.s; background: mod(index, 2) == 0 ? #fff : #edf0f3;
             Text { x: 8px * root.s; width: 18px * root.s; text: index + 1; color: #93a0ae; font-size: 10px * root.s; vertical-alignment: center; }
-            Text { x: 30px * root.s; y: 3px * root.s; width: parent.width - 40px * root.s; height: 18px * root.s; text: song; color: #263441; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
-            Text { x: 30px * root.s; y: 21px * root.s; width: parent.width - 40px * root.s; height: 12px * root.s; text: index == 0 ? root.seed-artist : I18n.tr("Example Artist"); color: #788390; font-size: 9px * root.s; overflow: elide; }
+            Text { x: 30px * root.s; y: 3px * root.s; width: parent.width - 40px * root.s; height: 18px * root.s; text: song.title; color: #263441; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
+            Text { x: 30px * root.s; y: 21px * root.s; width: parent.width - 40px * root.s; height: 12px * root.s; text: song.artist; color: #788390; font-size: 9px * root.s; overflow: elide; }
         }
     }
     Rectangle {
         x: 0px; width: root.width; y: root.height - 82px * root.s; height: 82px * root.s; background: @linear-gradient(180deg, #e4e8ec, #cad1d9);
-        NanoActionButton { x: 10px * root.s; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; enabled: root.seed-available; label: root.stage == 0 ? "Create" : "Refresh"; clicked => { root.command(root.stage == 0 ? "create" : "refresh"); } }
-        NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; enabled: root.stage > 0; label: "Play"; clicked => { root.command("play"); } }
-        NanoActionButton { x: 10px * root.s; y: 45px * root.s; width: parent.width - 20px * root.s; s: root.s; enabled: root.stage > 0; label: "Save"; clicked => { root.command("save"); } }
+        NanoActionButton { x: 10px * root.s; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; enabled: root.seed-available && !root.busy; label: I18n.tr(root.songs.length == 0 ? "Create" : "Refresh"); clicked => { root.command(root.songs.length == 0 ? "create" : "refresh"); } }
+        NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; enabled: root.songs.length > 0 && !root.busy; label: I18n.tr("Play"); clicked => { root.command("play"); } }
+        NanoActionButton { x: 10px * root.s; y: 45px * root.s; width: parent.width - 20px * root.s; s: root.s; enabled: root.songs.length > 0 && !root.busy; label: I18n.tr("Save"); clicked => { root.command("save"); } }
     }
 }

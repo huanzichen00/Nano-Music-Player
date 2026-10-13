@@ -1,6 +1,6 @@
 # DeepSeek Genius and lyric translation plan
 
-Status: integration contract and phased acceptance plan. The Genius screen currently demonstrates mock output; no live provider call has been made. Shared UI/controller ownership is temporarily reserved for the video integration. Isolated request/response contracts and a standalone offline test harness are implemented under `src/genius/`, `src/translation/`, and `tests/isolated-features/`; shared application integration remains pending.
+Status: integrated locally; no live provider call has been made. Genius Create/Refresh/Play/Save now use the frozen local library snapshot, validate request-local IDs, show ordered local rows, apply a canonical ordered queue, and save through existing playlist transactions. Translation target language persists independently of UI language; explicit translate/regenerate actions fill a durable exact-source cache and paired lyric rows. Shared app/video ownership was preserved while integrating.
 
 ## Scope and product rules
 
@@ -79,12 +79,12 @@ Render original and translated text as paired lines. Keep original timestamps an
 
 ### Phase 4 — Shared app integration and release verification
 
-- Integrate only after the primary chat releases shared ownership. Reconcile current video changes before editing shared state/UI files.
-- Connect existing Genius mock controls to the real backend; wire translation controls and independent target selector without changing established navigation, gestures, geometry, font settings, or video behavior.
-- Add meaningful offline HTTP fixtures and application regression tests. Inspect rendered English/Chinese/Japanese states and the now-playing lyric layout.
-- Update this plan with actual completed work, evidence, known limits, and any deviations. Package and launch only after shared integration is reviewed in the owning chat.
+- Shared ownership was released after video commit `5e0904e`; the audio handoff, landscape orientation, portrait-dialog rule, and existing gestures were reviewed and retained.
+- The former Genius example rows were replaced with local generated results and Create/Refresh/Play/Save wiring. Translation target selection is available in Playback independently of interface language, with Translate/Regenerate/Cancel/Show-Hide/Remove actions.
+- Existing DeepSeek local HTTP fixtures and the isolated request/cache fixtures pass without a live call. The lyric layout now pairs translation and source and includes both plus romaji in measured row height.
+- Full integrated tests and strict all-target Clippy pass after the feature changes. The primary chat owns packaging and normal-app relaunch; do not overwrite its bundle.
 
-**Acceptance:** full build and relevant tests pass; UI review confirms ordered real preview rows, truthful error/sparse states, translation/romaji alignment, all three UI languages, and preserved existing interactions. No live provider request is part of development verification. No claim of Apple's algorithm or quality parity is made.
+**Acceptance:** `cargo test --all-targets` and `cargo clippy --all-targets -- -D warnings` pass; native video and manual library profiles remain intentionally ignored. The UI integration test exposed and then verified the Genius open callback reentrancy fix. Cancellation prevents result application before and after the existing blocking HTTP call; in-flight socket I/O itself is bounded by the existing DeepSeek timeout and cannot be interrupted. No live provider request is part of development verification. No claim of Apple's algorithm or quality parity is made.
 
 ## Integration decisions to preserve
 
