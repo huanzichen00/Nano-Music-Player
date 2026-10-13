@@ -10,7 +10,7 @@ use super::{
 use crate::{
     audio::{
         PlaybackStatus,
-        engine::{AudioEvent, Engine},
+        engine::{AudioCommand, AudioEvent, Engine},
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
     library::{Track, playlists, romaji, scanner},
@@ -19,10 +19,29 @@ use crate::{
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 use std::{cell::RefCell, collections::HashSet, path::PathBuf, rc::Rc, sync::mpsc::Receiver};
 
+enum PendingMedia {
+    Music {
+        handoff: u64,
+        command: AudioCommand,
+    },
+    Video {
+        handoff: u64,
+        command: crate::video::engine::Command,
+    },
+}
+
 pub struct Controller {
     pub state: State,
     pub dispatcher: Dispatcher,
     engine: Engine,
+    video_engine: crate::video::engine::Engine,
+    video_loading: Option<Receiver<Result<Vec<crate::video::library::Video>, String>>>,
+    video_import: Option<Receiver<crate::video::import::Event>>,
+    pending_media: Option<PendingMedia>,
+    pending_seek: Option<f64>,
+    handoff: u64,
+    last_landscape: bool,
+    last_video_generation: u64,
     directory: PathBuf,
     settings: Settings,
     loading: Option<Receiver<Result<Prepared<Vec<Track>>, String>>>,
@@ -89,10 +108,19 @@ impl Controller {
         });
         let loading = Some(library_receiver);
         let romaji_store = romaji::Store::new(directory.join("library.sqlite3"));
+        let video_loading = Some(crate::video::import::load(directory.join("videos.json")));
         Self {
             state,
             dispatcher: Dispatcher::new(keymap),
             engine: Engine::default(),
+            video_engine: crate::video::engine::Engine::default(),
+            video_loading,
+            video_import: None,
+            pending_media: None,
+            pending_seek: None,
+            handoff: 0,
+            last_landscape: false,
+            last_video_generation: 0,
             directory,
             settings,
             loading,
@@ -274,6 +302,9 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if matches!(action, Action::ShowShortcuts | Action::Shortcuts) {
+            self.prepare_portrait_dialog(ui);
+        }
         self.letter_jump = if action == Action::JumpToLetter && self.state.supports_letter_jump() {
             Some((
                 std::time::Instant::now(),
@@ -286,7 +317,7 @@ impl Controller {
         // Start audio immediately; focus effects still need the new screen to exist.
         let (audio, effects): (Vec<_>, Vec<_>) = effects
             .into_iter()
-            .partition(|effect| matches!(effect, Effect::Audio(_)));
+            .partition(|effect| matches!(effect, Effect::Audio(_) | Effect::Video(_)));
         self.effects(ui, audio);
         self.sync(ui);
         self.effects(ui, effects);
@@ -295,11 +326,15 @@ impl Controller {
     fn effects(&mut self, ui: &AppWindow, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
-                Effect::Audio(command) => {
-                    if let Err(message) = self.engine.send(command) {
-                        self.state.notice = message;
-                        self.state.status = PlaybackStatus::Error;
-                    }
+                Effect::Audio(command) => self.send_music(command),
+                Effect::Video(command) => self.send_video(command),
+                Effect::ImportVideos => {
+                    self.dialog_open = true;
+                    self.video_import = Some(crate::video::import::start(
+                        self.directory.join("videos.json"),
+                        translate(self.state.language, "Import Videos…"),
+                        None,
+                    ));
                 }
                 Effect::Import => {
                     self.dialog_open = true;
@@ -327,6 +362,7 @@ impl Controller {
                     self.save_settings(ui);
                 }
                 Effect::ConfigureDeepSeek => {
+                    self.prepare_portrait_dialog(ui);
                     let settings =
                         crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
                     let message = settings.as_ref().err().cloned().unwrap_or_default();
@@ -337,7 +373,10 @@ impl Controller {
                     ui.set_deepseek_message(self.text(&message));
                     ui.set_deepseek_settings_open(true);
                 }
-                Effect::GeniusPreview => ui.invoke_open_genius_preview(),
+                Effect::GeniusPreview => {
+                    self.prepare_portrait_dialog(ui);
+                    ui.invoke_open_genius_preview();
+                }
                 Effect::NewPlaylist => {
                     if !ui.get_playlist_editor_open()
                         && !ui.get_deepseek_settings_open()
@@ -345,6 +384,7 @@ impl Controller {
                         && !ui.get_shortcut_editor_open()
                         && !self.state.reference_open
                     {
+                        self.prepare_portrait_dialog(ui);
                         self.playlist_command(ui, "new", "");
                         ui.invoke_open_playlist_editor();
                     }
@@ -385,6 +425,7 @@ impl Controller {
                     self.save_settings(ui);
                 }
                 Effect::EditShortcut(action) => {
+                    self.prepare_portrait_dialog(ui);
                     self.shortcut_edit = Some(action);
                     self.shortcut_capture = None;
                     ui.set_shortcut_message(self.text("Choose how to edit this action."));
@@ -415,16 +456,244 @@ impl Controller {
         }
     }
 
-    fn base_size(&self) -> (f32, f32) {
-        if self.state.device_mode {
-            (296.0, 296.0 * 76.5 / 39.6)
-        } else {
-            (240.0, 432.0)
+    fn prepare_portrait_dialog(&mut self, ui: &AppWindow) {
+        if self.state.landscape_video() {
+            // Use Done/Back semantics: pause, preserve list selection, and restore zoom.
+            self.execute(ui, Action::Back);
         }
+    }
+
+    fn media_error(&mut self, message: String) {
+        self.pending_media = None;
+        self.pending_seek = None;
+        if self.state.video_active {
+            self.state.video_status = crate::video::Status::Error;
+        } else {
+            self.state.status = PlaybackStatus::Error;
+        }
+        self.state.notice = format!("Playback error: {message}");
+    }
+
+    fn send_music(&mut self, command: AudioCommand) {
+        if matches!(command, AudioCommand::Load { .. }) {
+            self.handoff += 1;
+            self.pending_seek = None;
+            self.pending_media = Some(PendingMedia::Music {
+                handoff: self.handoff,
+                command,
+            });
+            if let Err(error) = self.video_engine.send(crate::video::engine::Command::Stop {
+                handoff: self.handoff,
+            }) {
+                self.media_error(error);
+            }
+        } else if self.pending_media.is_some() {
+            if let AudioCommand::Seek(seconds) = command {
+                self.pending_seek = Some(seconds);
+            }
+            // Pause and volume are read from authoritative reducer state at the acknowledgement.
+        } else if let Err(error) = self.engine.send(command) {
+            self.media_error(error);
+        }
+    }
+
+    fn send_video(&mut self, command: crate::video::engine::Command) {
+        use crate::video::engine::Command;
+        if matches!(command, Command::Load { .. }) {
+            self.handoff += 1;
+            self.pending_seek = None;
+            self.pending_media = Some(PendingMedia::Video {
+                handoff: self.handoff,
+                command,
+            });
+            if let Err(error) = self.engine.send(AudioCommand::Stop {
+                handoff: self.handoff,
+            }) {
+                self.media_error(error);
+            }
+        } else if self.pending_media.is_some() {
+            if let Command::Seek { seconds, .. } = command {
+                self.pending_seek = Some(seconds);
+            }
+        } else if let Err(error) = self.video_engine.send(command) {
+            self.media_error(error);
+        }
+    }
+
+    fn finish_video_handoff(&mut self, handoff: u64) {
+        if !matches!(&self.pending_media, Some(PendingMedia::Video { handoff: expected, .. }) if *expected == handoff)
+        {
+            return;
+        }
+        let Some(PendingMedia::Video { mut command, .. }) = self.pending_media.take() else {
+            return;
+        };
+        if let crate::video::engine::Command::Load {
+            volume,
+            paused,
+            start,
+            ..
+        } = &mut command
+        {
+            *volume = self.state.effective_volume();
+            *paused = self.state.video_paused;
+            if let Some(seconds) = self.pending_seek.take() {
+                *start = seconds;
+            }
+        }
+        if let Err(error) = self.video_engine.send(command) {
+            self.media_error(error);
+        }
+    }
+
+    fn finish_music_handoff(&mut self, handoff: u64) {
+        if !matches!(&self.pending_media, Some(PendingMedia::Music { handoff: expected, .. }) if *expected == handoff)
+        {
+            return;
+        }
+        let Some(PendingMedia::Music { mut command, .. }) = self.pending_media.take() else {
+            return;
+        };
+        if let AudioCommand::Load { volume, paused, .. } = &mut command {
+            *volume = self.state.effective_volume();
+            *paused = self.state.paused;
+        }
+        if let Err(error) = self.engine.send(command) {
+            self.media_error(error);
+            return;
+        }
+        if let Some(seconds) = self.pending_seek.take() {
+            self.send_music(AudioCommand::Seek(seconds));
+        }
+    }
+
+    /// Import original local files without changing their contents. This is also
+    /// the generated-clip QA entry point, avoiding native picker automation.
+    pub fn import_videos(&mut self, paths: Vec<PathBuf>) {
+        if self.state.video_importing {
+            return;
+        }
+        self.state.video_importing = true;
+        self.video_import = Some(crate::video::import::start(
+            self.directory.join("videos.json"),
+            String::new(),
+            Some(paths),
+        ));
+    }
+
+    fn poll_videos(&mut self, ui: &AppWindow) {
+        if let Some(result) = self
+            .video_loading
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.video_loading = None;
+            match result {
+                Ok(videos) => self.state.merge_videos(videos),
+                Err(error) => self.state.notice = format!("Video library error: {error}"),
+            }
+            self.rows_dirty = true;
+        }
+        let imports: Vec<_> = self
+            .video_import
+            .as_ref()
+            .map(|rx| rx.try_iter().collect())
+            .unwrap_or_default();
+        for event in imports {
+            match event {
+                crate::video::import::Event::SelectionClosed => self.dialog_open = false,
+                crate::video::import::Event::Completed(result) => {
+                    self.video_import = None;
+                    self.state.video_importing = false;
+                    match result {
+                        Ok(Some(result)) => {
+                            self.state.merge_videos(result.videos);
+                            self.state.notice = if result.errors.is_empty() {
+                                format!("Imported {} videos", result.imported)
+                            } else {
+                                format!(
+                                    "Imported {} videos · {} errors: {}",
+                                    result.imported,
+                                    result.errors.len(),
+                                    result.errors[0]
+                                )
+                            };
+                        }
+                        Ok(None) => self.state.notice = "Import cancelled".into(),
+                        Err(error) => self.state.notice = format!("Video import failed: {error}"),
+                    }
+                    self.rows_dirty = true;
+                    ui.invoke_focus_screen();
+                }
+            }
+        }
+        while let Ok(event) = self.video_engine.events.try_recv() {
+            match event {
+                crate::video::engine::Event::Stopped { handoff } => {
+                    self.finish_music_handoff(handoff)
+                }
+                crate::video::engine::Event::Finished(generation)
+                    if self.state.video_active && generation == self.state.video_generation =>
+                {
+                    self.state.video_status = crate::video::Status::Finished;
+                    self.state.video_paused = true;
+                    self.state.video_position = self.state.duration();
+                    self.state.video_overlay = true;
+                }
+                crate::video::engine::Event::Error {
+                    generation,
+                    message,
+                } if self.state.video_active && generation == self.state.video_generation => {
+                    self.state.video_status = crate::video::Status::Error;
+                    self.state.video_paused = true;
+                    self.state.notice = format!("Playback error: {message}");
+                    ui.set_video_frame(slint::Image::default());
+                }
+                _ => {}
+            }
+        }
+        if let Some(progress) = self.video_engine.take_progress()
+            && self.state.video_active
+            && self.pending_media.is_none()
+            && progress.generation == self.state.video_generation
+        {
+            self.state.video_position = progress.position;
+            self.state.video_status = match progress.status {
+                crate::video::Status::Playing | crate::video::Status::Paused
+                    if self.state.video_paused =>
+                {
+                    crate::video::Status::Paused
+                }
+                status => status,
+            };
+        }
+    }
+
+    /// A lightweight 60 Hz frame pump; metadata/navigation remain on the 50 ms poll.
+    pub fn poll_video_frame(&mut self, ui: &AppWindow) {
+        if let Some(frame) = self.video_engine.take_frame()
+            && self.state.video_active
+            && self.pending_media.is_none()
+            && frame.generation == self.state.video_generation
+            && self.state.navigation.current().screen == Screen::VideoPlaying
+            && self.state.video_status != crate::video::Status::Error
+        {
+            let pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                &frame.rgba,
+                frame.width,
+                frame.height,
+            );
+            ui.set_video_frame(slint::Image::from_rgba8(pixels));
+        }
+    }
+
+    fn base_size(&self) -> (f32, f32) {
+        crate::video::orientation::window_base(self.state.device_mode, self.state.landscape_video())
     }
 
     fn resize(&mut self, ui: &AppWindow) {
         ui.set_device_mode(self.state.device_mode);
+        ui.set_video_landscape(self.state.landscape_video());
         let (width, height) = self.base_size();
         let current_size = ui.window().size().to_logical(ui.window().scale_factor());
         let menu_height = (current_size.height - ui.get_content_height()).max(0.0);
@@ -456,6 +725,15 @@ impl Controller {
 
     pub fn save_settings(&mut self, ui: &AppWindow) {
         let size = ui.window().size().to_logical(ui.window().scale_factor());
+        let (saved_width, saved_height) = if self.state.landscape_video() {
+            crate::video::orientation::saved_size(
+                self.state.device_mode,
+                self.state.zoom,
+                (size.height - ui.get_content_height()).max(0.0),
+            )
+        } else {
+            (size.width, size.height)
+        };
         self.settings = Settings {
             language: self.state.language,
             font: self.state.font,
@@ -463,8 +741,8 @@ impl Controller {
             romaji_visible: self.state.romaji_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
-            window_width: Some(size.width),
-            window_height: Some(size.height),
+            window_width: Some(saved_width),
+            window_height: Some(saved_height),
         };
         if let Err(message) = self.settings.save(&self.directory.join("settings.json")) {
             self.state.notice = format!("Cannot save window settings: {message}");
@@ -564,13 +842,18 @@ impl Controller {
         }
         self.poll_romaji(ui);
         self.poll_playlists(ui);
+        self.poll_videos(ui);
         while let Ok(event) = self.engine.events.try_recv() {
             match event {
+                AudioEvent::Stopped { handoff } => self.finish_video_handoff(handoff),
                 AudioEvent::Progress {
                     id,
                     status,
                     position,
-                } if self.state.current == Some(id) => {
+                } if !self.state.video_active
+                    && self.pending_media.is_none()
+                    && self.state.current == Some(id) =>
+                {
                     self.state.position = position;
                     self.state.status = if self.state.paused {
                         PlaybackStatus::Paused
@@ -578,11 +861,19 @@ impl Controller {
                         status
                     };
                 }
-                AudioEvent::Finished(id) if self.state.current == Some(id) => {
+                AudioEvent::Finished(id)
+                    if !self.state.video_active
+                        && self.pending_media.is_none()
+                        && self.state.current == Some(id) =>
+                {
                     let effects = self.state.advance(false);
                     self.effects(ui, effects);
                 }
-                AudioEvent::Error { id, message } if id.is_none() || id == self.state.current => {
+                AudioEvent::Error { id, message }
+                    if !self.state.video_active
+                        && self.pending_media.is_none()
+                        && (id.is_none() || id == self.state.current) =>
+                {
                     self.state.status = PlaybackStatus::Error;
                     self.state.notice = format!("Playback error: {message}");
                 }
@@ -601,9 +892,28 @@ impl Controller {
         let current_screen = self.state.navigation.current().screen.clone();
         let screen = &current_screen;
         let screen_changed = self.last_screen.as_ref() != Some(screen);
+        let landscape = self.state.landscape_video();
+        ui.set_video_landscape(landscape);
+        if landscape != self.last_landscape {
+            self.last_landscape = landscape;
+            self.resize(ui);
+        }
+        if self.last_video_generation != self.state.video_generation {
+            self.last_video_generation = self.state.video_generation;
+            ui.set_video_frame(slint::Image::default());
+        }
+        ui.set_video_overlay(self.state.video_overlay);
+        ui.set_video_title(
+            self.state
+                .video_current
+                .and_then(|id| self.state.videos.get(id))
+                .map_or("", |v| v.title.as_str())
+                .into(),
+        );
         ui.set_screen(match screen {
             Screen::Home => 0,
             Screen::NowPlaying => 2,
+            Screen::VideoPlaying => 9,
             Screen::Search => 3,
             Screen::Placeholder(_) => 4,
             Screen::Settings => 5,
@@ -626,7 +936,11 @@ impl Controller {
         ui.set_selected(self.state.navigation.selected() as i32);
         ui.set_home_page(self.state.home_page as i32);
         ui.set_clock_text(chrono::Local::now().format("%-I:%M %p").to_string().into());
-        ui.set_playing(self.state.status == PlaybackStatus::Playing);
+        ui.set_playing(if self.state.video_active {
+            self.state.video_status == crate::video::Status::Playing
+        } else {
+            self.state.status == PlaybackStatus::Playing
+        });
         ui.set_has_track(self.state.current.is_some());
         ui.set_volume(self.state.volume);
         ui.set_muted(self.state.muted);
@@ -639,6 +953,7 @@ impl Controller {
         ui.set_notice(
             if self.notice_since.elapsed().as_secs() < 3
                 || self.state.importing
+                || self.state.video_importing
                 || self.state.romaji_generating.is_some()
             {
                 i18n::notice(self.state.language, &self.state.notice).into()
@@ -660,16 +975,16 @@ impl Controller {
         });
         let duration = self.state.duration();
         ui.set_progress(if duration > 0.0 {
-            (self.state.position / duration).clamp(0.0, 1.0) as f32
+            (self.state.active_position() / duration).clamp(0.0, 1.0) as f32
         } else {
             0.0
         });
-        ui.set_elapsed(format_time(self.state.position).into());
+        ui.set_elapsed(format_time(self.state.active_position()).into());
         ui.set_duration(format_time(duration).into());
         ui.set_remaining(
             format!(
                 "−{}",
-                format_time((duration - self.state.position).max(0.0))
+                format_time((duration - self.state.active_position()).max(0.0))
             )
             .into(),
         );
@@ -680,13 +995,15 @@ impl Controller {
                     | Screen::Artist(_)
                     | Screen::Songs(_)
                     | Screen::Search
+                    | Screen::Videos
             );
             let source_rows = self.state.rows();
             self.row_artwork = source_rows.iter().map(|row| row.artwork_id).collect();
             let rows = source_rows
                 .into_iter()
                 .map(|row| LibraryRow {
-                    title: if metadata_rows
+                    title: if matches!(&row.target, Target::PlayVideo(_))
+                        || (metadata_rows && !matches!(&row.target, Target::Action(_)))
                         || matches!(
                             &row.target,
                             Target::Screen(Screen::Songs(Filter::Playlist { .. }))
@@ -723,7 +1040,10 @@ impl Controller {
                     ),
                     chevron: !matches!(
                         row.target,
-                        Target::Play(_) | Target::Language(_) | Target::Font(_)
+                        Target::Play(_)
+                            | Target::PlayVideo(_)
+                            | Target::Language(_)
+                            | Target::Font(_)
                     ),
                     font_family: if let Target::Font(font) = row.target {
                         font.family().into()
@@ -748,6 +1068,7 @@ impl Controller {
             if matches!(
                 screen,
                 Screen::Music
+                    | Screen::Videos
                     | Screen::Groups(_)
                     | Screen::Artist(_)
                     | Screen::Songs(_)
@@ -1327,6 +1648,15 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
             &key,
         )
         .into()
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_open_genius_requested(move || {
+        if let Some(ui) = weak.upgrade() {
+            let mut controller = state.borrow_mut();
+            controller.prepare_portrait_dialog(&ui);
+            ui.invoke_open_genius_preview();
+        }
     });
     let weak = ui.as_weak();
     let state = controller.clone();

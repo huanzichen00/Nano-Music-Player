@@ -2,17 +2,17 @@
 
 ## Current milestone
 
-The isolated `src/video` backend imports local video metadata, stores a separate
+Videos is integrated into the app's Home navigation, File menu, reducer and
+controller. The `src/video` backend imports local video metadata, stores a separate
 `videos.json` library, and plays through dynamically loaded libmpv. `ui/video.slint`
-provides the playback view. Shared application integration is pending the other
-chat's playlist integration commit; these files alone do not activate Videos in
-the normal app. No music table, playlist schema or shared manifest was changed.
+provides the playback view. Music tables, playlist schema and music queue indices
+are independent of the video library.
 
 The interface follows chapter 5, pages 27–28 of the supplied iPod nano seventh
 generation manual (`/Users/huanzichen/Downloads/Study/References/46034.pdf`): select
 from Videos; tap the image to show/hide Done, position and transport controls.
 Desktop volume is also visible. Frames fit the available display without cropping.
-Landscape videos now have an isolated whole-device rotation layout, described below.
+Landscape playback rotates the whole device, as described below.
 Chapter selection, rentals, subtitles and video playlists are outside this milestone.
 
 ## Whole-device landscape orientation
@@ -32,29 +32,32 @@ The shape remains proportional at every zoom. `ui/video-shell.svg` uses exactly 
 existing shell's vector geometry under a quarter-turn, including its gradients.
 It supports software rendering without relying on unsupported Slint transforms.
 
-At integration, bind the child's x/y to zero, width/height to the frame's
-`display-width`/`display-height`, and UI scale to its `scale` output. The frame emits
-the physical `home` callback and exposes display bounds for dialog positioning.
-The controller must swap the native window's content dimensions and Slint minimum/
-maximum bounds before resizing, keeping the menu outside the device. Use
-`orientation::window_base` for aspect maintenance and `orientation::saved_size`
-to persist canonical upright dimensions even when closing during landscape playback.
-Returning to the list must restore portrait at the current zoom, without changing
-music or display-mode preferences. **These shared-app hooks still await playlist
-ownership handoff; the normal app has not been changed.**
+The app binds the child's coordinates to the frame's LCD bounds and scale. The
+controller swaps native content dimensions and Slint minimum/maximum bounds,
+keeping menus outside the device. `orientation::window_base` maintains aspect;
+`orientation::saved_size` persists canonical upright dimensions even when closing
+during landscape playback. Done/Back and Home restore portrait at the current zoom.
 
-The isolated headless preview checks landscape/portrait/Screen Mode geometry,
-return to portrait, and pointer activation of Home, Done and play/pause in the
-sideways body. Its PNGs were visually inspected. No normal app was rebuilt or opened.
+The landscape overlay follows the manual's compact arrangement: Done, elapsed,
+seek and remaining share one top row. The transport panel is centered at 56% of
+LCD width. A compact desktop volume/mute row sits below it; tapping the video
+toggles the overlay. Portrait playback retains the title and two-row top controls.
+Opening a portrait-only playlist, Genius, shortcut editor or help dialog from
+landscape uses Done/Back semantics first, pausing video and retaining the Videos
+list selection and zoom. Existing music dialog behavior is unchanged.
 
-![Isolated landscape video device preview](previews/video-landscape.png)
+Integrated software-rendered app previews and native decoded-frame previews were
+visually inspected. The normal running app was not restarted for these tests;
+combined app packaging and native delivery are handled by the primary chat.
+
+![Integrated landscape video device preview](previews/video-landscape.png)
 
 ## Runtime dependencies and formats
 
 On macOS, install `brew install mpv` (includes FFmpeg/ffprobe). The development
 machine was exercised with Homebrew mpv 0.41.0 and FFmpeg 9.0.2 on Apple Silicon.
 No native libraries are linked into the Rust binary at build time. `libloading`
-0.8.9 is the only additional Rust dependency needed at integration.
+0.8.9 is the only additional Rust dependency.
 
 - Playback loads libmpv client ABI **2** (mpv 0.35 or newer), tries Apple Silicon
   and Intel Homebrew locations, then platform library names. `NANO_MPV_LIBRARY`
@@ -87,7 +90,10 @@ dependencies; mpv's default build is GPL, with an optional LGPL build configurat
 destroys the previous session before creating another, even for the same path.
 Every transport command, progress snapshot, frame, completion and error carries a
 monotonically increasing generation supplied by the reducer. Stale transport
-commands are ignored. Native events cannot cross session boundaries.
+commands are ignored. Native events cannot cross session boundaries. EOF replay
+and seek open a fresh generation; seeking after EOF starts paused at the requested
+position. Native errors destroy the session, clear the latest frame and publish a
+matching Error snapshot, preventing stale Playing progress from overriding errors.
 
 The worker uses asynchronous mpv commands and property observations after render
 context creation, following the renderer's threading restrictions. mpv owns
@@ -98,12 +104,11 @@ Software targets have 64-byte aligned pointers/strides and a longest dimension o
 The RGB0 byte is explicitly converted to opaque alpha before reaching Slint.
 
 `take_frame` and `take_progress` consume a single latest-value slot each. A slow UI
-replaces old frames instead of accumulating a decode backlog. The controller must
-convert owned RGBA bytes to `slint::SharedPixelBuffer<Rgba8Pixel>` / `Image` on the UI
-thread and reject generations that are no longer current. UI resizing uses Slint
-`image-fit: contain`, preserving aspect. The controller should consume frames on a
-separate approximately 16 ms timer; the existing 50 ms app poll is too slow for
-smooth 24/30 fps playback. Native shutdown frees the render context before mpv,
+replaces old frames instead of accumulating a decode backlog. The controller
+converts owned RGBA bytes to `slint::SharedPixelBuffer<Rgba8Pixel>` / `Image` on the UI
+thread and rejects generations that are no longer current. UI resizing uses Slint
+`image-fit: contain`, preserving aspect. A separate 16 ms timer consumes frames;
+navigation and progress use the existing 50 ms poll. Native shutdown frees the render context before mpv,
 then joins the worker without holding the frame mutex.
 
 Library import runs on a separate worker. It recursively scans supported
@@ -112,51 +117,51 @@ atomically replaces `videos.json`. Probe failures retain existing entries and
 report per-file errors. A corrupt existing library is preserved and reported,
 rather than overwritten. Original media is never modified or copied.
 
-## Integration contract
+## Application integration
 
-After playlist ownership is released:
+Home → Videos provides Import Videos and local video rows. File → Import Videos
+opens a file picker on a worker; Command/Ctrl+O imports videos when in the video
+list or player. Cancellation clears busy state, and source titles remain literal
+across languages. Notices and action labels use the existing translation catalog.
 
-1. Export `pub mod video` from `src/lib.rs` and add `libloading = "0.8.9"`.
-2. Add Videos and VideoPlaying navigation, a video-library row target and Import
-   Videos action. Keep music indices/queue separate from video entries. Reducer
-   state owns the current video path/index, generation, progress/status and overlay.
-3. Load/import the video library on workers; file-picker cancellation clears the
-   busy state. Persist only successfully imported results. Display source metadata
-   without translating titles. Error/status text uses the existing i18n mechanism.
-4. Add explicit audio-ownership handoff acknowledgements: suspend/stop the music
-   sink before sending video Load; wait for video Stop completion before music Load
-   or resume (`Command::Stop { handoff }` replies `Event::Stopped { handoff }`
-   only after native destruction). Ignore music progress/completion while video owns the output. Simply
-   sending commands to both workers concurrently is insufficient to guarantee no
-   brief overlap. Keep the suspended music queue/selection for later playback.
-5. Route Space, global volume/mute, seek, previous/next and Now Playing to the active
-   media owner. Videos uses list navigation; playback uses Now Playing's seek/volume
-   surfaces. Back/Done pauses video and returns to its list; Home preserves the
-   owner's transport semantics. Selecting music switches ownership explicitly.
-6. Bind `VideoView` to its frame/status/controls and add the native File menu import
-   item. Wrap playback with `VideoDeviceFrame`, select landscape using displayed
-   video aspect, and swap the whole native window bounds while preserving zoom.
-   Keep the existing shortcut editor, music controls and settings functioning.
-7. Run full formatting/check/tests/strict lint and headless UI regressions; verify
-   the native app with a generated clip only after playlist bundle delivery.
+The reducer owns the current video index, generation, progress/status and overlay.
+Space, volume/mute, seek, previous/next and Now Playing route to the current media
+owner. Done/Back pauses and returns to Videos; Home retains active media controls.
+Choosing a music row explicitly switches back to music and its existing queue.
+
+Ownership transitions are acknowledged: music destroys its sink/output stream
+before video Load; video destroys the native session before music Load. Only the
+latest matching handoff acknowledgement starts the pending source. Pause, volume
+and seeking during a handoff use current reducer state when the load begins.
+Music completion/progress is ignored while video owns the output; video frames,
+completion and errors are accepted only for the active generation.
 
 ## Verification
 
-During isolation, `/tmp/nano-video-prototype/Cargo.toml` exports the module by path
-with independent `libloading`, `serde`, `serde_json`, `walkdir` and `tempfile`
-dependencies. It does not build or restart the normal app. `src/video/tests.rs`
-contains explicit ignored native tests so dependency-free default test runs remain
-usable. Run native checks with `cargo test video:: -- --include-ignored` once exported.
+`src/video/tests.rs` contains three ignored native tests, so default test runs do
+not require libmpv/FFmpeg. Run them with `cargo test --lib video:: -- --include-ignored`.
+They exercise generated original media, import/reload/deduplication, damaged files,
+RGB frames/alpha, pause, paused seek, volume, stale generations, reopening the same
+file, EOF replay/seek, stop, missing-source Error snapshots, a real non-null audio
+driver, the codec/container matrix and silent video. Metadata tests cover anamorphic
+aspect, rotation and attached-picture rejection.
 
-Six module tests (including three explicit native tests) and the separate Slint
-preview render test pass. The preview's visible and hidden control states were
-inspected as PNGs without opening the normal app. Tests exercise original generated media, import/reload/deduplication, damaged file
-handling, actual RGB frames and alpha, pause, paused seek, volume commands, stale
-generations, reopening the same file, EOF, stop, missing sources and default audio
-output (observing a non-null native audio driver), the codec/container matrix and
-silent video. Metadata tests cover anamorphic aspect, rotation and attached-picture
-rejection. Current native tests and prototype strict lint pass; application/UI
-integration remains unverified until the shared-file handoff.
+`tests/video.rs` verifies orientation/navigation, separate music queue/position,
+transport routing, EOF generations, stable video indices and translations.
+`tests/video_ui.rs` renders the actual app and checks Device/Screen Mode dimensions,
+zoom, persisted upright size, compact landscape seeking/volume/transport hit areas,
+Done and Home, portrait sources, and usable portrait dialogs after landscape.
+Its ignored native test imports a generated MP4, receives actual decoded frames,
+checks rotation, Back/pause, EOF replay and acknowledged return to generated music.
+Run it with `cargo test --test video_ui -- --ignored`.
+
+Full application validation passes: formatting, `cargo check --all-targets`,
+117 default tests (seven explicitly ignored native/manual profiles), strict Clippy
+and whitespace checks. All four explicit native video checks also pass, including
+the integrated decoded-frame/music-handoff test after the compact-overlay/dialog
+refinement. Generated previews are saved
+under the system temporary directory's `nano-qa` folder. No user media is imported
+or changed during verification. Native normal-app QA remains with the primary chat.
 
 ## Primary references
 

@@ -1,5 +1,6 @@
 //! Local video playback. Native handles and decoding never enter the UI thread.
 pub mod engine;
+pub mod import;
 pub mod library;
 mod mpv;
 pub mod orientation;

@@ -100,6 +100,7 @@ fn native_import_transport_generations_and_errors() {
         .send(Command::Load {
             generation: 1,
             video: video.clone(),
+            start: 0.0,
             volume: 0.2,
             paused: false,
         })
@@ -145,6 +146,7 @@ fn native_import_transport_generations_and_errors() {
         .send(Command::Load {
             generation: 2,
             video: video.clone(),
+            start: 0.0,
             volume: 0.0,
             paused: true,
         })
@@ -182,6 +184,42 @@ fn native_import_transport_generations_and_errors() {
         .unwrap();
     wait(&engine, |p| p.status == Status::Finished);
     assert!(matches!(engine.events.try_recv(), Ok(Event::Finished(2))));
+    // EOF unloads the native file. Replay and seeking after EOF open fresh sessions.
+    engine
+        .send(Command::Load {
+            generation: 3,
+            video: video.clone(),
+            start: 0.0,
+            volume: 0.0,
+            paused: false,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 3 && p.status == Status::Playing && p.position > 0.1 && p.position < 1.0
+    });
+    engine
+        .send(Command::Seek {
+            generation: 3,
+            seconds: 3.5,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 3 && p.status == Status::Finished
+    });
+    assert!(matches!(engine.events.try_recv(), Ok(Event::Finished(3))));
+    engine
+        .send(Command::Load {
+            generation: 4,
+            video: video.clone(),
+            start: 1.5,
+            volume: 0.0,
+            paused: true,
+        })
+        .unwrap();
+    wait(&engine, |p| {
+        p.generation == 4 && p.status == Status::Paused && (p.position - 1.5).abs() < 0.15
+    });
+    assert_eq!(engine.take_frame().unwrap().generation, 4);
     engine.send(Command::Stop { handoff: 42 }).unwrap();
     assert!(matches!(
         engine.events.recv_timeout(Duration::from_secs(2)),
@@ -193,8 +231,9 @@ fn native_import_transport_generations_and_errors() {
     missing.path = dir.path().join("missing.mp4");
     engine
         .send(Command::Load {
-            generation: 3,
+            generation: 5,
             video: missing,
+            start: 0.0,
             volume: 0.0,
             paused: false,
         })
@@ -202,7 +241,10 @@ fn native_import_transport_generations_and_errors() {
     let start = Instant::now();
     loop {
         if let Ok(Event::Error { generation, .. }) = engine.events.try_recv() {
-            assert_eq!(generation, 3);
+            assert_eq!(generation, 5);
+            let progress = engine.take_progress().unwrap();
+            assert_eq!((progress.generation, progress.status), (5, Status::Error));
+            assert!(engine.take_frame().is_none());
             break;
         }
         assert!(start.elapsed() < Duration::from_secs(5));
@@ -222,6 +264,7 @@ fn native_default_audio_output_clock() {
         .send(Command::Load {
             generation: 1,
             video,
+            start: 0.0,
             volume: 0.02,
             paused: false,
         })
@@ -310,6 +353,7 @@ fn native_container_codec_matrix() {
             .send(Command::Load {
                 generation,
                 video,
+                start: 0.0,
                 volume: 0.0,
                 paused: false,
             })

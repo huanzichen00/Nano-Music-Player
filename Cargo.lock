@@ -3173,6 +3173,7 @@ dependencies = [
  "i-slint-backend-testing",
  "image",
  "jpeg-decoder",
+ "libloading",
  "lofty",
  "lrc",
  "rand 0.9.5",

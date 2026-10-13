@@ -19,11 +19,17 @@ pub enum AudioCommand {
     Pause(bool),
     Volume(f32),
     Seek(f64),
+    Stop {
+        handoff: u64,
+    },
     Shutdown,
 }
 
 #[derive(Debug)]
 pub enum AudioEvent {
+    Stopped {
+        handoff: u64,
+    },
     Progress {
         id: usize,
         status: PlaybackStatus,
@@ -98,6 +104,16 @@ impl Default for Engine {
                                             sink.play();
                                         }
                                     }
+                                }
+                                AudioCommand::Stop { handoff } => {
+                                    if let Some(old) = sink.take() {
+                                        old.stop();
+                                    }
+                                    // Release the stream before acknowledging exclusive ownership.
+                                    stream = None;
+                                    current = None;
+                                    finished = true;
+                                    let _ = events.send(AudioEvent::Stopped { handoff });
                                 }
                                 AudioCommand::Volume(volume) => {
                                     if let Some(sink) = &sink {

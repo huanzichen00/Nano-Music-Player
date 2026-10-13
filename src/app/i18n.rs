@@ -41,6 +41,29 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Import Videos", "导入视频", "ビデオを読み込む"),
+    ("Import Videos…", "导入视频…", "ビデオを読み込む…"),
+    (
+        "Choose local videos…",
+        "请选择本地视频…",
+        "ローカルビデオを選択…",
+    ),
+    (
+        "Imported {0} videos",
+        "已导入 {0} 个视频",
+        "ビデオを{0}本読み込みました",
+    ),
+    ("{0} errors: {1}", "{0} 个错误：{1}", "{0}件のエラー：{1}"),
+    (
+        "Video library error:",
+        "视频资料库错误：",
+        "ビデオライブラリのエラー：",
+    ),
+    (
+        "Video import failed:",
+        "视频导入失败：",
+        "ビデオの読み込みに失敗しました：",
+    ),
     ("Next track", "下一首", "次の曲"),
     ("Previous track", "上一首", "前の曲"),
     (
@@ -791,6 +814,23 @@ pub fn notice(language: Language, text: &str) -> String {
     if language == Language::English {
         return text.to_owned();
     }
+    if let Some(rest) = text.strip_prefix("Imported ")
+        && let Some((count, errors)) = rest.split_once(" videos")
+        && count.parse::<usize>().is_ok()
+    {
+        let imported = translate(language, "Imported {0} videos").replace("{0}", count);
+        if let Some(errors) = errors.strip_prefix(" · ")
+            && let Some((count, detail)) = errors.split_once(" errors: ")
+        {
+            return format!(
+                "{imported} · {}",
+                translate(language, "{0} errors: {1}")
+                    .replace("{0}", count)
+                    .replace("{1}", detail)
+            );
+        }
+        return imported;
+    }
     if let Some(count) = text.strip_suffix(" songs")
         && count.parse::<usize>().is_ok()
     {
@@ -814,6 +854,8 @@ pub fn notice(language: Language, text: &str) -> String {
         "Invalid shortcuts.json: ",
         "Playback error: ",
         "Import failed: ",
+        "Video library error: ",
+        "Video import failed: ",
         "Lyrics import failed: ",
         "Cannot save window settings: ",
     ] {

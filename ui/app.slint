@@ -6,6 +6,8 @@ import "fonts/jetbrains-mono/JetBrainsMono-Regular.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-Bold.ttf";
 import { LibraryView, LibraryRow, ListMetrics } from "library.slint";
+import { VideoView } from "video.slint";
+import { VideoDeviceFrame } from "video-device.slint";
 import { NowPlayingView } from "now-playing.slint";
 import { ShortcutEditor } from "shortcut-editor.slint";
 import { DeepSeekSettings } from "deepseek-settings.slint";
@@ -21,10 +23,10 @@ export struct ShortcutRow { category: string, title: string, keys: string }
 export component AppWindow inherits Window {
     title: "iPod nano";
     preferred-width: 370px; preferred-height: 296px * 76.5 / 39.6 * 1.25;
-    min-width: (device-mode ? 296px : 240px) * 0.75;
-    min-height: (device-mode ? (296px * 76.5 / 39.6) : 432px) * 0.75;
-    max-width: (device-mode ? 296px : 240px) * 3;
-    max-height: (device-mode ? (296px * 76.5 / 39.6) : 432px) * 3;
+    min-width: root.base-width * 0.75;
+    min-height: root.base-height * 0.75;
+    max-width: root.base-width * 3;
+    max-height: root.base-height * 3;
     no-frame: device-mode;
     resize-border-width: device-mode ? 5px : 0px;
     background: device-mode ? transparent : #fff;
@@ -34,6 +36,12 @@ export component AppWindow inherits Window {
     in property <string> ui-font-family: "Helvetica Neue";
     in property <bool> device-mode: true;
     in property <int> screen;
+    in property <bool> video-landscape;
+    in property <bool> video-overlay: true;
+    in property <image> video-frame;
+    in property <string> video-title;
+    private property <length> base-width: video-landscape ? (device-mode ? 296px * 76.5 / 39.6 : 432px) : (device-mode ? 296px : 240px);
+    private property <length> base-height: video-landscape ? (device-mode ? 296px : 240px) : (device-mode ? 296px * 76.5 / 39.6 : 432px);
     in property <string> screen-title;
     in property <int> selected;
     in property <int> home-page;
@@ -100,12 +108,13 @@ export component AppWindow inherits Window {
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
     out property <length> content-height: keyboard.height;
-    private property <float> s: min(keyboard.width / ((device-mode ? 296 : 240) * 1px), keyboard.height / ((device-mode ? 296 * 76.5 / 39.6 : 432) * 1px));
+    private property <float> s: min(keyboard.width / root.base-width, keyboard.height / root.base-height);
     callback key-event(KeyEvent, bool) -> bool;
     callback command(string);
     callback shortcut-command(string);
     callback deepseek-command(string);
     callback genius-command(string);
+    callback open-genius-requested;
     callback playlist-command(string, string);
     callback item-clicked(int);
     callback query-changed(string);
@@ -156,6 +165,7 @@ export component AppWindow inherits Window {
         Menu {
             title: I18n.tr("File");
             MenuItem { title: I18n.tr("New Playlist…"); enabled: !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("new_playlist"); } }
+            MenuItem { title: I18n.tr("Import Videos…"); activated => { root.command("import_videos"); } }
             MenuItem { title: I18n.tr("Import Music Folder…"); activated => { root.command("import_folder"); } }
             MenuItem { title: I18n.tr("Import / Replace Lyrics…"); activated => { root.command("import_lyrics"); } }
             MenuItem { title: I18n.tr("Search Library…"); activated => { root.command("search"); } }
@@ -168,7 +178,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Previous Track"); activated => { root.command("previous_track"); } }
             MenuItem { title: I18n.tr("Now Playing"); activated => { root.command("now_playing"); } }
             MenuItem { title: I18n.tr("Lyrics for Track…"); activated => { root.command("manage_lyrics"); } }
-            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.playlist-editor-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-preview(); } }
+            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.playlist-editor-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-requested(); } }
         }
         Menu {
             title: I18n.tr("View");
@@ -228,7 +238,7 @@ export component AppWindow inherits Window {
             }
             return root.key-event(event, library.search-focused) ? accept : reject;
         }
-        if root.device-mode: Rectangle {
+        if root.device-mode && root.screen != 9: Rectangle {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 296px * root.s; height: (296px * 76.5 / 39.6) * root.s;
             // SVG keeps gradient curves consistent in native and software renderers.
@@ -245,6 +255,7 @@ export component AppWindow inherits Window {
             }
         }
         display := Rectangle {
+            visible: root.screen != 9;
             x: (parent.width - self.width) / 2;
             y: root.device-mode ? (parent.height - (296px * 76.5 / 39.6) * root.s) / 2 + 36px * root.s : (parent.height - self.height) / 2;
             width: 240px * root.s; height: 432px * root.s; clip: true; background: #fff;
@@ -317,20 +328,37 @@ export component AppWindow inherits Window {
                 back => { root.command("back"); keyboard.focus(); }
             }
         }
+        video-device := VideoDeviceFrame {
+            visible: root.screen == 9;
+            x: 0px; y: 0px; width: keyboard.width; height: keyboard.height;
+            device-mode: root.device-mode; landscape: root.video-landscape;
+            home => { root.command("home"); keyboard.focus(); }
+            VideoView {
+                x: 0px; y: 0px; width: video-device.display-width; height: video-device.display-height; s: video-device.scale;
+                frame: root.video-frame; title: root.video-title;
+                playing: root.playing; controls-visible: root.video-overlay;
+                selection-visible: root.keyboard-navigation; selected: root.selected;
+                progress: root.progress; elapsed: root.elapsed; remaining: root.remaining;
+                volume: root.volume; muted: root.muted;
+                command(name) => { root.command(name); keyboard.focus(); }
+                seek-changed(value) => { root.seek-changed(value); }
+                volume-changed(value) => { root.volume-changed(value); }
+            }
+        }
         if root.shortcut-editor-open: ShortcutEditor {
-            x: display.x; y: display.y; width: display.width; height: display.height;
+            x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y; width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; title: root.shortcut-title; keys: root.shortcut-keys;
             message: root.shortcut-message; recording: root.shortcut-recording;
             command(name) => { root.shortcut-command(name); }
         }
         genius-preview := GeniusPreview {
             visible: root.genius-preview-open;
-            x: display.x; y: display.y; width: display.width; height: display.height;
+            x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y; width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; seed-title: root.genius-seed-title; seed-artist: root.genius-seed-artist; seed-available: root.genius-seed-available;
             command(name) => { root.genius-action(name); }
         }
         playlist-editor := PlaylistEditor {
-            x: display.x; y: display.y; width: display.width; height: display.height;
+            x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y; width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; open: root.playlist-editor-open; name <=> root.playlist-name;
             candidates: root.playlist-candidates; draft: root.playlist-draft; persisted: root.playlist-persisted;
             library-loading: root.playlist-library-loading; saving: root.playlist-saving;
@@ -338,15 +366,15 @@ export component AppWindow inherits Window {
             command(name, id) => { root.playlist-action(name, id); }
         }
         deepseek-dialog := DeepSeekSettings {
-            x: display.x; y: display.y; width: display.width; height: display.height;
+            x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y; width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; open: root.deepseek-settings-open; key-configured: root.deepseek-key-configured;
             message: root.deepseek-message; api-key <=> root.deepseek-api-key; model <=> root.deepseek-model;
             command(name) => { root.deepseek-command(name); }
         }
         // Status stays inside the display; the window has no surrounding panel or footer.
         if root.notice != "" && root.notice != "Ready" && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open: Rectangle {
-            x: display.x + 4px * root.s; y: display.y + (root.screen == 2 ? 296px : 408px) * root.s;
-            width: display.width - 8px * root.s; height: 20px * root.s; background: #222d;
+            x: (root.screen == 9 ? video-device.display-x : display.x) + 4px * root.s; y: root.screen == 9 ? video-device.display-y + video-device.display-height - 24px * root.s : display.y + (root.screen == 2 ? 296px : 408px) * root.s;
+            width: (root.screen == 9 ? video-device.display-width : display.width) - 8px * root.s; height: 20px * root.s; background: #222d;
             Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
         }
         if root.reference-open: Rectangle {

@@ -10,6 +10,7 @@ pub enum Command {
     Load {
         generation: Generation,
         video: Video,
+        start: f64,
         volume: f32,
         paused: bool,
     },
@@ -101,30 +102,36 @@ impl Engine {
                     Ok(Command::Load {
                         generation,
                         video,
+                        start,
                         volume,
                         paused,
                     }) => {
                         // Destroy before opening: native events and callbacks cannot cross sessions.
                         session = None;
                         *output.lock().unwrap() = Latest::default();
-                        match Session::open(generation, &video, volume, paused, silent) {
+                        match Session::open(generation, &video, start, volume, paused, silent) {
                             Ok(next) => session = Some(next),
-                            Err(message) => {
-                                let _ = events.send(Event::Error {
+                            Err(message) => publish_error(
+                                &output,
+                                &events,
+                                Progress {
                                     generation,
-                                    message,
-                                });
-                            }
+                                    status: Status::Error,
+                                    position: start,
+                                    duration: video.duration,
+                                    audio_output: None,
+                                },
+                                message,
+                            ),
                         }
                     }
                     Ok(command) => {
                         if let Some(active) = &mut session
                             && let Err(message) = active.command(command)
                         {
-                            let _ = events.send(Event::Error {
-                                generation: active.generation,
-                                message,
-                            });
+                            let progress = active.error_snapshot();
+                            session = None;
+                            publish_error(&output, &events, progress, message);
                         }
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -132,11 +139,9 @@ impl Engine {
                 if let Some(active) = &mut session
                     && let Err(message) = active.poll(&output, &events)
                 {
-                    let _ = events.send(Event::Error {
-                        generation: active.generation,
-                        message,
-                    });
+                    let progress = active.error_snapshot();
                     session = None;
+                    publish_error(&output, &events, progress, message);
                 }
             }
             // Session frees the renderer before destroying mpv, on its owner thread.
@@ -171,4 +176,21 @@ impl Drop for Engine {
             let _ = worker.join();
         }
     }
+}
+
+fn publish_error(
+    output: &Arc<Mutex<Latest>>,
+    events: &mpsc::Sender<Event>,
+    progress: Progress,
+    message: String,
+) {
+    let generation = progress.generation;
+    *output.lock().unwrap() = Latest {
+        frame: None,
+        progress: Some(progress),
+    };
+    let _ = events.send(Event::Error {
+        generation,
+        message,
+    });
 }

@@ -1,0 +1,346 @@
+use nano_music_player::{
+    app::{
+        action::Action,
+        config::Settings,
+        controller::{Controller, connect},
+        navigation::{Filter, Screen},
+    },
+    audio::PlaybackStatus,
+    library::{Track, lyrics::Lyrics},
+    ui::AppWindow,
+    video::{Status, library::Video, orientation},
+};
+use slint::{
+    ComponentHandle,
+    platform::{PointerEventButton, WindowEvent},
+};
+use std::{
+    cell::RefCell,
+    path::Path,
+    rc::Rc,
+    time::{Duration, Instant},
+};
+
+fn setup(directory: &Path) -> (AppWindow, Rc<RefCell<Controller>>) {
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
+            mock_time: true,
+            ..Default::default()
+        },
+    )))
+    .unwrap();
+    let ui = AppWindow::new().unwrap();
+    let controller = Rc::new(RefCell::new(Controller::new(directory.to_path_buf())));
+    connect(&ui, &controller);
+    controller.borrow_mut().initialize(&ui);
+    ui.show().unwrap();
+    ui.invoke_focus_screen();
+    (ui, controller)
+}
+
+fn assert_size(ui: &AppWindow, device: bool, landscape: bool, zoom: f32) {
+    let (width, height) = orientation::window_base(device, landscape);
+    let size = ui.window().size().to_logical(ui.window().scale_factor());
+    assert!((size.width - width * zoom).abs() < 1.0, "{size:?}");
+    assert!(
+        (ui.get_content_height() - height * zoom).abs() < 1.0,
+        "{size:?}"
+    );
+    assert_eq!(ui.get_video_landscape(), landscape);
+}
+
+// Position in the full rotated body, with the native menu outside the content.
+fn click_body(ui: &AppWindow, x: f32, y: f32) {
+    let size = ui.window().size().to_logical(ui.window().scale_factor());
+    let scale = ui.get_display_scale();
+    let position =
+        slint::LogicalPosition::new(x * scale, size.height - ui.get_content_height() + y * scale);
+    ui.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    ui.window().dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+}
+
+fn snapshot(ui: &AppWindow, name: &str) {
+    let pixels = ui.window().take_snapshot().unwrap();
+    let directory = std::env::temp_dir().join("nano-qa");
+    std::fs::create_dir_all(&directory).unwrap();
+    image::save_buffer(
+        directory.join(format!("{name}.png")),
+        pixels.as_bytes(),
+        pixels.width(),
+        pixels.height(),
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+}
+
+fn open_video(ui: &AppWindow, controller: &RefCell<Controller>, row: usize) {
+    let mut controller = controller.borrow_mut();
+    controller.state.navigation.open(Screen::Videos);
+    controller.state.navigation.select(row);
+    controller.execute(ui, Action::Activate);
+}
+
+#[test]
+fn whole_device_rotation_controls_modes_zoom_and_portrait_restoration() {
+    let directory = tempfile::tempdir().unwrap();
+    let (ui, controller) = setup(directory.path());
+    controller.borrow_mut().state.merge_videos(vec![
+        Video {
+            path: directory.path().join("landscape.mp4"),
+            title: "Landscape fixture".into(),
+            duration: 12.0,
+            width: 320,
+            height: 180,
+            display_aspect: 16.0 / 9.0,
+            video_codec: "h264".into(),
+            audio_codec: None,
+        },
+        Video {
+            path: directory.path().join("portrait.mp4"),
+            title: "Portrait fixture".into(),
+            duration: 12.0,
+            width: 180,
+            height: 320,
+            display_aspect: 9.0 / 16.0,
+            video_codec: "h264".into(),
+            audio_codec: None,
+        },
+    ]);
+    open_video(&ui, &controller, 1);
+    assert_size(&ui, true, true, 1.25);
+    // A deterministic RGB fixture lets the full app render without native codecs.
+    let mut pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(320, 180);
+    for (index, pixel) in pixels.make_mut_slice().iter_mut().enumerate() {
+        *pixel = slint::Rgba8Pixel {
+            r: ((index % 320) * 255 / 320) as u8,
+            g: ((index / 320) * 255 / 180) as u8,
+            b: 100,
+            a: 255,
+        };
+    }
+    ui.set_video_frame(slint::Image::from_rgba8(pixels));
+    snapshot(&ui, "video-integrated-landscape");
+    click_body(&ui, 36.0 + 216.0, 28.0 + 180.0);
+    assert!(
+        controller.borrow().state.video_paused,
+        "landscape play/pause must be clickable"
+    );
+    let generation = controller.borrow().state.video_generation;
+    click_body(&ui, 36.0 + 60.0, 28.0 + 180.0);
+    assert!(
+        !controller.borrow().state.video_overlay,
+        "the video beside the compact transport must remain tappable"
+    );
+    assert_eq!(controller.borrow().state.video_generation, generation);
+    click_body(&ui, 36.0 + 216.0, 28.0 + 100.0);
+    assert!(controller.borrow().state.video_overlay);
+    click_body(&ui, 36.0 + 216.0, 28.0 + 17.0);
+    assert!(
+        (controller.borrow().state.video_position - 4.8).abs() < 0.2,
+        "inline landscape seeking must work"
+    );
+    click_body(&ui, 36.0 + 216.0, 28.0 + 225.0);
+    assert!(
+        controller.borrow().state.volume > 0.5,
+        "compact desktop volume must work"
+    );
+    controller.borrow_mut().save_settings(&ui);
+    let settings = Settings::load(&directory.path().join("settings.json")).unwrap();
+    assert!((settings.window_width.unwrap() - 370.0).abs() < 1.0);
+    assert!(settings.window_height.unwrap() > 700.0);
+    controller.borrow_mut().execute(&ui, Action::ScreenMode);
+    assert_size(&ui, false, true, 1.25);
+    snapshot(&ui, "video-integrated-screen-landscape");
+    controller.borrow_mut().execute(&ui, Action::DeviceMode);
+    controller.borrow_mut().execute(&ui, Action::ZoomIn);
+    let zoom = controller.borrow().state.zoom;
+    assert_size(&ui, true, true, zoom);
+    // Done uses the LCD coordinates of the sideways device.
+    click_body(&ui, 36.0 + 30.0, 28.0 + 17.0);
+    assert_eq!(
+        controller.borrow().state.navigation.current().screen,
+        Screen::Videos
+    );
+    assert_size(&ui, true, false, zoom);
+    open_video(&ui, &controller, 2);
+    assert_size(&ui, true, false, zoom);
+    snapshot(&ui, "video-integrated-portrait");
+    open_video(&ui, &controller, 1);
+    click_body(&ui, orientation::BODY_HEIGHT - 58.0, 148.0);
+    assert_eq!(
+        controller.borrow().state.navigation.current().screen,
+        Screen::Home
+    );
+    assert_size(&ui, true, false, zoom);
+    snapshot(&ui, "video-integrated-home-restored");
+    open_video(&ui, &controller, 1);
+    controller.borrow_mut().execute(&ui, Action::NewPlaylist);
+    assert!(ui.get_playlist_editor_open());
+    assert_size(&ui, true, false, zoom);
+    assert!(controller.borrow().state.video_paused);
+    assert_eq!(
+        controller.borrow().state.navigation.current().screen,
+        Screen::Videos
+    );
+    ui.invoke_playlist_action("cancel".into(), "".into());
+    assert!(!ui.get_playlist_editor_open());
+    open_video(&ui, &controller, 1);
+    ui.invoke_command("show_shortcuts".into());
+    assert!(ui.get_reference_open());
+    assert!(controller.borrow().state.video_paused);
+    assert_size(&ui, true, false, zoom);
+    snapshot(&ui, "video-reference-restored");
+    controller.borrow_mut().execute(&ui, Action::CloseShortcuts);
+    open_video(&ui, &controller, 1);
+    controller.borrow_mut().execute(&ui, Action::Shortcuts);
+    assert_size(&ui, true, false, zoom);
+    assert!(controller.borrow().state.video_paused);
+    controller.borrow_mut().execute(&ui, Action::Activate);
+    assert!(ui.get_shortcut_editor_open());
+    snapshot(&ui, "video-shortcut-editor-restored");
+    ui.invoke_shortcut_command("cancel".into());
+    open_video(&ui, &controller, 1);
+    ui.invoke_open_genius_requested();
+    assert!(ui.get_genius_preview_open());
+    assert!(controller.borrow().state.video_paused);
+    assert_size(&ui, true, false, zoom);
+    snapshot(&ui, "video-genius-restored");
+    ui.invoke_genius_action("close".into());
+    open_video(&ui, &controller, 1);
+    controller
+        .borrow_mut()
+        .execute(&ui, Action::ConfigureDeepSeek);
+    assert!(ui.get_deepseek_settings_open());
+    assert_size(&ui, true, false, zoom);
+}
+
+fn wait_for(
+    ui: &AppWindow,
+    controller: &RefCell<Controller>,
+    condition: impl Fn(&Controller, &AppWindow) -> bool,
+) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let mut controller = controller.borrow_mut();
+        controller.poll(ui);
+        controller.poll_video_frame(ui);
+        if condition(&controller, ui) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out: {}",
+            controller.state.notice
+        );
+        drop(controller);
+        std::thread::sleep(Duration::from_millis(16));
+    }
+}
+
+#[test]
+#[ignore = "Requires libmpv, ffmpeg and a default audio output; only uses generated media"]
+fn actual_video_import_frames_rotation_and_music_handoff() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("generated.mp4");
+    let ffmpeg = if Path::new("/opt/homebrew/bin/ffmpeg").is_file() {
+        "/opt/homebrew/bin/ffmpeg"
+    } else {
+        "ffmpeg"
+    };
+    assert!(
+        std::process::Command::new(ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=24",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=48000",
+                "-t",
+                "4",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-af",
+                "volume=0.001"
+            ])
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (ui, controller) = setup(directory.path());
+    controller.borrow_mut().import_videos(vec![path]);
+    wait_for(&ui, &controller, |c, _| {
+        !c.state.video_importing && c.state.videos.len() == 1
+    });
+    assert!(directory.path().join("videos.json").is_file());
+    open_video(&ui, &controller, 1);
+    wait_for(&ui, &controller, |c, ui| {
+        c.state.video_status == Status::Playing
+            && c.state.video_position > 0.2
+            && ui.get_video_frame().size().width > 0
+    });
+    assert_size(&ui, true, true, 1.25);
+    snapshot(&ui, "video-native-integrated-landscape");
+    controller.borrow_mut().execute(&ui, Action::Back);
+    wait_for(&ui, &controller, |c, _| {
+        c.state.video_status == Status::Paused
+    });
+    assert_size(&ui, true, false, 1.25);
+    controller.borrow_mut().execute(&ui, Action::NowPlaying);
+    ui.invoke_seek_changed(0.875);
+    controller.borrow_mut().execute(&ui, Action::TogglePlay);
+    wait_for(&ui, &controller, |c, _| {
+        c.state.video_status == Status::Finished
+    });
+    let previous = controller.borrow().state.video_generation;
+    controller.borrow_mut().execute(&ui, Action::TogglePlay);
+    wait_for(&ui, &controller, |c, _| {
+        c.state.video_status == Status::Playing && c.state.video_position > 0.1
+    });
+    assert!(controller.borrow().state.video_generation > previous);
+    let music = directory.path().join("quiet.wav");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/quiet.wav"),
+        &music,
+    )
+    .unwrap();
+    {
+        let mut c = controller.borrow_mut();
+        c.state.merge_library(vec![Track {
+            path: music,
+            title: "Generated music".into(),
+            artist: "Test".into(),
+            album: "Test".into(),
+            genre: "Test".into(),
+            number: 1,
+            duration: 1.0,
+            artwork: vec![],
+            lyrics: Lyrics::default(),
+        }]);
+        c.state.navigation.open(Screen::Songs(Filter::All));
+        c.state.navigation.select(0);
+        c.execute(&ui, Action::Activate);
+    }
+    wait_for(&ui, &controller, |c, _| {
+        !c.state.video_active && c.state.status == PlaybackStatus::Playing
+    });
+    assert_size(&ui, true, false, 1.25);
+    assert_eq!(controller.borrow().state.queue.current(), Some(0));
+}

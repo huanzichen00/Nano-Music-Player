@@ -24,6 +24,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             ticking.borrow_mut().poll(&ui);
         }
     });
+    let video_timer = Timer::default();
+    let video_ui = ui.as_weak();
+    let video_controller = controller.clone();
+    video_timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
+        if let Some(ui) = video_ui.upgrade() {
+            video_controller.borrow_mut().poll_video_frame(&ui);
+        }
+    });
     ui.invoke_focus_screen();
     ui.run()?;
     controller.borrow_mut().save_settings(&ui);

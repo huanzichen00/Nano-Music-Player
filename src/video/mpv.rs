@@ -156,6 +156,7 @@ impl Session {
     pub fn open(
         generation: Generation,
         video: &Video,
+        start: f64,
         volume: f32,
         paused: bool,
         silent: bool,
@@ -202,6 +203,7 @@ impl Session {
             session.option(key, value)?;
         }
         session.option("volume", &(volume.clamp(0.0, 1.0) * 100.0).to_string())?;
+        session.option("start", &start.max(0.0).to_string())?;
         if silent {
             session.option("ao", "null")?;
         }
@@ -266,6 +268,16 @@ impl Session {
     }
 
     pub fn command(&mut self, command: Command) -> Result<(), String> {
+        if self.finished
+            && matches!(command, Command::Pause { generation, paused: true } if generation == self.generation)
+        {
+            return Ok(());
+        }
+        if self.finished
+            && matches!(&command, Command::Pause { generation, .. } | Command::Seek { generation, .. } if *generation == self.generation)
+        {
+            return Err("Video has finished; reopen it to play or seek".into());
+        }
         match command {
             Command::Pause { generation, paused } if generation == self.generation => {
                 self.async_command(&["set", "pause", if paused { "yes" } else { "no" }])?;
@@ -295,6 +307,16 @@ impl Session {
         Ok(())
     }
 
+    pub fn error_snapshot(&self) -> Progress {
+        Progress {
+            generation: self.generation,
+            status: Status::Error,
+            position: self.position,
+            duration: self.duration,
+            audio_output: self.audio_output.clone(),
+        }
+    }
+
     pub fn poll(
         &mut self,
         latest: &Arc<Mutex<Latest>>,
@@ -317,6 +339,7 @@ impl Session {
                     }
                     if end.reason == 0 && !self.finished {
                         self.finished = true;
+                        self.position = self.duration;
                         let _ = events.send(Event::Finished(self.generation));
                     }
                 }

@@ -24,6 +24,8 @@ pub enum Filter {
 pub enum Screen {
     Home,
     Music,
+    Videos,
+    VideoPlaying,
     Groups(Group),
     Artist(String),
     Songs(Filter),
@@ -42,6 +44,8 @@ impl Screen {
         match self {
             Self::Home => "iPod",
             Self::Music => "Music",
+            Self::Videos => "Videos",
+            Self::VideoPlaying => "Now Playing",
             Self::Groups(Group::Artists) => "Artists",
             Self::Groups(Group::Albums) => "Albums",
             Self::Groups(Group::Genres) => "Genres",

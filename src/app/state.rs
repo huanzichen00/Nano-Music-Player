@@ -18,6 +18,7 @@ use std::{
 pub enum Target {
     Screen(Screen),
     Play(usize),
+    PlayVideo(usize),
     Action(Action),
     Shortcut(Action),
     Language(Language),
@@ -35,6 +36,8 @@ pub struct Row {
 
 pub enum Effect {
     Audio(AudioCommand),
+    Video(crate::video::engine::Command),
+    ImportVideos,
     Import,
     FocusSearch,
     FocusScreen,
@@ -67,6 +70,15 @@ pub struct State {
     pub always_on_top: bool,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
+    pub videos: Vec<crate::video::library::Video>,
+    pub video_active: bool,
+    pub video_current: Option<usize>,
+    pub video_generation: u64,
+    pub video_position: f64,
+    pub video_status: crate::video::Status,
+    pub video_paused: bool,
+    pub video_overlay: bool,
+    pub video_importing: bool,
     pub playlists: Vec<crate::library::playlists::Playlist>,
     pub queue: Queue,
     pub current: Option<usize>,
@@ -99,6 +111,15 @@ impl Default for State {
             always_on_top: true,
             navigation: Navigation::default(),
             tracks: Vec::new(),
+            videos: Vec::new(),
+            video_active: false,
+            video_current: None,
+            video_generation: 0,
+            video_position: 0.0,
+            video_status: crate::video::Status::Finished,
+            video_paused: true,
+            video_overlay: true,
+            video_importing: false,
             playlists: Vec::new(),
             queue: Queue::default(),
             current: None,
@@ -129,8 +150,10 @@ impl State {
     pub fn surface(&self) -> Surface {
         match &self.navigation.current().screen {
             Screen::Home => Surface::Home,
-            Screen::NowPlaying if self.navigation.selected() == 3 => Surface::NowPlayingVolume,
-            Screen::NowPlaying => Surface::NowPlaying,
+            Screen::NowPlaying | Screen::VideoPlaying if self.navigation.selected() == 3 => {
+                Surface::NowPlayingVolume
+            }
+            Screen::NowPlaying | Screen::VideoPlaying => Surface::NowPlaying,
             Screen::Placeholder(_) => Surface::Placeholder,
             _ => Surface::Library,
         }
@@ -145,6 +168,21 @@ impl State {
         };
         let to = |title: &str, screen| row(title, Target::Screen(screen));
         match &self.navigation.current().screen {
+            Screen::Videos => {
+                std::iter::once(row("Import Videos…", Target::Action(Action::ImportVideos)))
+                    .chain(self.videos.iter().enumerate().map(|(id, video)| Row {
+                        title: video.title.clone(),
+                        subtitle: format!(
+                            "{}:{:02} · {}",
+                            video.duration as u64 / 60,
+                            video.duration as u64 % 60,
+                            video.video_codec
+                        ),
+                        artwork_id: None,
+                        target: Target::PlayVideo(id),
+                    }))
+                    .collect()
+            }
             Screen::Settings => vec![
                 Row {
                     title: "Keyboard Shortcuts".into(),
@@ -475,6 +513,7 @@ impl State {
                 }
             }
             Screen::NowPlaying => 7,
+            Screen::VideoPlaying => 5,
             Screen::Groups(Group::Playlists) => 2 + self.playlists.len(),
             Screen::Groups(group) => self
                 .tracks
@@ -524,12 +563,46 @@ impl State {
         if self.muted { 0.0 } else { self.volume }
     }
     pub fn duration(&self) -> f64 {
+        if self.video_active {
+            return self
+                .video_current
+                .and_then(|id| self.videos.get(id))
+                .map_or(0.0, |v| v.duration);
+        }
         self.current
             .and_then(|id| self.tracks.get(id))
             .map_or(0.0, |t| t.duration)
     }
 
     pub fn seek(&mut self, seconds: f64) -> Effect {
+        if self.video_active {
+            let seconds = if seconds.is_finite() { seconds } else { 0.0 };
+            if matches!(
+                self.video_status,
+                crate::video::Status::Finished | crate::video::Status::Error
+            ) && let Some(video) = self
+                .video_current
+                .and_then(|id| self.videos.get(id))
+                .cloned()
+            {
+                self.video_generation += 1;
+                self.video_paused = true;
+                self.video_status = crate::video::Status::Loading;
+                self.video_position = seconds.clamp(0.0, video.duration);
+                return Effect::Video(crate::video::engine::Command::Load {
+                    generation: self.video_generation,
+                    video,
+                    start: self.video_position,
+                    volume: self.effective_volume(),
+                    paused: true,
+                });
+            }
+            self.video_position = seconds.clamp(0.0, self.duration().max(0.0));
+            return Effect::Video(crate::video::engine::Command::Seek {
+                generation: self.video_generation,
+                seconds: self.video_position,
+            });
+        }
         self.position = seconds.clamp(0.0, self.duration().max(0.0));
         Effect::Audio(AudioCommand::Seek(self.position))
     }
@@ -537,13 +610,14 @@ impl State {
     pub fn set_volume(&mut self, volume: f32) -> Effect {
         self.volume = volume.clamp(0.0, 1.0);
         self.muted = false;
-        Effect::Audio(AudioCommand::Volume(self.effective_volume()))
+        self.volume_effect()
     }
 
     pub fn start(&mut self, id: usize) -> Vec<Effect> {
         let Some(track) = self.tracks.get(id) else {
             return Vec::new();
         };
+        self.video_active = false;
         self.current = Some(id);
         self.status = PlaybackStatus::Loading;
         self.paused = false;
@@ -554,6 +628,95 @@ impl State {
         vec![Effect::Audio(AudioCommand::Load {
             id,
             path: track.path.clone(),
+            volume: self.effective_volume(),
+            paused: false,
+        })]
+    }
+
+    pub fn active_position(&self) -> f64 {
+        if self.video_active {
+            self.video_position
+        } else {
+            self.position
+        }
+    }
+
+    pub fn landscape_video(&self) -> bool {
+        self.video_active
+            && self.navigation.current().screen == Screen::VideoPlaying
+            && self
+                .video_current
+                .and_then(|id| self.videos.get(id))
+                .is_some_and(|v| v.is_landscape())
+    }
+
+    pub fn merge_videos(&mut self, videos: Vec<crate::video::library::Video>) {
+        // Keep indices stable for playback and UI events during asynchronous imports.
+        for video in videos {
+            if let Some(old) = self.videos.iter_mut().find(|v| v.path == video.path) {
+                *old = video;
+            } else {
+                self.videos.push(video);
+            }
+        }
+    }
+
+    fn volume_effect(&self) -> Effect {
+        if self.video_active {
+            Effect::Video(crate::video::engine::Command::Volume {
+                generation: self.video_generation,
+                volume: self.effective_volume(),
+            })
+        } else {
+            Effect::Audio(AudioCommand::Volume(self.effective_volume()))
+        }
+    }
+
+    fn video_pause(&mut self) -> Effect {
+        if !matches!(
+            self.video_status,
+            crate::video::Status::Finished | crate::video::Status::Error
+        ) {
+            self.video_status = if self.video_paused {
+                crate::video::Status::Paused
+            } else {
+                crate::video::Status::Playing
+            };
+        }
+        Effect::Video(crate::video::engine::Command::Pause {
+            generation: self.video_generation,
+            paused: self.video_paused,
+        })
+    }
+
+    pub fn start_video(&mut self, id: usize) -> Vec<Effect> {
+        let Some(video) = self.videos.get(id).cloned() else {
+            return Vec::new();
+        };
+        self.video_active = true;
+        self.video_current = Some(id);
+        self.video_generation = self
+            .video_generation
+            .checked_add(1)
+            .expect("video session counter exhausted");
+        self.video_position = 0.0;
+        self.video_paused = false;
+        self.video_status = crate::video::Status::Loading;
+        self.video_overlay = true;
+        self.paused = true;
+        if self.current.is_some() {
+            self.status = PlaybackStatus::Paused;
+        }
+        self.notice.clear();
+        if self.navigation.current().screen != Screen::VideoPlaying {
+            self.navigation.open(Screen::Videos);
+            self.navigation.open(Screen::VideoPlaying);
+        }
+        self.navigation.select(1);
+        vec![Effect::Video(crate::video::engine::Command::Load {
+            generation: self.video_generation,
+            video,
+            start: 0.0,
             volume: self.effective_volume(),
             paused: false,
         })]
@@ -571,6 +734,50 @@ impl State {
 
     pub fn apply(&mut self, action: Action) -> Vec<Effect> {
         use Action::*;
+        if self.video_active {
+            match action {
+                TogglePlay => {
+                    if matches!(
+                        self.video_status,
+                        crate::video::Status::Finished | crate::video::Status::Error
+                    ) {
+                        return self.start_video(self.video_current.unwrap_or(0));
+                    }
+                    self.video_paused = !self.video_paused;
+                    return vec![self.video_pause()];
+                }
+                NextTrack => {
+                    if let Some(id) = self.video_current.filter(|id| id + 1 < self.videos.len()) {
+                        return self.start_video(id + 1);
+                    }
+                    return Vec::new();
+                }
+                PreviousTrack => {
+                    if self.video_position >= 5.0 {
+                        let effect = self.seek(0.0);
+                        return vec![effect];
+                    }
+                    if let Some(id) = self.video_current.filter(|id| *id > 0) {
+                        return self.start_video(id - 1);
+                    }
+                    let effect = self.seek(0.0);
+                    return vec![effect];
+                }
+                NowPlaying => {
+                    self.navigation.open(Screen::VideoPlaying);
+                    self.navigation.select(1);
+                    return vec![Effect::FocusScreen];
+                }
+                ToggleOverlay => {
+                    self.video_overlay = !self.video_overlay;
+                    return Vec::new();
+                }
+                ToggleLyrics | ToggleShuffle | CycleRepeat | TrackList | ToggleRomaji => {
+                    return Vec::new();
+                }
+                _ => {}
+            }
+        }
         match action {
             SelectPrevious | SelectNext => {
                 let count = self.selection_count();
@@ -625,11 +832,24 @@ impl State {
                         };
                         self.navigation.open(if name == "Music" {
                             Screen::Music
+                        } else if name == "Videos" {
+                            Screen::Videos
                         } else if name == "Settings" {
                             Screen::Settings
                         } else {
                             Screen::Placeholder(name.to_owned())
                         });
+                    }
+                    Screen::VideoPlaying => {
+                        return self.apply(
+                            [
+                                PreviousTrack,
+                                TogglePlay,
+                                NextTrack,
+                                ToggleMute,
+                                ToggleOverlay,
+                            ][selected.min(4)],
+                        );
                     }
                     Screen::NowPlaying => {
                         return self.apply(
@@ -648,6 +868,12 @@ impl State {
                         if let Some(row) = self.rows().get(selected) {
                             match row.target.clone() {
                                 Target::Screen(screen) => {
+                                    let screen =
+                                        if self.video_active && screen == Screen::NowPlaying {
+                                            Screen::VideoPlaying
+                                        } else {
+                                            screen
+                                        };
                                     let languages = screen == Screen::Languages;
                                     let fonts = screen == Screen::Fonts;
                                     self.navigation.open(screen);
@@ -670,6 +896,9 @@ impl State {
                                 Target::GeniusPreview => return vec![Effect::GeniusPreview],
                                 Target::Shortcut(action) => {
                                     return vec![Effect::EditShortcut(action)];
+                                }
+                                Target::PlayVideo(id) => {
+                                    return self.start_video(id);
                                 }
                                 Target::Play(id) => {
                                     let ids = self
@@ -694,7 +923,15 @@ impl State {
                 }
             }
             Back => {
+                let video = self.navigation.current().screen == Screen::VideoPlaying;
                 self.navigation.back();
+                if video {
+                    if self.navigation.current().screen != Screen::Videos {
+                        self.navigation.open(Screen::Videos);
+                    }
+                    self.video_paused = true;
+                    return vec![self.video_pause(), Effect::FocusScreen];
+                }
                 return vec![Effect::FocusScreen];
             }
             Home => {
@@ -745,7 +982,7 @@ impl State {
             ToggleMute => {
                 self.muted = !self.muted;
                 self.notice = if self.muted { "Muted" } else { "Unmuted" }.to_owned();
-                return vec![Effect::Audio(AudioCommand::Volume(self.effective_volume()))];
+                return vec![self.volume_effect()];
             }
             ToggleShuffle => {
                 self.shuffle = !self.shuffle;
@@ -764,7 +1001,20 @@ impl State {
                 self.navigation.open(Screen::NowPlaying);
                 self.navigation.select(1);
             }
+            ImportVideos => {
+                if !self.video_importing {
+                    self.video_importing = true;
+                    self.notice = "Choose local videos…".into();
+                    return vec![Effect::ImportVideos];
+                }
+            }
             ImportFolder => {
+                if matches!(
+                    self.navigation.current().screen,
+                    Screen::Videos | Screen::VideoPlaying
+                ) {
+                    return self.apply(ImportVideos);
+                }
                 if !self.importing {
                     self.importing = true;
                     self.notice = "Choose a music folder…".to_owned();
@@ -874,8 +1124,9 @@ impl State {
             }
             SeekBackward | SeekForward => {
                 if self.current.is_some() {
-                    let effect =
-                        self.seek(self.position + if action == SeekBackward { -5.0 } else { 5.0 });
+                    let effect = self.seek(
+                        self.active_position() + if action == SeekBackward { -5.0 } else { 5.0 },
+                    );
                     return vec![effect];
                 }
             }
