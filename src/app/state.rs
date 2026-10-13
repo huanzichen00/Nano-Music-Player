@@ -299,7 +299,7 @@ impl State {
                 to("Genres", Screen::Groups(Group::Genres)),
                 Row {
                     title: "Genius".into(),
-                    subtitle: "Preview · recommendations coming next".into(),
+                    subtitle: "Create from local songs".into(),
                     artwork_id: None,
                     target: Target::GeniusPreview,
                 },

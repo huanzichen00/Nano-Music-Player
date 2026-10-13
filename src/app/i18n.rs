@@ -214,9 +214,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("Maple Mono", "Maple Mono", "Maple Mono"),
     ("JetBrains Mono", "JetBrains Mono", "JetBrains Mono"),
     (
-        "Preview · recommendations coming next",
-        "预览 · 推荐功能即将推出",
-        "プレビュー · おすすめ機能は近日公開",
+        "Create from local songs",
+        "从本地歌曲创建",
+        "ローカル曲から作成",
     ),
     (
         "Mock preview · example songs",
