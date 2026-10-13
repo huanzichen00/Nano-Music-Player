@@ -1,5 +1,16 @@
 //! Decoder opening, gain processing, and first-sample/EOF lifecycle.
-use super::*;
+use super::intent::{PlaybackIntent, SourceIdentity, SourceTicket};
+use crate::audio::gain::{GainConfig, GainSource, ReplayGainInfo};
+use rodio::{Decoder, Source};
+use std::{
+    fs::File,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::Sender,
+    },
+    time::Duration,
+};
 
 #[derive(Debug)]
 pub(super) enum WorkerEvent {
@@ -16,14 +27,15 @@ pub(super) enum WorkerEvent {
 }
 
 pub(super) struct EndNotifyingSource<S> {
-    pub(super) inner: GainSource<S>,
-    pub(super) events: Sender<WorkerEvent>,
-    pub(super) id: usize,
-    pub(super) ticket: SourceTicket,
-    pub(super) epoch: u64,
-    pub(super) started: bool,
-    pub(super) reported: bool,
-    pub(super) intent: Arc<PlaybackIntent>,
+    inner: GainSource<S>,
+    events: Sender<WorkerEvent>,
+    id: usize,
+    ticket: SourceTicket,
+    pub(super) epoch: Arc<AtomicU64>,
+    pub(super) retired: Arc<AtomicBool>,
+    started: bool,
+    reported: bool,
+    intent: Arc<PlaybackIntent>,
 }
 
 impl<S> EndNotifyingSource<S> {
@@ -40,7 +52,8 @@ impl<S> EndNotifyingSource<S> {
             events,
             id,
             ticket,
-            epoch,
+            epoch: Arc::new(AtomicU64::new(epoch)),
+            retired: Arc::new(AtomicBool::new(false)),
             started: false,
             reported: false,
             intent,
@@ -52,15 +65,25 @@ impl<S: Iterator<Item = f32>> Iterator for EndNotifyingSource<S> {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.intent.generation.load(Ordering::Acquire) != self.ticket.source.generation {
+        if self.retired.load(Ordering::Acquire)
+            || self.intent.generation.load(Ordering::Acquire) != self.ticket.source.generation
+        {
             return None;
         }
         if !self.started {
+            // Avoid even decoding a successor already known to be canceled.
+            if self.ticket.token.is_some() && !self.intent.prefetch_is_live(self.ticket.source) {
+                return None;
+            }
+            // Packet I/O/decoding may be slow. Obtain the candidate outside the
+            // intent lock, then revalidate before allowing it onto the output.
+            let sample = self.inner.next();
             // Synchronize only at the first sample, not on every sample. Once
             // consumed, cancellation/replacement of *future* queue intent must
             // never truncate this active source while the worker catches up.
             let mut state = self.intent.state.lock().unwrap();
-            if self.intent.generation.load(Ordering::Acquire) != self.ticket.source.generation
+            if self.retired.load(Ordering::Acquire)
+                || self.intent.generation.load(Ordering::Acquire) != self.ticket.source.generation
                 || (self.ticket.token.is_some()
                     && !state
                         .prefetch
@@ -68,7 +91,7 @@ impl<S: Iterator<Item = f32>> Iterator for EndNotifyingSource<S> {
             {
                 return None;
             }
-            if let Some(sample) = self.inner.next() {
+            if let Some(sample) = sample {
                 self.started = true;
                 state.playing = Some(self.ticket);
                 if state
@@ -77,11 +100,13 @@ impl<S: Iterator<Item = f32>> Iterator for EndNotifyingSource<S> {
                 {
                     state.prefetch = None;
                 }
+                // Publish while the latch is locked: a seek must not observe
+                // this playing identity before its start event is available.
                 let _ = self.events.send(WorkerEvent::SourceStarted {
                     source: self.ticket.source,
                     id: self.id,
                     token: self.ticket.token,
-                    epoch: self.epoch,
+                    epoch: self.epoch.load(Ordering::Acquire),
                 });
                 return Some(sample);
             }
@@ -93,13 +118,13 @@ impl<S: Iterator<Item = f32>> Iterator for EndNotifyingSource<S> {
                 state.prefetch = None;
             }
         } else if let Some(sample) = self.inner.next() {
-            return Some(sample);
+            return (!self.retired.load(Ordering::Acquire)).then_some(sample);
         }
         if !self.reported {
             self.reported = true;
             let _ = self.events.send(WorkerEvent::SourceEnded {
                 source: self.ticket.source,
-                epoch: self.epoch,
+                epoch: self.epoch.load(Ordering::Acquire),
             });
         }
         None
@@ -125,7 +150,8 @@ impl<S: Source<Item = f32>> Source for EndNotifyingSource<S> {
     }
     fn try_seek(&mut self, pos: Duration) -> Result<(), rodio::source::SeekError> {
         let result = self.inner.try_seek(pos);
-        self.epoch = self.intent.state.lock().unwrap().epoch;
+        self.epoch
+            .store(self.intent.snapshot().epoch, Ordering::Release);
         if result.is_ok() {
             self.reported = false;
         }
@@ -139,6 +165,18 @@ pub(super) fn open_source(
 ) -> Result<GainSource<Decoder<std::io::BufReader<File>>>, String> {
     let info = ReplayGainInfo::read(path);
     let gain = info.linear_gain(settings);
+    open_decoder(
+        path,
+        gain,
+        info.has_gain(settings.mode) && settings.prevent_clipping,
+    )
+}
+
+pub(super) fn open_decoder(
+    path: &std::path::Path,
+    gain: f32,
+    prevent_clipping: bool,
+) -> Result<GainSource<Decoder<std::io::BufReader<File>>>, String> {
     // Decoder::try_from(File) supplies the file length and seekability. Rodio
     // 0.21 enables Symphonia's encoder-delay/padding trim by default.
     let decoder = Decoder::try_from(File::open(path).map_err(|e| e.to_string())?)
@@ -146,6 +184,6 @@ pub(super) fn open_source(
     Ok(GainSource::with_clipping_prevention(
         decoder,
         gain,
-        info.has_gain(settings.mode) && settings.prevent_clipping,
+        prevent_clipping,
     ))
 }

@@ -186,3 +186,120 @@ fn native_playback_gapless_statistics_and_artwork_do_not_crash() {
     .unwrap();
     ui.hide().unwrap();
 }
+
+#[test]
+#[ignore = "requires a working native audio output; verifies seek/skip/pause/stop controls"]
+fn native_rapid_seeks_skips_pause_resume_and_stop_remain_responsive() {
+    use nano_music_player::audio::engine::{AudioCommand, AudioEvent, Engine};
+
+    fn wait(engine: &Engine, predicate: impl Fn(&AudioEvent) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            while let Ok(event) = engine.events.try_recv() {
+                assert!(!matches!(event, AudioEvent::Error { .. }), "{event:?}");
+                if predicate(&event) {
+                    return;
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("native audio control did not complete within three seconds");
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("transport.wav");
+    write_tone(&path);
+    let engine = Engine::default();
+    engine
+        .send(AudioCommand::Load {
+            id: 10,
+            path: path.clone(),
+            volume: 0.2,
+            paused: true,
+        })
+        .unwrap();
+    wait(&engine, |event| {
+        matches!(
+            event,
+            AudioEvent::Progress {
+                id: 10,
+                status: PlaybackStatus::Paused,
+                ..
+            }
+        )
+    });
+    engine.send(AudioCommand::Seek(0.8)).unwrap();
+    engine.send(AudioCommand::Seek(2.2)).unwrap();
+    wait(
+        &engine,
+        |event| matches!(event, AudioEvent::Progress { id: 10, status: PlaybackStatus::Paused, position, .. } if (*position - 2.2).abs() < 0.03),
+    );
+    engine.send(AudioCommand::Pause(false)).unwrap();
+    wait(
+        &engine,
+        |event| matches!(event, AudioEvent::Progress { id: 10, status: PlaybackStatus::Playing, position, .. } if *position > 2.3),
+    );
+    engine.send(AudioCommand::Pause(true)).unwrap();
+    wait(&engine, |event| {
+        matches!(
+            event,
+            AudioEvent::Progress {
+                id: 10,
+                status: PlaybackStatus::Paused,
+                ..
+            }
+        )
+    });
+    engine
+        .send(AudioCommand::AppendNext {
+            token: 8,
+            id: 13,
+            path: path.clone(),
+            gain: Default::default(),
+        })
+        .unwrap();
+    engine.send(AudioCommand::Seek(3.9)).unwrap();
+    engine.send(AudioCommand::Pause(false)).unwrap();
+    wait(&engine, |event| {
+        assert!(
+            !matches!(event, AudioEvent::Transitioned { to: 13, .. }),
+            "seek must cancel unstarted successor"
+        );
+        matches!(event, AudioEvent::Finished(10))
+    });
+    engine
+        .send(AudioCommand::Load {
+            id: 11,
+            path: path.clone(),
+            volume: 0.2,
+            paused: false,
+        })
+        .unwrap();
+    engine
+        .send(AudioCommand::Load {
+            id: 12,
+            path,
+            volume: 0.2,
+            paused: false,
+        })
+        .unwrap();
+    wait(&engine, |event| {
+        assert!(
+            !matches!(event, AudioEvent::Progress { id: 11, .. }),
+            "superseded load published progress"
+        );
+        matches!(
+            event,
+            AudioEvent::Progress {
+                id: 12,
+                status: PlaybackStatus::Playing,
+                ..
+            }
+        )
+    });
+    engine.send(AudioCommand::Stop { handoff: 456 }).unwrap();
+    wait(&engine, |event| {
+        matches!(event, AudioEvent::Stopped { handoff: 456 })
+    });
+    assert!(engine.events.try_recv().is_err());
+}

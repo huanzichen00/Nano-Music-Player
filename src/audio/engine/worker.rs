@@ -1,277 +1,441 @@
-//! Command processing and ownership of the Rodio output stream and sink.
-use super::*;
+//! Command processing. All file opening and decoder seeking belong to this worker.
+use super::backend::{OutputFailure, RodioBackend};
+use super::{
+    AudioCommand, AudioEvent, EventEnvelope,
+    intent::{PlaybackIntent, QueuedCommand, SourceIdentity, SourceTicket},
+    playback::{ActiveSource, PlaybackPhase, WorkerPlayback},
+    source::{EndNotifyingSource, WorkerEvent, open_decoder, open_source},
+};
+use crate::audio::{
+    PlaybackStatus,
+    gain::{GainConfig, GainSource},
+};
+use rodio::{Decoder, Sink, Source};
+use std::collections::HashMap;
+use std::{
+    fs::File,
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc::{self, Receiver, Sender},
+    },
+    time::{Duration, Instant},
+};
+
+type DecodedSource = GainSource<Decoder<std::io::BufReader<File>>>;
+
+struct TrackRecord {
+    path: PathBuf,
+    gain: f32,
+    prevent_clipping: bool,
+    epoch: Arc<AtomicU64>,
+    retired: Arc<AtomicBool>,
+}
+
+pub(super) struct AudioWorker {
+    pub(super) backend: RodioBackend,
+    pub(super) playback: WorkerPlayback,
+    tracks: HashMap<SourceIdentity, TrackRecord>,
+    source_events: Sender<WorkerEvent>,
+    source_receiver: Receiver<WorkerEvent>,
+    failure_receiver: Receiver<OutputFailure>,
+    #[cfg(test)]
+    pub(super) failure_sender: Sender<OutputFailure>,
+    events: Sender<EventEnvelope>,
+    intent: Arc<PlaybackIntent>,
+    // Rodio reports elapsed time in the replacement source. Keep the seek
+    // offset here, and reset it on a genuine successor transition.
+    position_offset: Duration,
+}
+
+impl AudioWorker {
+    pub(super) fn new(events: Sender<EventEnvelope>, intent: Arc<PlaybackIntent>) -> Self {
+        let (source_events, source_receiver) = mpsc::channel();
+        let (failure_sender, failure_receiver) = mpsc::channel();
+        Self {
+            backend: RodioBackend::new(failure_sender.clone()),
+            playback: WorkerPlayback::default(),
+            tracks: HashMap::new(),
+            source_events,
+            source_receiver,
+            failure_receiver,
+            #[cfg(test)]
+            failure_sender,
+            events,
+            intent,
+            position_offset: Duration::ZERO,
+        }
+    }
+
+    fn publish(&self, envelope: Option<EventEnvelope>) {
+        if let Some(envelope) = envelope {
+            let _ = self.events.send(envelope);
+        }
+    }
+
+    fn drain_sources(&mut self) {
+        while let Ok(event) = self.source_receiver.try_recv() {
+            if let Some(envelope) = self.playback.apply(event, self.intent.snapshot()) {
+                self.position_offset = Duration::ZERO;
+                self.publish(Some(envelope));
+            }
+        }
+    }
+
+    fn output_failures(&mut self) {
+        while let Ok(failure) = self.failure_receiver.try_recv() {
+            if !self.backend.accepts_failure(&failure) {
+                continue;
+            }
+            self.backend.stop();
+            let state = self.intent.snapshot();
+            if let Some(current) = self.playback.current {
+                if current.source.generation == state.generation
+                    && let Some(ticket) = state.prefetch
+                {
+                    self.intent.cancel_source(ticket.source);
+                }
+                self.publish(self.playback.envelope(
+                    AudioEvent::Error {
+                        id: Some(current.id),
+                        message: format!("Audio output failed: {}", failure.message),
+                    },
+                    false,
+                ));
+            }
+            self.playback.phase = PlaybackPhase::Failed;
+            self.tracks.clear();
+        }
+    }
+
+    fn stopped(&self, handoff: u64) {
+        let _ = self.events.send(EventEnvelope {
+            event: AudioEvent::Stopped { handoff },
+            generation: None,
+            epoch: None,
+        });
+    }
+
+    // Wrap before queueing so the worker retains the path, resolved gain and
+    // epoch handle of every potentially active source, including successors.
+    fn tracked_source(
+        &mut self,
+        source: DecodedSource,
+        path: PathBuf,
+        current: ActiveSource,
+        token: Option<u64>,
+    ) -> EndNotifyingSource<Decoder<std::io::BufReader<File>>> {
+        let (gain, prevent_clipping) = source.processing();
+        let source = EndNotifyingSource::new(
+            source,
+            self.source_events.clone(),
+            current.id,
+            SourceTicket {
+                source: current.source,
+                token,
+            },
+            current.epoch,
+            Arc::clone(&self.intent),
+        );
+        self.tracks.insert(
+            current.source,
+            TrackRecord {
+                path,
+                gain,
+                prevent_clipping,
+                epoch: Arc::clone(&source.epoch),
+                retired: Arc::clone(&source.retired),
+            },
+        );
+        source
+    }
+
+    fn load(
+        &mut self,
+        current: ActiveSource,
+        path: PathBuf,
+        gain: GainConfig,
+        volume: f32,
+        paused: bool,
+    ) -> Result<(), String> {
+        self.backend.stop_sink();
+        self.tracks.clear();
+        self.position_offset = Duration::ZERO;
+        self.playback = WorkerPlayback {
+            current: Some(current),
+            phase: PlaybackPhase::Failed,
+        };
+        let source = open_source(&path, gain)?;
+        if self.intent.snapshot().generation != current.source.generation {
+            return Ok(());
+        }
+        let next = self.backend.new_sink(volume, paused)?;
+        // Output opening can itself take time; never publish a stale load.
+        if self.intent.snapshot().generation != current.source.generation {
+            return Ok(());
+        }
+        let source = self.tracked_source(source, path, current, None);
+        self.playback = WorkerPlayback::loaded(current);
+        next.append(source);
+        self.backend.sink = Some(next);
+        Ok(())
+    }
+
+    fn append(&mut self, current: ActiveSource, token: u64, path: PathBuf, gain: GainConfig) {
+        if !self.intent.prefetch_is_live(current.source) {
+            return;
+        }
+        if matches!(
+            self.playback.phase,
+            PlaybackPhase::Finished | PlaybackPhase::Failed
+        ) || self.backend.sink.is_none()
+        {
+            self.intent.cancel_source(current.source);
+            return;
+        }
+        let source = match open_source(&path, gain) {
+            Ok(source) => source,
+            Err(message) => {
+                self.intent.cancel_source(current.source);
+                let _ = self.events.send(EventEnvelope {
+                    event: AudioEvent::PrefetchFailed {
+                        id: current.id,
+                        token,
+                        message,
+                    },
+                    generation: Some(current.source.generation),
+                    epoch: Some(current.epoch),
+                });
+                return;
+            }
+        };
+        if self.intent.prefetch_is_live(current.source) {
+            let source = self.tracked_source(source, path, current, Some(token));
+            self.backend.sink.as_ref().unwrap().append(source);
+        }
+    }
+
+    fn seek(&mut self, source_id: SourceIdentity, epoch: u64, seconds: f64) -> Result<(), String> {
+        if !self.intent.seek_is_live(source_id.generation, epoch) {
+            return Ok(());
+        }
+        let Some(current) = self.playback.current else {
+            return Ok(());
+        };
+        let Some(record) = self.tracks.get(&current.source) else {
+            return Ok(());
+        };
+        let Some(sink) = &self.backend.sink else {
+            return Ok(());
+        };
+        let volume = sink.volume();
+        let paused = sink.is_paused();
+        let path = record.path.clone();
+        let target = Duration::try_from_secs_f64(seconds.max(0.0)).map_err(|e| e.to_string())?;
+        let prepared = (|| {
+            let mut source = open_decoder(&path, record.gain, record.prevent_clipping)?;
+            let target = source
+                .total_duration()
+                .map_or(target, |duration| target.min(duration));
+            // Seek an unqueued decoder on the worker. Sink::try_seek can block
+            // forever if EOF or a lost device removes its feedback callback.
+            source.try_seek(target).map_err(|e| e.to_string())?;
+            Ok::<_, String>((source, target))
+        })();
+        if !self.intent.seek_is_live(source_id.generation, epoch) {
+            return Ok(());
+        }
+        let (source, target) = match prepared {
+            Ok(prepared) => prepared,
+            Err(message) => {
+                // Keep the existing source after a failed seek. Its future EOF
+                // must use the new epoch even though no decoder seek occurred.
+                record.epoch.store(epoch, Ordering::Release);
+                self.playback.current.as_mut().unwrap().epoch = epoch;
+                if sink.empty() && self.playback.phase != PlaybackPhase::Finished {
+                    self.playback.phase = PlaybackPhase::Ended;
+                }
+                return Err(message);
+            }
+        };
+        let next = self.backend.new_sink(volume, paused)?;
+        if !self.intent.replace_playing(
+            source_id,
+            epoch,
+            &self.tracks.get(&current.source).unwrap().retired,
+        ) {
+            return Ok(());
+        }
+        // Sink::stop is observed only at Rodio's periodic control checks. Retire
+        // the predecessor before queueing replacement samples to prevent overlap.
+        let current = ActiveSource {
+            source: source_id,
+            id: current.id,
+            epoch,
+        };
+        let source = self.tracked_source(source, path, current, None);
+        self.backend.stop_sink();
+        self.playback = WorkerPlayback::loaded(current);
+        self.position_offset = target;
+        next.append(source);
+        self.backend.sink = Some(next);
+        Ok(())
+    }
+
+    /// Returns false only for shutdown. Intent changes are never repeated here.
+    pub(super) fn process(&mut self, queued: QueuedCommand) -> bool {
+        self.output_failures();
+        self.drain_sources();
+        if matches!(queued.command, AudioCommand::Shutdown) {
+            return false;
+        }
+        if queued.generation != self.intent.snapshot().generation {
+            if let AudioCommand::Stop { handoff } = queued.command {
+                self.stopped(handoff);
+            }
+            return true;
+        }
+        let loading = matches!(
+            queued.command,
+            AudioCommand::Load { .. } | AudioCommand::LoadWithGain { .. }
+        );
+        let current = |id| ActiveSource {
+            source: queued.source.unwrap(),
+            id,
+            epoch: queued.epoch,
+        };
+        let result = match queued.command {
+            AudioCommand::Load {
+                id,
+                path,
+                volume,
+                paused,
+            } => self.load(current(id), path, GainConfig::default(), volume, paused),
+            AudioCommand::LoadWithGain {
+                id,
+                path,
+                volume,
+                paused,
+                gain,
+            } => self.load(current(id), path, gain, volume, paused),
+            AudioCommand::AppendNext {
+                token,
+                id,
+                path,
+                gain,
+            } => {
+                self.append(current(id), token, path, gain);
+                Ok(())
+            }
+            AudioCommand::CancelPrefetch { .. } => Ok(()),
+            AudioCommand::Pause(paused) => {
+                if let Some(sink) = &self.backend.sink {
+                    if paused {
+                        sink.pause();
+                    } else {
+                        sink.play();
+                    }
+                }
+                Ok(())
+            }
+            AudioCommand::Volume(volume) => {
+                if let Some(sink) = &self.backend.sink {
+                    sink.set_volume(volume);
+                }
+                Ok(())
+            }
+            AudioCommand::Seek(seconds) => self.seek(queued.source.unwrap(), queued.epoch, seconds),
+            AudioCommand::Stop { handoff } => {
+                self.backend.stop();
+                self.playback = WorkerPlayback::default();
+                self.tracks.clear();
+                self.position_offset = Duration::ZERO;
+                self.stopped(handoff);
+                Ok(())
+            }
+            AudioCommand::Shutdown => unreachable!(),
+        };
+        if let Err(message) = result {
+            let _ = self.events.send(EventEnvelope {
+                event: AudioEvent::Error {
+                    id: self.playback.current.map(|current| current.id),
+                    message,
+                },
+                generation: Some(queued.generation),
+                epoch: (!loading).then_some(queued.epoch),
+            });
+        }
+        true
+    }
+
+    pub(super) fn poll(&mut self) {
+        self.output_failures();
+        self.drain_sources();
+        let state = self.intent.snapshot();
+        // An EOF notification may have been invalidated by a failed seek. The
+        // empty sink is an independent completion observation in that epoch.
+        if self.playback.phase == PlaybackPhase::Active
+            && self.backend.sink.as_ref().is_some_and(Sink::empty)
+        {
+            self.playback.phase = PlaybackPhase::Ended;
+        }
+        let finished = self.playback.finish_if_ready(state);
+        self.publish(finished);
+        if self.playback.can_report_progress(state)
+            && let (Some(sink), Some(current)) = (&self.backend.sink, self.playback.current)
+        {
+            let position = self
+                .position_offset
+                .saturating_add(sink.get_pos())
+                .as_secs_f64();
+            // The callback can switch sources while get_pos runs. Recheck the
+            // source latch so successor positions never get labeled as predecessor progress.
+            if self.playback.can_report_progress(self.intent.snapshot()) {
+                self.publish(self.playback.envelope(
+                    AudioEvent::Progress {
+                        id: current.id,
+                        status: if sink.is_paused() {
+                            PlaybackStatus::Paused
+                        } else {
+                            PlaybackStatus::Playing
+                        },
+                        position,
+                        observed_at: Instant::now(),
+                    },
+                    true,
+                ));
+            }
+        }
+        self.tracks.retain(|source, _| {
+            self.playback
+                .current
+                .is_some_and(|current| current.source == *source)
+                || state
+                    .prefetch
+                    .is_some_and(|ticket| ticket.source == *source)
+                || state.playing.is_some_and(|ticket| ticket.source == *source)
+        });
+    }
+}
 
 pub(super) fn run(
     receiver: Receiver<QueuedCommand>,
     events: Sender<EventEnvelope>,
-    worker_intent: Arc<PlaybackIntent>,
+    intent: Arc<PlaybackIntent>,
 ) {
-    let (source_events, source_receiver) = mpsc::channel();
-    let mut stream = None;
-    let mut sink: Option<Sink> = None;
-    let mut playback = WorkerPlayback::default();
+    let mut worker = AudioWorker::new(events, intent);
     loop {
         match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(queued) => {
-                // A transition may have started before a seek/cancel arrived.
-                playback.drain(&source_receiver, &worker_intent, &events);
-                if matches!(queued.command, AudioCommand::Shutdown) {
+                if !worker.process(queued) {
                     break;
-                }
-                if queued.generation != worker_intent.generation.load(Ordering::Acquire) {
-                    if let AudioCommand::Stop { handoff } = queued.command {
-                        let _ = events.send(EventEnvelope {
-                            event: AudioEvent::Stopped { handoff },
-                            generation: None,
-                            epoch: None,
-                        });
-                    }
-                    continue;
-                }
-                let loading_track = matches!(
-                    queued.command,
-                    AudioCommand::Load { .. } | AudioCommand::LoadWithGain { .. }
-                );
-                let result: Result<(), String> = (|| {
-                    match queued.command {
-                        AudioCommand::Load {
-                            id,
-                            path,
-                            volume,
-                            paused,
-                        } => {
-                            load_track(
-                                id,
-                                path,
-                                volume,
-                                paused,
-                                GainConfig::default(),
-                                queued.source.unwrap(),
-                                queued.epoch,
-                                &mut stream,
-                                &mut sink,
-                                &mut playback,
-                                &source_events,
-                                &worker_intent,
-                            )?;
-                        }
-                        AudioCommand::LoadWithGain {
-                            id,
-                            path,
-                            volume,
-                            paused,
-                            gain,
-                        } => {
-                            load_track(
-                                id,
-                                path,
-                                volume,
-                                paused,
-                                gain,
-                                queued.source.unwrap(),
-                                queued.epoch,
-                                &mut stream,
-                                &mut sink,
-                                &mut playback,
-                                &source_events,
-                                &worker_intent,
-                            )?;
-                        }
-                        AudioCommand::AppendNext {
-                            token,
-                            id,
-                            path,
-                            gain,
-                        } => {
-                            let source_id = queued.source.unwrap();
-                            if !worker_intent.prefetch_is_live(source_id) {
-                                return Ok(());
-                            }
-                            if playback.finished {
-                                worker_intent.cancel_source(source_id);
-                                return Ok(());
-                            }
-                            let Some(active_sink) = &sink else {
-                                worker_intent.cancel_source(source_id);
-                                return Ok(());
-                            };
-                            let source = match open_source(&path, gain) {
-                                Ok(source) => source,
-                                Err(message) => {
-                                    worker_intent.cancel_source(source_id);
-                                    let _ = events.send(EventEnvelope {
-                                        event: AudioEvent::PrefetchFailed { id, token, message },
-                                        generation: Some(queued.generation),
-                                        epoch: Some(queued.epoch),
-                                    });
-                                    return Ok(());
-                                }
-                            };
-                            if worker_intent.prefetch_is_live(source_id) {
-                                active_sink.append(EndNotifyingSource::new(
-                                    source,
-                                    source_events.clone(),
-                                    id,
-                                    SourceTicket {
-                                        source: source_id,
-                                        token: Some(token),
-                                    },
-                                    queued.epoch,
-                                    Arc::clone(&worker_intent),
-                                ));
-                            }
-                        }
-                        // Intent changes happen synchronously in send(), so they
-                        // must not be repeated here and erase a newer append.
-                        AudioCommand::CancelPrefetch { .. } => {}
-                        AudioCommand::Pause(paused) => {
-                            if let Some(active_sink) = &sink {
-                                if paused {
-                                    active_sink.pause()
-                                } else {
-                                    active_sink.play()
-                                }
-                            }
-                        }
-                        AudioCommand::Stop { handoff } => {
-                            if let Some(old) = sink.take() {
-                                old.stop()
-                            }
-                            stream = None;
-                            playback = WorkerPlayback::default();
-                            let _ = events.send(EventEnvelope {
-                                event: AudioEvent::Stopped { handoff },
-                                generation: None,
-                                epoch: None,
-                            });
-                        }
-                        AudioCommand::Volume(volume) => {
-                            if let Some(active_sink) = &sink {
-                                active_sink.set_volume(volume)
-                            }
-                        }
-                        AudioCommand::Seek(seconds) => {
-                            if !seconds.is_finite() {
-                                return Err("Seek position must be finite".to_owned());
-                            }
-                            if let Some(active_sink) = &sink {
-                                let result = active_sink
-                                    .try_seek(
-                                        Duration::try_from_secs_f64(seconds.max(0.0))
-                                            .map_err(|e| e.to_string())?,
-                                    )
-                                    .map_err(|e| e.to_string());
-                                if let Some(current) = &mut playback.current {
-                                    current.epoch = queued.epoch;
-                                }
-                                playback.ended = active_sink.empty();
-                                playback.finished = false;
-                                result?;
-                            }
-                        }
-                        AudioCommand::Shutdown => {}
-                    }
-                    Ok(())
-                })();
-                if let Err(message) = result {
-                    let _ = events.send(EventEnvelope {
-                        event: AudioEvent::Error {
-                            id: playback.current.map(|current| current.id),
-                            message,
-                        },
-                        generation: Some(queued.generation),
-                        epoch: (!loading_track).then_some(queued.epoch),
-                    });
                 }
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
-        playback.drain(&source_receiver, &worker_intent, &events);
-        playback.finish_if_ready(&worker_intent, &events);
-        if let (Some(active_sink), Some(current)) = (&sink, playback.current) {
-            let state = worker_intent.state.lock().unwrap();
-            if !playback.ended
-                && !playback.finished
-                && state
-                    .playing
-                    .is_none_or(|ticket| ticket.source == current.source)
-            {
-                playback.emit(
-                    &events,
-                    AudioEvent::Progress {
-                        id: current.id,
-                        status: if active_sink.is_paused() {
-                            PlaybackStatus::Paused
-                        } else {
-                            PlaybackStatus::Playing
-                        },
-                        position: active_sink.get_pos().as_secs_f64(),
-                        observed_at: Instant::now(),
-                    },
-                    true,
-                );
-            }
-        }
+        worker.poll();
     }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn load_track(
-    id: usize,
-    path: PathBuf,
-    volume: f32,
-    paused: bool,
-    gain: GainConfig,
-    source_id: SourceIdentity,
-    epoch: u64,
-    stream: &mut Option<rodio::OutputStream>,
-    sink: &mut Option<Sink>,
-    playback: &mut WorkerPlayback,
-    source_events: &Sender<WorkerEvent>,
-    intent: &Arc<PlaybackIntent>,
-) -> Result<(), String> {
-    // send() has already invalidated the old generation. Do not invalidate
-    // prefetch here: a successor for this load may already be waiting in the channel.
-    if let Some(old) = sink.take() {
-        old.stop()
-    }
-    *playback = WorkerPlayback {
-        current: Some(ActiveSource {
-            source: source_id,
-            id,
-            epoch,
-        }),
-        ended: false,
-        finished: true,
-    };
-    let source = open_source(&path, gain)?;
-    if intent.generation.load(Ordering::Acquire) != source_id.generation {
-        return Ok(());
-    }
-    if stream.is_none() {
-        *stream = Some(OutputStreamBuilder::open_default_stream().map_err(|e| e.to_string())?);
-    }
-    let output = stream
-        .as_ref()
-        .ok_or_else(|| "No audio output".to_owned())?;
-    let next = Sink::connect_new(output.mixer());
-    next.set_volume(volume);
-    if paused {
-        next.pause()
-    }
-    next.append(EndNotifyingSource::new(
-        source,
-        source_events.clone(),
-        id,
-        SourceTicket {
-            source: source_id,
-            token: None,
-        },
-        epoch,
-        Arc::clone(intent),
-    ));
-    *sink = Some(next);
-    playback.finished = false;
-    Ok(())
+    worker.backend.stop();
 }

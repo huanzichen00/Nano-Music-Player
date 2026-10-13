@@ -1,5 +1,65 @@
 use super::*;
+use super::{intent::*, playback::*, source::*};
+use crate::audio::gain::GainSource;
 use rodio::buffer::SamplesBuffer;
+use rodio::{Sink, Source};
+
+#[test]
+fn cancellation_during_first_sample_does_not_wait_for_decoder_or_publish_start() {
+    struct GatedSample {
+        entered: Sender<()>,
+        release: Receiver<()>,
+    }
+    impl Iterator for GatedSample {
+        type Item = f32;
+        fn next(&mut self) -> Option<f32> {
+            self.entered.send(()).unwrap();
+            self.release.recv().unwrap();
+            Some(0.9)
+        }
+    }
+    let intent = Arc::new(PlaybackIntent::default());
+    intent.prepare(load(1));
+    let queued = intent.prepare(append(2, 7));
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let (source_tx, source_rx) = mpsc::channel();
+    let mut source = EndNotifyingSource::new(
+        GainSource::new(
+            GatedSample {
+                entered: entered_tx,
+                release: release_rx,
+            },
+            1.0,
+        ),
+        source_tx,
+        2,
+        SourceTicket {
+            source: queued.source.unwrap(),
+            token: Some(7),
+        },
+        queued.epoch,
+        Arc::clone(&intent),
+    );
+    let consuming = thread::spawn(move || source.next());
+    entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (canceled_tx, canceled_rx) = mpsc::channel();
+    let canceling = thread::spawn(move || {
+        intent.prepare(AudioCommand::CancelPrefetch { token: 7 });
+        canceled_tx.send(()).unwrap();
+    });
+    let canceled_without_decoding = canceled_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+    // Release even on regression, so the test cannot leave a blocked thread.
+    release_tx.send(()).unwrap();
+    let sample = consuming.join().unwrap();
+    canceling.join().unwrap();
+    assert!(
+        canceled_without_decoding,
+        "cancellation waited for first-sample decoding"
+    );
+    assert_eq!(sample, None);
+    assert!(source_rx.try_recv().is_err());
+}
 
 fn load(id: usize) -> AudioCommand {
     AudioCommand::Load {
@@ -54,15 +114,11 @@ impl Harness {
     fn queue<S: Source<Item = f32> + Send + 'static>(&mut self, queued: QueuedCommand, source: S) {
         let (id, token) = match queued.command {
             AudioCommand::Load { id, .. } | AudioCommand::LoadWithGain { id, .. } => {
-                self.playback = WorkerPlayback {
-                    current: Some(ActiveSource {
-                        id,
-                        source: queued.source.unwrap(),
-                        epoch: queued.epoch,
-                    }),
-                    ended: false,
-                    finished: false,
-                };
+                self.playback = WorkerPlayback::loaded(ActiveSource {
+                    id,
+                    source: queued.source.unwrap(),
+                    epoch: queued.epoch,
+                });
                 (id, None)
             }
             AudioCommand::AppendNext { id, token, .. } => (id, Some(token)),
@@ -86,10 +142,19 @@ impl Harness {
         self.queue(queued, SamplesBuffer::new(1, 1000, samples));
     }
 
+    fn drain(&mut self) {
+        while let Ok(event) = self.source_rx.try_recv() {
+            if let Some(event) = self.playback.apply(event, self.intent.snapshot()) {
+                self.event_tx.send(event).unwrap();
+            }
+        }
+    }
+
     fn poll(&mut self) -> Vec<AudioEvent> {
-        self.playback
-            .drain(&self.source_rx, &self.intent, &self.event_tx);
-        self.playback.finish_if_ready(&self.intent, &self.event_tx);
+        self.drain();
+        if let Some(event) = self.playback.finish_if_ready(self.intent.snapshot()) {
+            self.event_tx.send(event).unwrap();
+        }
         let mut events = Vec::new();
         while let Ok(event) = self.events.try_recv() {
             events.push(event)
@@ -226,8 +291,9 @@ fn reload_same_id_invalidates_old_samples_end_events_and_published_events() {
     h.buffer(load(4), vec![0.1; 2]);
     h.output.by_ref().take(2).for_each(drop);
     h.output.next();
-    h.playback.drain(&h.source_rx, &h.intent, &h.event_tx);
-    h.playback.finish_if_ready(&h.intent, &h.event_tx); // Finished still waiting for UI.
+    h.drain();
+    let event = h.playback.finish_if_ready(h.intent.snapshot()).unwrap();
+    h.event_tx.send(event).unwrap(); // Finished still waiting for UI.
     h.buffer(load(4), vec![0.3; 2]);
     // The sink already entered its keep-alive silence; use a new hardware-free
     // sink as production load_track does, leaving the stale events queued.
@@ -292,7 +358,7 @@ fn seek_discards_old_end_event_and_cancels_successor_without_invalidating_active
         queued.epoch,
         Arc::clone(&h.intent),
     );
-    h.playback.current = Some(ActiveSource {
+    h.playback = WorkerPlayback::loaded(ActiveSource {
         source: queued.source.unwrap(),
         id: 1,
         epoch: queued.epoch,
@@ -409,4 +475,471 @@ fn malformed_seek_is_rejected_without_changing_intent() {
     }
     assert_eq!(engine.intent.state.lock().unwrap().epoch, 0);
     drop(event_tx);
+}
+
+struct WorkerHarness {
+    worker: worker::AudioWorker,
+    intent: Arc<PlaybackIntent>,
+    events: AudioEvents,
+    mixer: rodio::mixer::Mixer,
+    output: rodio::mixer::MixerSource,
+}
+
+impl WorkerHarness {
+    fn new() -> Self {
+        let intent = Arc::new(PlaybackIntent::default());
+        let (tx, rx) = mpsc::channel();
+        let (mixer, output) = rodio::mixer::mixer(1, 44_100);
+        let mut worker = worker::AudioWorker::new(tx, Arc::clone(&intent));
+        worker.backend.mixer = Some(mixer.clone());
+        Self {
+            worker,
+            events: AudioEvents {
+                receiver: rx,
+                intent: Arc::clone(&intent),
+            },
+            intent,
+            mixer,
+            output,
+        }
+    }
+
+    fn send(&mut self, command: AudioCommand) -> bool {
+        self.worker.process(self.intent.prepare(command))
+    }
+
+    fn fixture_load(&mut self, id: usize, paused: bool) {
+        self.send(AudioCommand::Load {
+            id,
+            path: fixture("wav"),
+            volume: 0.5,
+            paused,
+        });
+    }
+
+    fn poll(&mut self) -> Vec<AudioEvent> {
+        self.worker.poll();
+        let mut events = Vec::new();
+        while let Ok(event) = self.events.try_recv() {
+            events.push(event);
+        }
+        events
+    }
+}
+
+fn fixture(format: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(format!("quiet.{format}"))
+}
+
+#[test]
+fn worker_seek_without_output_callbacks_preserves_pause_volume_and_accepts_stop() {
+    let (done_tx, done_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let mut h = WorkerHarness::new();
+        h.fixture_load(1, true);
+        // Queued samples without any output callback must not block controls.
+        let seeking = h.intent.prepare(AudioCommand::Seek(0.1));
+        h.worker.process(seeking);
+        let sink = h.worker.backend.sink.as_ref().unwrap();
+        assert!(sink.is_paused());
+        assert_eq!(sink.volume(), 0.5);
+        assert!(h.poll().iter().any(|event| matches!(event,
+            AudioEvent::Progress { id: 1, status: PlaybackStatus::Paused, position, .. } if (*position - 0.1).abs() < 0.0001
+        )));
+        h.send(AudioCommand::Stop { handoff: 42 });
+        let stopped = h
+            .poll()
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Stopped { handoff: 42 }));
+        let shutdown = !h.send(AudioCommand::Shutdown);
+        done_tx.send(stopped && shutdown).unwrap();
+    });
+    assert!(
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        "seek prevented subsequent controls"
+    );
+    handle.join().unwrap();
+}
+
+#[test]
+fn worker_seek_after_eof_reopens_identified_track_and_finishes_once() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(3, false);
+    h.output.by_ref().take(12_000).for_each(drop);
+    assert!(h.worker.backend.sink.as_ref().unwrap().empty());
+    // Leave the original EOF notification unread; Seek must discard it.
+    h.send(AudioCommand::Seek(0.2));
+    let events = h.poll();
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        AudioEvent::Finished(_) | AudioEvent::Transitioned { .. } | AudioEvent::Error { .. }
+    )));
+    h.output.by_ref().take(5_000).for_each(drop);
+    let events = h.poll();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, AudioEvent::Finished(3)))
+            .count(),
+        1
+    );
+    assert!(
+        !h.poll()
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Finished(_)))
+    );
+}
+
+#[test]
+fn worker_boundary_seek_cancels_unstarted_successor_and_keeps_predecessor() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, false);
+    h.send(AudioCommand::AppendNext {
+        token: 7,
+        id: 2,
+        path: fixture("flac"),
+        gain: GainConfig::default(),
+    });
+    let predecessor_samples = open_source(&fixture("wav"), GainConfig::default())
+        .unwrap()
+        .count();
+    h.output
+        .by_ref()
+        .take(predecessor_samples - 1)
+        .for_each(drop);
+    h.send(AudioCommand::Seek(0.05));
+    h.output.by_ref().take(2_000).for_each(drop);
+    assert_eq!(h.worker.playback.current.unwrap().id, 1);
+    let events = h.poll();
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        AudioEvent::Transitioned { .. } | AudioEvent::Finished(_) | AudioEvent::Error { .. }
+    )));
+    assert!(events.iter().any(|event| matches!(event, AudioEvent::Progress { id: 1, position, .. } if *position >= 0.05 && *position < 0.11)));
+    h.output.by_ref().take(12_000).for_each(drop);
+    assert_eq!(
+        h.poll()
+            .iter()
+            .filter(|event| matches!(event, AudioEvent::Finished(1)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn seek_of_started_successor_uses_its_path_and_does_not_repeat_transition() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, false);
+    h.send(AudioCommand::AppendNext {
+        token: 9,
+        id: 2,
+        path: fixture("flac"),
+        gain: GainConfig::default(),
+    });
+    let samples = open_source(&fixture("wav"), GainConfig::default())
+        .unwrap()
+        .count();
+    // Mixer conversion can prebuffer an initial span; synchronize on the
+    // source latch, with a bound, instead of assuming raw-queue sample counts.
+    for _ in 0..samples + 2_000 {
+        h.output.next();
+        if h.intent
+            .snapshot()
+            .playing
+            .is_some_and(|ticket| ticket.token == Some(9))
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        h.intent.snapshot().playing.map(|ticket| ticket.token),
+        Some(Some(9)),
+        "successor did not start at fixture boundary"
+    );
+    // Successor has started on the callback, but worker hasn't polled it yet.
+    h.send(AudioCommand::Seek(0.1));
+    let events = h.poll();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                AudioEvent::Transitioned {
+                    from: 1,
+                    to: 2,
+                    token: 9
+                }
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(h.worker.playback.current.unwrap().id, 2);
+    h.output.by_ref().take(8_000).for_each(drop);
+    assert_eq!(
+        h.poll()
+            .iter()
+            .filter(|event| matches!(event, AudioEvent::Finished(2)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn latest_seek_wins_and_earlier_epoch_does_not_replace_source() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, true);
+    let original = h.worker.playback.current.unwrap().source;
+    let old = h.intent.prepare(AudioCommand::Seek(0.02));
+    let latest = h.intent.prepare(AudioCommand::Seek(0.15));
+    h.worker.process(old);
+    assert_eq!(h.worker.playback.current.unwrap().source, original);
+    h.worker.process(latest);
+    assert!(h.poll().iter().any(|event| matches!(event, AudioEvent::Progress { position, .. } if (*position - 0.15).abs() < 0.0001)));
+}
+
+#[test]
+fn failed_seek_retains_active_samples_and_completion_in_new_epoch() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("loaded.wav");
+    std::fs::copy(fixture("wav"), &path).unwrap();
+    let mut h = WorkerHarness::new();
+    h.send(AudioCommand::Load {
+        id: 1,
+        path: path.clone(),
+        volume: 1.0,
+        paused: false,
+    });
+    h.output.by_ref().take(100).for_each(drop);
+    let identity = h.worker.playback.current.unwrap().source;
+    // Existing open decoder remains usable; only reopening for seek fails.
+    std::fs::remove_file(path).unwrap();
+    h.send(AudioCommand::Seek(0.1));
+    assert_eq!(h.worker.playback.current.unwrap().source, identity);
+    assert!(
+        h.poll()
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Error { id: Some(1), .. }))
+    );
+    h.output.by_ref().take(12_000).for_each(drop);
+    assert_eq!(
+        h.poll()
+            .iter()
+            .filter(|event| matches!(event, AudioEvent::Finished(1)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn failed_prefetch_preserves_active_playback_and_allows_an_alternate() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, false);
+    h.send(AudioCommand::AppendNext {
+        token: 1,
+        id: 2,
+        path: PathBuf::from("/missing-audio-file.wav"),
+        gain: GainConfig::default(),
+    });
+    let events = h.poll();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AudioEvent::PrefetchFailed {
+            id: 2,
+            token: 1,
+            ..
+        }
+    )));
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Error { .. } | AudioEvent::Finished(_)))
+    );
+    h.send(AudioCommand::AppendNext {
+        token: 2,
+        id: 3,
+        path: fixture("wav"),
+        gain: GainConfig::default(),
+    });
+    h.output.by_ref().take(24_000).for_each(drop);
+    let events = h.poll();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AudioEvent::Transitioned {
+            from: 1,
+            to: 3,
+            token: 2
+        }
+    )));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Finished(3)))
+    );
+}
+
+#[test]
+fn output_failure_reports_once_suppresses_progress_and_allows_reload() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, false);
+    h.send(AudioCommand::AppendNext {
+        token: 1,
+        id: 2,
+        path: fixture("wav"),
+        gain: GainConfig::default(),
+    });
+    for _ in 0..2 {
+        h.worker
+            .failure_sender
+            .send(backend::OutputFailure {
+                stream: h.worker.backend.stream_serial,
+                message: "injected output loss".into(),
+            })
+            .unwrap();
+    }
+    let events = h.poll();
+    assert_eq!(events.iter().filter(|event| matches!(event, AudioEvent::Error { id: Some(1), message } if message.contains("injected output loss"))).count(), 1);
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Progress { .. } | AudioEvent::Finished(_)))
+    );
+    assert!(h.intent.snapshot().prefetch.is_none());
+    assert!(h.poll().is_empty());
+    // Inject a replacement offline output, as a new native load would reopen it.
+    h.worker.backend.mixer = Some(h.mixer.clone());
+    h.worker.backend.stream_serial += 1;
+    h.fixture_load(3, false);
+    h.worker
+        .failure_sender
+        .send(backend::OutputFailure {
+            stream: h.worker.backend.stream_serial - 1,
+            message: "late old output error".into(),
+        })
+        .unwrap();
+    h.output.by_ref().take(12_000).for_each(drop);
+    let events = h.poll();
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Finished(3)))
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Error { .. }))
+    );
+}
+
+#[test]
+fn rapid_prefetch_replacement_only_outputs_latest_successor() {
+    let mut h = Harness::new();
+    h.buffer(load(1), vec![0.1; 2]);
+    for token in 1..=100 {
+        h.buffer(append(2, token), vec![0.9; 3]);
+        h.intent.prepare(AudioCommand::CancelPrefetch { token });
+    }
+    h.buffer(append(3, 101), vec![0.2; 3]);
+    assert_eq!(
+        h.output.by_ref().take(5).collect::<Vec<_>>(),
+        vec![0.1, 0.1, 0.2, 0.2, 0.2]
+    );
+    h.output.next();
+    assert!(matches!(
+        h.poll().as_slice(),
+        [
+            AudioEvent::Transitioned {
+                from: 1,
+                to: 3,
+                token: 101
+            },
+            AudioEvent::Finished(3)
+        ]
+    ));
+}
+
+#[test]
+fn seek_replacement_does_not_mix_old_samples_between_sink_control_checks() {
+    let mut reference = WorkerHarness::new();
+    reference.fixture_load(1, false);
+    reference.send(AudioCommand::Seek(0.1));
+    let expected = reference.output.by_ref().take(2_000).collect::<Vec<_>>();
+
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, false);
+    h.output.by_ref().take(777).for_each(drop);
+    assert!(h.intent.snapshot().playing.is_some());
+    h.send(AudioCommand::Seek(0.1));
+    let actual = h.output.by_ref().take(2_000).collect::<Vec<_>>();
+    // A resampler may retain one frame already generated before the seek.
+    assert_eq!(&actual[2..], &expected[2..]);
+}
+
+#[test]
+#[ignore = "manual source-open timing profile; no performance threshold assertion"]
+fn profile_source_opening() {
+    for format in ["wav", "flac", "mp3", "m4a"] {
+        let path = fixture(format);
+        for _ in 0..20 {
+            std::hint::black_box(open_source(&path, GainConfig::default()).unwrap());
+        }
+        let start = Instant::now();
+        for _ in 0..1_000 {
+            std::hint::black_box(open_source(&path, GainConfig::default()).unwrap());
+        }
+        eprintln!(
+            "ReplayGain Off {format}: {:?} / 1000 opens",
+            start.elapsed()
+        );
+    }
+}
+
+#[test]
+fn seek_preserves_successor_prepared_after_seek_intent() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, true);
+    let seeking = h.intent.prepare(AudioCommand::Seek(0.2));
+    let next = h.intent.prepare(AudioCommand::AppendNext {
+        token: 42,
+        id: 2,
+        path: fixture("wav"),
+        gain: GainConfig::default(),
+    });
+    h.worker.process(seeking);
+    h.worker.process(next);
+    assert_eq!(h.intent.snapshot().prefetch.unwrap().token, Some(42));
+    h.send(AudioCommand::Pause(false));
+    h.output.by_ref().take(16_000).for_each(drop);
+    let events = h.poll();
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AudioEvent::Transitioned {
+            from: 1,
+            to: 2,
+            token: 42
+        }
+    )));
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, AudioEvent::Finished(2)))
+    );
+}
+
+#[test]
+fn duplicate_eof_cannot_reemit_completion() {
+    let mut h = Harness::new();
+    h.buffer(load(1), vec![0.1]);
+    h.output.next();
+    h.output.next();
+    assert!(matches!(h.poll().as_slice(), [AudioEvent::Finished(1)]));
+    let current = h.playback.current.unwrap();
+    h.source_tx
+        .send(WorkerEvent::SourceEnded {
+            source: current.source,
+            epoch: current.epoch,
+        })
+        .unwrap();
+    assert!(h.poll().is_empty());
 }

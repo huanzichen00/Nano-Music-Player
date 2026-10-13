@@ -57,3 +57,40 @@ native resampling across different channel counts/sample rates. The native
 completion, statistics and artwork. It does not measure output gaps or clipping.
 Audible continuity, mixed-format hardware boundaries, physical media keys,
 Control Center and native Windows/Linux behavior require separate verification.
+
+## Lifecycle milestone
+
+- Playback reduction now consumes consistent intent snapshots and returns event
+  envelopes without locks, channels, decoders or device calls. Active, ended,
+  finished and failed phases are explicit.
+- Seeks prepare a fresh decoder on the worker, preserve the resolved gain, volume
+  and pause state, then retire the old source and replace its sink. Source serials
+  distinguish old EOF from the seeked source. Progress adds the prepared seek
+  offset, resetting it at the next genuine track transition.
+- Failed seeks leave the old decoder usable and rebase its EOF epoch. EOF seeks
+  can reopen an already-drained source; newer seek epochs supersede older work.
+- First-sample decoding is outside the intent mutex. Start notification stays
+  inside the short latch transaction, preserving ordering against seek/cancel.
+  Explicit retirement prevents old samples overlapping a replacement before
+  Rodio observes its asynchronous Stop flag.
+- Output callbacks report stream-identified failures to the worker. One failure
+  retires that output, suppresses progress/finish and permits a subsequent load;
+  errors from older output instances are ignored.
+- 34 non-ignored audio tests pass, plus the opt-in source-opening profile.
+  The slow-decoder cancellation test fails on the previous implementation and
+  passes after the lock change. Existing format/sample/gain tests remain intact. The complete suite also passes.
+- `cargo check` and formatting pass. All-target Clippy passes with only the three
+  existing lint classes suppressed: `collapsible_if` in `src/app/controller.rs`,
+  `needless_borrow` in `src/library/scanner.rs`, and `field_reassign_with_default`
+  in `tests/feature_library.rs`. Unmodified strict Clippy reports those lints.
+- Both native tests in `tests/playback_runtime.rs` pass outside the sandbox,
+  including the new seek/skip/pause/resume/Stop regression. This establishes
+  native control responsiveness in these scenarios, not audible gaplessness.
+
+Seek tradeoff: reopening adds worker-side file/decoder setup to each applied
+seek. If the path disappears or becomes unreadable after loading, seek reports
+that error while existing decoded playback can continue. This avoids holding
+the command worker indefinitely on an output-callback feedback channel. Seeks
+still require ordinary file I/O to complete; no hard wall-clock I/O bound is
+claimed. Buffered/resampled or hardware-queued samples already generated before
+a control change cannot be recalled.

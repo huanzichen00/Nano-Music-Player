@@ -1,23 +1,16 @@
-use super::{
-    PlaybackStatus,
-    gain::{GainConfig, GainSource, ReplayGainInfo},
-};
-use rodio::{Decoder, OutputStreamBuilder, Sink, Source};
+use super::{PlaybackStatus, gain::GainConfig};
 
+mod backend;
 mod intent;
 mod playback;
 mod source;
 mod worker;
 
-use intent::*;
-use playback::*;
-use source::*;
+use intent::{PlaybackIntent, QueuedCommand};
 use std::{
-    fs::File,
     path::PathBuf,
     sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        Arc,
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -111,10 +104,11 @@ impl AudioEvents {
     pub fn try_recv(&self) -> Result<AudioEvent, mpsc::TryRecvError> {
         loop {
             let envelope = self.receiver.try_recv()?;
-            let state = self.intent.state.lock().unwrap();
-            if envelope.generation.is_none_or(|generation| {
-                generation == self.intent.generation.load(Ordering::Acquire)
-            }) && envelope.epoch.is_none_or(|epoch| epoch == state.epoch)
+            let state = self.intent.snapshot();
+            if envelope
+                .generation
+                .is_none_or(|generation| generation == state.generation)
+                && envelope.epoch.is_none_or(|epoch| epoch == state.epoch)
             {
                 return Ok(envelope.event);
             }

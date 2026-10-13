@@ -128,6 +128,10 @@ pub struct GainSource<S> {
 }
 
 impl<S> GainSource<S> {
+    pub(crate) fn processing(&self) -> (f32, bool) {
+        (self.gain, self.prevent_clipping)
+    }
+
     pub fn new(inner: S, gain: f32) -> Self {
         Self::with_clipping_prevention(inner, gain, false)
     }
