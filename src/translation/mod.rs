@@ -1,8 +1,9 @@
 //! Isolated lyric-translation contracts, validation, and durable cache prototype.
 //!
-//! No automatic generation or network access is performed by this module. App integration is
-//! intentionally deferred until shared controller/UI ownership is released.
+//! No network client is included; generation requires an explicitly injected provider. App
+//! integration is intentionally deferred until shared controller/UI ownership is released.
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -10,6 +11,44 @@ use std::{
 
 pub const PROMPT_VERSION: &str = "lyrics-translation-v1";
 pub const MAX_LINES: usize = 20_000;
+
+/// Adapter boundary for `crate::ai::DeepSeek::json`; test implementations remain offline.
+pub trait JsonProvider {
+    fn json(&self, system: &str, input: &Value) -> Result<Value, String>;
+}
+
+#[derive(Clone, Default)]
+pub struct Cancellation(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+const SYSTEM_PROMPT: &str = "Translate each supplied lyric line to the requested language. Return JSON {\"translations\":[one translated string per input line in the same order]}. Preserve blank lines as empty strings. Do not return timestamps or modify the source.";
+
+pub fn generate(
+    request: &Request,
+    provider: &impl JsonProvider,
+    cancellation: &Cancellation,
+) -> Result<Translation, Error> {
+    request.validate()?;
+    if cancellation.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let response = provider
+        .json(SYSTEM_PROMPT, &request.prompt_payload()?)
+        .map_err(|_| Error::Provider)?;
+    if cancellation.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let response = serde_json::to_string(&response).map_err(|_| Error::InvalidResponse)?;
+    request.validate_response(&response)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -253,6 +292,8 @@ pub enum Error {
     InvalidResponse,
     Incomplete,
     Storage,
+    Provider,
+    Cancelled,
 }
 
 #[cfg(test)]
@@ -342,5 +383,24 @@ mod tests {
         assert!(loaded.get(&changed).is_none());
         assert!(loaded.remove(&req.cache_key()));
         assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn provider_adapter_and_cancellation_are_offline() {
+        struct Fixture(Value);
+        impl JsonProvider for Fixture {
+            fn json(&self, _: &str, _: &Value) -> Result<Value, String> {
+                Ok(self.0.clone())
+            }
+        }
+        let req = request();
+        let token = Cancellation::default();
+        let fixture = Fixture(serde_json::json!({"translations":["こんにちは","世界"]}));
+        assert_eq!(
+            generate(&req, &fixture, &token).unwrap().lines,
+            ["こんにちは", "世界"]
+        );
+        token.cancel();
+        assert_eq!(generate(&req, &fixture, &token), Err(Error::Cancelled));
     }
 }

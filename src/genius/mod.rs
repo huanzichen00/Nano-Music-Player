@@ -1,12 +1,51 @@
 //! Isolated Genius request contracts and validation.
 //!
 //! This module is intentionally not wired into the app while shared controller/UI ownership is
-//! reserved. It contains no network client and cannot make a provider request by itself.
+//! reserved. It contains no network client; callers must explicitly inject a provider.
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{collections::HashSet, path::PathBuf};
 
 pub const PROMPT_VERSION: &str = "genius-local-v1";
 pub const MAX_CANDIDATES: usize = 50_000;
+
+/// Adapter boundary for `crate::ai::DeepSeek::json`; test implementations remain offline.
+pub trait JsonProvider {
+    fn json(&self, system: &str, input: &Value) -> Result<Value, String>;
+}
+
+#[derive(Clone, Default)]
+pub struct Cancellation(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Cancellation {
+    pub fn cancel(&self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+const SYSTEM_PROMPT: &str = "Choose related songs only from the supplied local candidate list. Return JSON {\"ids\":[candidate IDs in listening order]}. Do not invent IDs, include the seed, or return paths. A short list is acceptable when few candidates fit.";
+
+pub fn generate(
+    request: &Request,
+    provider: &impl JsonProvider,
+    cancellation: &Cancellation,
+) -> Result<ResultSet, Error> {
+    request.validate()?;
+    if cancellation.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let response = provider
+        .json(SYSTEM_PROMPT, &request.prompt_payload()?)
+        .map_err(|_| Error::Provider)?;
+    if cancellation.is_cancelled() {
+        return Err(Error::Cancelled);
+    }
+    let response = serde_json::to_string(&response).map_err(|_| Error::InvalidResponse)?;
+    request.validate_response(&response)
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Candidate {
@@ -159,6 +198,8 @@ pub enum Error {
     DuplicateId,
     UnknownId,
     SeedRepeated,
+    Provider,
+    Cancelled,
 }
 
 impl std::fmt::Display for Error {
@@ -169,6 +210,8 @@ impl std::fmt::Display for Error {
             Self::DuplicateId => f.write_str("DeepSeek returned a duplicate Genius candidate"),
             Self::UnknownId => f.write_str("DeepSeek returned an unknown Genius candidate"),
             Self::SeedRepeated => f.write_str("DeepSeek repeated the Genius seed"),
+            Self::Provider => f.write_str("DeepSeek Genius request failed"),
+            Self::Cancelled => f.write_str("Genius request cancelled"),
         }
     }
 }
@@ -235,5 +278,24 @@ mod tests {
         assert!(req.accepts_result(&result, 7, std::path::Path::new("/music/seed.flac"), 4));
         assert!(!req.accepts_result(&result, 8, std::path::Path::new("/music/seed.flac"), 4));
         assert!(!req.accepts_result(&result, 7, std::path::Path::new("/music/seed.flac"), 5));
+    }
+
+    #[test]
+    fn provider_adapter_and_cancellation_are_offline() {
+        struct Fixture(Value);
+        impl JsonProvider for Fixture {
+            fn json(&self, _: &str, _: &Value) -> Result<Value, String> {
+                Ok(self.0.clone())
+            }
+        }
+        let req = request();
+        let token = Cancellation::default();
+        let fixture = Fixture(serde_json::json!({"ids":["a"]}));
+        assert_eq!(
+            generate(&req, &fixture, &token).unwrap().ordered_paths,
+            [PathBuf::from("/music/a.flac")]
+        );
+        token.cancel();
+        assert_eq!(generate(&req, &fixture, &token), Err(Error::Cancelled));
     }
 }
