@@ -91,6 +91,12 @@ Acceptance: existing configuration still validates; absent/closed Nano is harmle
 
 The user's later request supersedes the earlier evaluation-only scope. A separate user-requested chat owns the libmpv prototype and video views. Review its isolated commits, authorize shared integration after the completed music phases, and verify import, rendering, audio/video synchronization, controls/seek, keyboard context, geometry and return-to-music behavior. Preserve the existing library, playlists, credentials and settings. Dependencies and unavailable-platform limits must be documented. Merge only after appropriate compilation/tests and real local-video playback verification; package and start the combined build.
 
+## Phase 14 — DeepSeek Genius and lyric translation (separate chat)
+
+The user requested a new implementation chat, **Implement DeepSeek Genius and lyric translation**. Its detailed contracts, phases and acceptance criteria are in [DEEPSEEK_GENIUS_TRANSLATION_PLAN.md](DEEPSEEK_GENIUS_TRANSLATION_PLAN.md). Replace the labeled Genius mock with explicit Create/Refresh, an ordered local-library preview, Play and transactional Save. Add explicit lyric translation with a persisted target language independent of the UI locale, initially English, Simplified Chinese and Japanese. Preserve original lyrics/timestamps, synchronized highlighting/scrolling and optional romaji. Reuse the existing DeepSeek credential store and bounded JSON client; development verification uses offline fixtures and makes no live provider requests.
+
+Schedule isolated provider/backend work during video integration; release shared UI/controller ownership only after the video review and delivery. Initial frozen-request validators, cancellation boundaries and atomic translation-cache prototype are committed with eight passing isolated tests. They are not exported by the app yet. Provider adapter, integrated UI, storage, queue semantics and complete fixture coverage remain required before claiming completion.
+
 ## Verification log and blockers
 
 - AeroSpace following: bash syntax and five isolated helper tests pass. The user configuration backup is ~/.aerospace.toml.nano-workspace-backup-20261013-081655; dry-run validation and reload pass. Native switches to 4, 5 and back to 3 show window 87326 floating/visible on each workspace, with focus on the existing workspace app and unchanged other window assignments. This is an asynchronous follow workaround, not native sticky/unmanaged support.
