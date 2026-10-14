@@ -9,6 +9,33 @@ use std::{
 pub const PROMPT_VERSION: &str = "lyrics-translation-v1";
 pub const MAX_LINES: usize = 20_000;
 
+/// Shared by the native menu and the iPod settings rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    Translate,
+    Regenerate,
+    Cancel,
+    Toggle,
+    Remove,
+    SetTarget(TargetLanguage),
+}
+
+impl Command {
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "translate_lyrics" => Self::Translate,
+            "regenerate_translation" => Self::Regenerate,
+            "cancel_translation" => Self::Cancel,
+            "toggle_translation" => Self::Toggle,
+            "remove_translation" => Self::Remove,
+            "translation_target_en" => Self::SetTarget(TargetLanguage::English),
+            "translation_target_zh" => Self::SetTarget(TargetLanguage::SimplifiedChinese),
+            "translation_target_ja" => Self::SetTarget(TargetLanguage::Japanese),
+            _ => return None,
+        })
+    }
+}
+
 /// Adapter boundary for `crate::ai::DeepSeek::json`; test implementations remain offline.
 pub trait JsonProvider {
     fn json(&self, system: &str, input: &Value) -> Result<Value, String>;
@@ -99,6 +126,16 @@ pub enum TargetLanguage {
 }
 
 impl TargetLanguage {
+    pub const ALL: [Self; 3] = [Self::English, Self::SimplifiedChinese, Self::Japanese];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::English => "English",
+            Self::SimplifiedChinese => "简体中文",
+            Self::Japanese => "日本語",
+        }
+    }
+
     pub fn code(self) -> &'static str {
         match self {
             Self::English => "en",

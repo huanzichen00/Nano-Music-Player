@@ -24,6 +24,7 @@ pub enum Target {
     Language(Language),
     Font(Font),
     GeniusPreview,
+    Translation(crate::translation::Command),
 }
 
 #[derive(Clone)]
@@ -49,6 +50,7 @@ pub enum Effect {
     WindowPreferencesChanged,
     RomajiVisibilityChanged,
     ConfigureDeepSeek,
+    Translation(crate::translation::Command),
     GeniusPreview,
     NewPlaylist,
     EditPlaylist {
@@ -114,6 +116,8 @@ pub struct State {
     pub lyrics_visible: bool,
     pub overlay_visible: bool,
     pub romaji_visible: bool,
+    pub translation_target: crate::translation::TargetLanguage,
+    pub translation_visible: bool,
     pub romaji: HashMap<PathBuf, crate::library::romaji::Romaji>,
     pub romaji_generating: Option<PathBuf>,
     pub importing: bool,
@@ -167,6 +171,8 @@ impl Default for State {
             lyrics_visible: false,
             overlay_visible: false,
             romaji_visible: true,
+            translation_target: crate::translation::TargetLanguage::English,
+            translation_visible: false,
             romaji: HashMap::new(),
             romaji_generating: None,
             importing: false,
@@ -364,6 +370,10 @@ impl State {
             ],
             Screen::SettingsSection(SettingsSection::Lyrics) => vec![
                 row("Lyrics for Track", Target::Action(Action::ManageLyrics)),
+                to(
+                    "Translation",
+                    Screen::SettingsSection(SettingsSection::Translation),
+                ),
                 Row {
                     title: "Show Romaji".into(),
                     subtitle: if self.romaji_visible { "On" } else { "Off" }.into(),
@@ -372,6 +382,66 @@ impl State {
                 },
                 row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
             ],
+            Screen::SettingsSection(SettingsSection::Translation) => vec![
+                Row {
+                    title: "Translation Language".into(),
+                    subtitle: self.translation_target.label().into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::SettingsSection(
+                        SettingsSection::TranslationLanguage,
+                    )),
+                },
+                Row {
+                    title: "Translate Lyrics".into(),
+                    subtitle: self
+                        .current
+                        .and_then(|id| self.tracks.get(id))
+                        .map(|track| track.title.clone())
+                        .unwrap_or_default(),
+                    artwork_id: None,
+                    target: Target::Translation(crate::translation::Command::Translate),
+                },
+                row(
+                    "Regenerate Translation",
+                    Target::Translation(crate::translation::Command::Regenerate),
+                ),
+                Row {
+                    title: "Show Translation".into(),
+                    subtitle: if self.translation_visible {
+                        "On"
+                    } else {
+                        "Off"
+                    }
+                    .into(),
+                    artwork_id: None,
+                    target: Target::Translation(crate::translation::Command::Toggle),
+                },
+                row(
+                    "Cancel Translation",
+                    Target::Translation(crate::translation::Command::Cancel),
+                ),
+                row(
+                    "Remove Translation",
+                    Target::Translation(crate::translation::Command::Remove),
+                ),
+                row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
+            ],
+            Screen::SettingsSection(SettingsSection::TranslationLanguage) => {
+                crate::translation::TargetLanguage::ALL
+                    .into_iter()
+                    .map(|target| Row {
+                        title: target.label().into(),
+                        subtitle: if target == self.translation_target {
+                            "✓"
+                        } else {
+                            ""
+                        }
+                        .into(),
+                        artwork_id: None,
+                        target: Target::Translation(crate::translation::Command::SetTarget(target)),
+                    })
+                    .collect()
+            }
             Screen::Fonts => Font::ALL
                 .into_iter()
                 .map(|font| Row {
@@ -1315,6 +1385,9 @@ impl State {
                                 }
                                 Target::Action(action) => return self.apply(action),
                                 Target::GeniusPreview => return vec![Effect::GeniusPreview],
+                                Target::Translation(command) => {
+                                    return vec![Effect::Translation(command)];
+                                }
                                 Target::Shortcut(action) => {
                                     return vec![Effect::EditShortcut(action)];
                                 }

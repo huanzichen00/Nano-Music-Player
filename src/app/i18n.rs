@@ -328,6 +328,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("Close", "关闭", "閉じる"),
     ("On", "开启", "オン"),
     ("Off", "关闭", "オフ"),
+    (
+        "Lyrics, translation, romaji & Genius",
+        "歌词、翻译、罗马音和 Genius",
+        "歌詞・翻訳・ローマ字・Genius",
+    ),
+    (
+        "Your key is required for DeepSeek requests.",
+        "DeepSeek 请求需要您的密钥。",
+        "DeepSeek のリクエストには API キーが必要です。",
+    ),
     ("DeepSeek Settings", "DeepSeek 设置", "DeepSeek の設定"),
     (
         "Japanese lyrics → romaji",
@@ -691,6 +701,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "ミュージックから曲を選択",
     ),
     ("No lyrics available", "没有可用歌词", "歌詞がありません"),
+    ("Translation", "歌词翻译", "歌詞の翻訳"),
+    ("Translation Language", "翻译语言", "翻訳先の言語"),
+    ("Show Translation", "显示译文", "翻訳を表示"),
     ("Translate Lyrics", "翻译歌词", "歌詞を翻訳"),
     ("Regenerate Translation", "重新翻译", "翻訳を再生成"),
     ("Cancel Translation", "取消翻译", "翻訳をキャンセル"),

@@ -28,6 +28,8 @@ pub enum SettingsSection {
     Playback,
     ReplayGain,
     Lyrics,
+    Translation,
+    TranslationLanguage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +78,8 @@ impl Screen {
                 SettingsSection::Playback => "Playback",
                 SettingsSection::ReplayGain => "ReplayGain",
                 SettingsSection::Lyrics => "Lyrics",
+                SettingsSection::Translation => "Translation",
+                SettingsSection::TranslationLanguage => "Translation Language",
             },
             Self::Shortcuts => "Shortcuts",
             Self::Lyrics(_) => "Lyrics for Track",

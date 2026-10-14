@@ -828,6 +828,7 @@ impl Controller {
                     ui.set_deepseek_message(self.text(&message));
                     ui.set_deepseek_settings_open(true);
                 }
+                Effect::Translation(command) => self.translation_command(ui, command),
                 Effect::GeniusPreview => {
                     self.prepare_portrait_dialog(ui);
                     ui.invoke_open_genius_preview();
@@ -2401,6 +2402,13 @@ impl Controller {
     }
 
     fn sync(&mut self, ui: &AppWindow) {
+        if self.state.translation_target != self.settings.translation_target
+            || self.state.translation_visible != self.translation_visible
+        {
+            self.state.translation_target = self.settings.translation_target;
+            self.state.translation_visible = self.translation_visible;
+            self.rows_dirty = true;
+        }
         ui.global::<I18n>()
             .set_language(self.state.language.index() as i32);
         let current_screen = self.state.navigation.current().screen.clone();
@@ -2630,6 +2638,10 @@ impl Controller {
                         i18n::notice(self.state.language, &row.subtitle).into()
                     } else {
                         if metadata_rows
+                            || matches!(
+                                row.target,
+                                Target::Translation(crate::translation::Command::Translate)
+                            )
                             || (*screen == Screen::Music
                                 && matches!(row.target, Target::Screen(Screen::NowPlaying)))
                             || matches!(
@@ -3313,6 +3325,34 @@ impl Controller {
                     text: line.text.clone(),
                 })
                 .collect()
+        }
+    }
+
+    fn translation_command(&mut self, ui: &AppWindow, command: crate::translation::Command) {
+        use crate::translation::Command;
+        match command {
+            Command::Translate | Command::Regenerate => self.start_translation(ui),
+            Command::Cancel => {
+                if let Some(token) = self.translation_cancel.as_ref() {
+                    token.cancel();
+                }
+                self.translation_request_id = self.translation_request_id.wrapping_add(1);
+                self.state.notice = "Translation cancellation requested".into();
+                self.sync(ui);
+            }
+            Command::Toggle => {
+                self.translation_visible = !self.translation_visible;
+                self.lyrics_dirty = true;
+                self.sync(ui);
+            }
+            Command::Remove => {
+                self.state.notice = match self.remove_translation_for_current() {
+                    Ok(()) => "Translation removed".into(),
+                    Err(error) => error,
+                };
+                self.sync(ui);
+            }
+            Command::SetTarget(target) => self.set_translation_target(ui, target),
         }
     }
 
@@ -4072,36 +4112,8 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 ui.set_subtitle_menu_open(false);
             }
             match name.as_str() {
-                "translate_lyrics" | "regenerate_translation" => controller.start_translation(&ui),
-                "cancel_translation" => {
-                    if let Some(token) = controller.translation_cancel.as_ref() {
-                        token.cancel();
-                    }
-                    controller.translation_request_id =
-                        controller.translation_request_id.wrapping_add(1);
-                    controller.state.notice = "Translation cancellation requested".into();
-                    controller.sync(&ui);
-                }
-                "toggle_translation" => {
-                    controller.translation_visible = !controller.translation_visible;
-                    controller.lyrics_dirty = true;
-                    controller.sync(&ui);
-                }
-                "remove_translation" => {
-                    controller.state.notice = match controller.remove_translation_for_current() {
-                        Ok(()) => "Translation removed".into(),
-                        Err(error) => error,
-                    };
-                    controller.sync(&ui);
-                }
-                "translation_target_en" => controller
-                    .set_translation_target(&ui, crate::translation::TargetLanguage::English),
-                "translation_target_zh" => controller.set_translation_target(
-                    &ui,
-                    crate::translation::TargetLanguage::SimplifiedChinese,
-                ),
-                "translation_target_ja" => controller
-                    .set_translation_target(&ui, crate::translation::TargetLanguage::Japanese),
+                _ if crate::translation::Command::parse(&name).is_some() => controller
+                    .translation_command(&ui, crate::translation::Command::parse(&name).unwrap()),
                 _ if Action::parse(&name).is_some() => {
                     ui.set_keyboard_navigation(false);
                     controller.execute(&ui, Action::parse(&name).unwrap());
