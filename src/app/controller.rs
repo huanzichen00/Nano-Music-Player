@@ -15,7 +15,8 @@ use crate::{
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
     library::{Track, playlists, romaji, scanner},
     ui::{
-        AppWindow, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow, SubtitleChoice,
+        AppWindow, BackScroll, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow,
+        SubtitleChoice,
     },
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
@@ -3875,6 +3876,25 @@ impl Drop for Controller {
 }
 
 pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
+    // Keep scroll-burst ownership independent of view/transition lifetimes.
+    let scroll_timeout = slint::Timer::default();
+    let scroll_ui = ui.as_weak();
+    ui.global::<BackScroll>().on_activity(move || {
+        if let Some(ui) = scroll_ui.upgrade()
+            && ui.global::<BackScroll>().get_consumed()
+        {
+            let weak = ui.as_weak();
+            scroll_timeout.start(
+                slint::TimerMode::SingleShot,
+                std::time::Duration::from_millis(500),
+                move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.global::<BackScroll>().set_consumed(false);
+                    }
+                },
+            );
+        }
+    });
     ui.global::<I18n>().on_translate(|language, key| {
         translate(
             Language::ALL

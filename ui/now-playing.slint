@@ -1,3 +1,4 @@
+import { BackScroll } from "back-scroll.slint";
 import { IconButton, NanoSlider } from "components.slint";
 import { I18n } from "i18n.slint";
 
@@ -21,10 +22,15 @@ component PlaybackBackArea inherits SwipeGestureHandler {
         enabled: root.enabled;
         scroll-event(event) => {
             if abs(event.delta-x) > 1.5 * abs(event.delta-y) {
+                BackScroll.activity();
+                if BackScroll.consumed {
+                    root.accumulated-x = 0px; wheel-timeout.stop(); return accept;
+                }
                 root.accumulated-x = max(0px, root.accumulated-x + event.delta-x);
                 wheel-timeout.start(); wheel-timeout.restart();
                 if root.accumulated-x > 32px * root.s {
-                    root.accumulated-x = 0px; wheel-timeout.stop(); root.back();
+                    root.accumulated-x = 0px; wheel-timeout.stop();
+                    BackScroll.consumed = true; BackScroll.activity(); root.back();
                 }
                 accept
             } else { root.accumulated-x = 0px; wheel-timeout.stop(); reject }

@@ -1,3 +1,4 @@
+import { BackScroll } from "back-scroll.slint";
 import { AppIcon } from "components.slint";
 import { I18n } from "i18n.slint";
 
@@ -78,6 +79,10 @@ export component HomeView inherits Rectangle {
             scroll-event(event) => {
                 if !root.navigation-enabled { return reject; }
                 if abs(event.delta-x) > 1.5 * abs(event.delta-y) {
+                    BackScroll.activity();
+                    if BackScroll.consumed {
+                        gesture.accumulated-x = 0px; wheel-timeout.stop(); return accept;
+                    }
                     // Stop repeated momentum events at a page boundary from
                     // resubmitting the same navigation and resetting selection.
                     if (event.delta-x < 0px && root.page == 1) || (event.delta-x > 0px && root.page == 0) {

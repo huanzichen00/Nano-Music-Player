@@ -99,3 +99,15 @@ preferences using the old schema. That process was closed and the exact pre-test
 settings snapshot restored. Historical native app launches are not counted as
 isolated playback acceptance. The engine/controller test evidence above uses
 explicit temporary directories and was completed separately.
+
+## Trackpad Back regression
+
+The real Slint scroll dispatcher reproduces a second Back when a large horizontal
+momentum delta arrives 260 ms after the first Back, after the screen transition
+settles. A shared UI burst latch now persists across Library/Now Playing/Home
+views. Horizontal activity restarts a single 500 ms quiet timer after consumption;
+disabling/re-enabling a view does not clear it. Pointer swipes and keyboard Back
+retain their existing path. Continuous-tail, new-gesture, immediate keyboard and
+Home-page tests exercise actual dispatch through the controller. TouchArea supplies
+no physical gesture phase, so this is quiet-interval suppression; real Mac trackpad
+gestures still require human verification.

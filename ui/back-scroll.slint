@@ -1,0 +1,6 @@
+// TouchArea exposes deltas without native trackpad gesture/momentum phases.
+// Share the consumed burst across views so navigation cannot re-arm its tail.
+export global BackScroll {
+    in-out property <bool> consumed: false;
+    callback activity();
+}
