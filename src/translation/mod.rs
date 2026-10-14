@@ -17,6 +17,7 @@ pub enum Command {
     Cancel,
     Toggle,
     Remove,
+    FindLyrics,
     SetTarget(TargetLanguage),
 }
 
@@ -28,6 +29,7 @@ impl Command {
             "cancel_translation" => Self::Cancel,
             "toggle_translation" => Self::Toggle,
             "remove_translation" => Self::Remove,
+            "find_online_lyrics" => Self::FindLyrics,
             "translation_target_en" => Self::SetTarget(TargetLanguage::English),
             "translation_target_zh" => Self::SetTarget(TargetLanguage::SimplifiedChinese),
             "translation_target_ja" => Self::SetTarget(TargetLanguage::Japanese),

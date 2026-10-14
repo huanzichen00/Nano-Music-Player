@@ -134,6 +134,7 @@ impl Default for Keymap {
             (Letter('r'), CycleRepeat),
             (Letter('n'), NowPlaying),
             (Letter('y'), ToggleLyrics),
+            (Letter('t'), Action::ToggleTranslation),
             (Letter('f'), JumpToLetter),
         ];
         let primary = [
@@ -151,7 +152,7 @@ impl Default for Keymap {
             (Character(','), Action::Settings),
         ];
         Self {
-            version: 5,
+            version: 6,
             bindings: plain
                 .into_iter()
                 .map(|(key, action)| Binding {
@@ -194,7 +195,7 @@ impl Default for Keymap {
 
 impl Keymap {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.version, 1..=5) {
+        if !matches!(self.version, 1..=6) {
             return Err(format!(
                 "Unsupported shortcut file version: {}",
                 self.version
@@ -241,7 +242,8 @@ impl Keymap {
             map.validate()?;
             // Upgrade only exact shipped defaults. User-edited maps are preserved.
             let mut v4 = Self::default();
-            v4.bindings.retain(|b| b.action != Action::ShuffleAll);
+            v4.bindings
+                .retain(|b| !matches!(b.action, Action::ShuffleAll | Action::ToggleTranslation));
             let mut v3 = v4.clone();
             v3.bindings.retain(|b| b.action != Action::JumpToLetter);
             let mut v2 = v3.clone();
@@ -300,6 +302,21 @@ impl Keymap {
                 map.version = 5;
                 map.save(path)?;
             }
+            if map.version < 6 {
+                let shortcut = Self::default()
+                    .bindings
+                    .into_iter()
+                    .find(|b| b.action == Action::ToggleTranslation)
+                    .unwrap();
+                if !map.bindings.iter().any(|b| {
+                    b.action == Action::ToggleTranslation
+                        || b.matches(&shortcut.key, shortcut.modifiers)
+                }) {
+                    map.bindings.push(shortcut);
+                }
+                map.version = 6;
+                map.save(path)?;
+            }
             Ok(map)
         } else {
             let map = Self::default();
@@ -329,7 +346,7 @@ impl Keymap {
         replace: bool,
     ) -> Result<Self, String> {
         let mut map = self.clone();
-        map.version = 4;
+        map.version = 6;
         if replace {
             map.bindings.retain(|b| b.action != action);
         }

@@ -170,7 +170,7 @@ export component LibraryView inherits Rectangle {
                 x: ListMetrics.artwork-padding * 1px * root.s; y: self.x;
                 width: parent.height - 2 * self.x; height: self.width; background: row.artwork.width > 0 ? #e0e3e6 : @linear-gradient(180deg, #455b71, #101d2b);
                 Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row.artwork; image-fit: contain; }
-                if row.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: @image-url("../assets/icons/nano/songs.png"); colorize: #dce6ee; image-fit: contain; }
+                if row.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row.icon == 9 ? @image-url("../assets/generated/videos.png") : @image-url("../assets/icons/nano/songs.png"); colorize: row.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
             }
             Text {
                 x: row.show-artwork ? root.row-height + 6px * root.s : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;

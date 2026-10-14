@@ -170,6 +170,7 @@ pub struct Controller {
     engine: Engine,
     video_engine: crate::video::engine::Engine,
     video_loading: Option<Receiver<Result<Vec<crate::video::library::Video>, String>>>,
+    video_thumbnails: super::video_thumbnails::VideoThumbnails,
     video_import: Option<Receiver<crate::video::import::Event>>,
     subtitle_import: Option<Receiver<(u64, PathBuf, Option<PathBuf>)>>,
     subtitle_tracks: Vec<crate::video::engine::SubtitleTrack>,
@@ -228,6 +229,15 @@ pub struct Controller {
     translation_active_request: Option<crate::translation::Request>,
     translation_visible: bool,
     translation_cancel: Option<crate::translation::Cancellation>,
+    online_lyrics_request: Option<
+        Receiver<(
+            crate::library::online_lyrics::Request,
+            Result<crate::library::online_lyrics::Found, String>,
+        )>,
+    >,
+    online_lyrics_cancel: Option<crate::translation::Cancellation>,
+    translation_after_lookup: Option<PathBuf>,
+    online_lyrics_path: Option<PathBuf>,
     genius_seed: Option<PathBuf>,
     genius_request: Option<
         Receiver<(
@@ -282,6 +292,7 @@ impl Controller {
         state.always_on_top = settings.always_on_top;
         state.smooth_slides = settings.smooth_slides;
         state.romaji_visible = settings.romaji_visible;
+        state.translation_visible = settings.translation_visible;
         state.zoom = settings.zoom;
         state.device_mode = settings.device_mode;
         state.gapless_playback = settings.gapless_playback;
@@ -321,12 +332,14 @@ impl Controller {
             Ok(associations) => state.video_subtitles = associations,
             Err(error) => state.notice = format!("Subtitle preferences error: {error}"),
         }
+        let translation_visible = settings.translation_visible;
         Self {
             state,
             dispatcher: Dispatcher::new(keymap),
             engine: Engine::default(),
             video_engine: crate::video::engine::Engine::default(),
             video_loading,
+            video_thumbnails: super::video_thumbnails::VideoThumbnails::default(),
             video_import: None,
             subtitle_import: None,
             subtitle_tracks: Vec::new(),
@@ -378,8 +391,12 @@ impl Controller {
             translation_request: None,
             translation_request_id: 0,
             translation_active_request: None,
-            translation_visible: false,
+            translation_visible,
             translation_cancel: None,
+            online_lyrics_request: None,
+            online_lyrics_cancel: None,
+            translation_after_lookup: None,
+            online_lyrics_path: None,
             genius_seed: None,
             genius_request: None,
             genius_rows: Vec::new(),
@@ -740,6 +757,11 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if action == Action::ImportFolder && self.lyrics_edit.is_some() {
+            self.state.notice = "A lyric request is already running".into();
+            self.sync(ui);
+            return;
+        }
         if action == Action::Home {
             if self.dialog_open {
                 return;
@@ -829,6 +851,7 @@ impl Controller {
                     ui.set_deepseek_settings_open(true);
                 }
                 Effect::Translation(command) => self.translation_command(ui, command),
+                Effect::FindLyrics { id } => self.start_online_lyrics(ui, id, false),
                 Effect::GeniusPreview => {
                     self.prepare_portrait_dialog(ui);
                     ui.invoke_open_genius_preview();
@@ -882,6 +905,7 @@ impl Controller {
                     if self.dialog_open || self.lyrics_edit.is_some() {
                         continue;
                     }
+                    self.cancel_online_lyrics();
                     if let Some(track) = self.state.tracks.get(id) {
                         self.dialog_open = true;
                         self.lyrics_edit = Some(scanner::edit_lyrics(
@@ -1420,7 +1444,10 @@ impl Controller {
         {
             self.video_loading = None;
             match result {
-                Ok(videos) => self.state.merge_videos(videos),
+                Ok(videos) => {
+                    self.video_thumbnails.clear();
+                    self.state.merge_videos(videos);
+                }
                 Err(error) => self.state.notice = format!("Video library error: {error}"),
             }
             self.rows_dirty = true;
@@ -1438,6 +1465,7 @@ impl Controller {
                     self.state.video_importing = false;
                     match result {
                         Ok(Some(result)) => {
+                            self.video_thumbnails.clear();
                             self.state.merge_videos(result.videos);
                             self.state.notice = if result.errors.is_empty() {
                                 format!("Imported {} videos", result.imported)
@@ -1582,6 +1610,7 @@ impl Controller {
             smooth_slides: self.state.smooth_slides,
             romaji_visible: self.state.romaji_visible,
             translation_target: self.settings.translation_target,
+            translation_visible: self.translation_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
             monitor_deleted_files: self.settings.monitor_deleted_files,
@@ -1710,7 +1739,16 @@ impl Controller {
             .and_then(|receiver| receiver.try_recv().ok())
         {
             self.lyrics_edit = None;
-            self.dialog_open = false;
+            let online_path = if self.online_lyrics_request.is_none() {
+                self.online_lyrics_path.take()
+            } else {
+                None
+            };
+            if online_path.is_none() {
+                self.dialog_open = false;
+            }
+            let translate_after = self.translation_after_lookup.take();
+            let mut translated_path = None;
             match result {
                 Ok(Some(update)) => {
                     if let Some((id, track)) = self
@@ -1726,6 +1764,9 @@ impl Controller {
                             self.state.lyrics_visible = !track.lyrics.is_empty();
                             self.state.overlay_visible = self.state.lyrics_visible;
                             self.last_track = None;
+                            if translate_after.as_ref() == Some(&update.path) {
+                                translated_path = Some(update.path.clone());
+                            }
                         }
                     }
                     self.state.notice = "Lyrics updated".into();
@@ -1733,14 +1774,26 @@ impl Controller {
                 Ok(None) => self.state.notice = "Import cancelled".into(),
                 Err(error) => self.state.notice = format!("Lyrics import failed: {error}"),
             }
+            if let Some(path) = online_path {
+                if translated_path.is_some() || self.state.notice == "Lyrics updated" {
+                    self.state.notice = "Found on LRCLIB".into();
+                }
+                self.state
+                    .lyrics_lookup_status
+                    .insert(path, self.state.notice.clone());
+            }
             self.rows_dirty = true;
             ui.invoke_focus_screen();
+            if translated_path.is_some() {
+                self.start_translation(ui);
+            }
         }
         self.poll_romaji(ui);
         self.poll_statistics();
         self.poll_deletions();
         self.poll_library_monitor();
         self.poll_translation(ui);
+        self.poll_online_lyrics(ui);
         self.poll_genius(ui);
         self.poll_playlists(ui);
         self.poll_videos(ui);
@@ -2483,7 +2536,7 @@ impl Controller {
             Screen::Placeholder(_) => 4,
             Screen::Settings | Screen::SettingsSection(_) => 5,
             Screen::Shortcuts => 6,
-            Screen::Lyrics(_) => 7,
+            Screen::Lyrics(_) | Screen::LyricsSearch(_) => 7,
             Screen::Languages | Screen::Fonts => 8,
             _ => 1,
         });
@@ -2601,6 +2654,7 @@ impl Controller {
                 .into_iter()
                 .map(|row| LibraryRow {
                     icon: match (&row.target, screen) {
+                        (Target::PlayVideo(_), _) => 9,
                         (Target::GeniusPreview, _) => 1,
                         (Target::Screen(Screen::NowPlaying), Screen::Music) => 8,
                         (Target::Screen(Screen::Groups(Group::Playlists)), Screen::Music) => 2,
@@ -2622,7 +2676,9 @@ impl Controller {
                         (Target::Screen(Screen::Songs(_)), Screen::Groups(Group::Playlists)) => 2,
                         _ => 0,
                     },
-                    title: if matches!(&row.target, Target::PlayVideo(_))
+                    title: if *screen == Screen::LyricSongs
+                        || matches!(&row.target, Target::Screen(Screen::LyricSongs))
+                        || matches!(&row.target, Target::PlayVideo(_))
                         || (metadata_rows && !matches!(&row.target, Target::Action(_)))
                         || matches!(
                             &row.target,
@@ -2632,12 +2688,18 @@ impl Controller {
                     } else {
                         self.text(&row.title)
                     },
-                    subtitle: if let Target::Shortcut(action) = row.target {
+                    subtitle: if matches!(row.target, Target::FindLyrics(_)) {
+                        i18n::notice(self.state.language, &row.subtitle).into()
+                    } else if matches!(row.target, Target::Action(Action::AutomaticLyrics)) {
+                        self.text(&row.subtitle)
+                    } else if let Target::Shortcut(action) = row.target {
                         self.text(&self.dispatcher.keymap.labels(action))
                     } else if matches!(screen, Screen::Groups(Group::Playlists)) {
                         i18n::notice(self.state.language, &row.subtitle).into()
                     } else {
                         if metadata_rows
+                            || *screen == Screen::LyricSongs
+                            || matches!(row.target, Target::Screen(Screen::LyricSongs))
                             || matches!(
                                 row.target,
                                 Target::Translation(crate::translation::Command::Translate)
@@ -2654,18 +2716,26 @@ impl Controller {
                             self.text(&row.subtitle)
                         }
                     },
-                    artwork: row
-                        .artwork_id
-                        .and_then(|id| self.thumbnails.cached(id))
-                        .unwrap_or_default(),
-                    show_artwork: !matches!(row.target, Target::Action(_))
-                        && matches!(
-                            screen,
-                            Screen::Groups(
-                                super::navigation::Group::Artists
-                                    | super::navigation::Group::Albums
-                            ) | Screen::Artist(_)
-                        ),
+                    artwork: if let Target::PlayVideo(id) = row.target {
+                        self.state
+                            .videos
+                            .get(id)
+                            .and_then(|video| self.video_thumbnails.cached(&video.path))
+                            .unwrap_or_default()
+                    } else {
+                        row.artwork_id
+                            .and_then(|id| self.thumbnails.cached(id))
+                            .unwrap_or_default()
+                    },
+                    show_artwork: matches!(row.target, Target::PlayVideo(_))
+                        || (!matches!(row.target, Target::Action(_))
+                            && matches!(
+                                screen,
+                                Screen::Groups(
+                                    super::navigation::Group::Artists
+                                        | super::navigation::Group::Albums
+                                ) | Screen::Artist(_)
+                            )),
                     chevron: !(*screen == Screen::Music
                         && matches!(row.target, Target::Screen(Screen::NowPlaying)))
                         && !matches!(
@@ -2708,6 +2778,8 @@ impl Controller {
                     | Screen::SettingsSection(_)
                     | Screen::Shortcuts
                     | Screen::Lyrics(_)
+                    | Screen::LyricsSearch(_)
+                    | Screen::LyricSongs
                     | Screen::Languages
                     | Screen::Fonts
             ) {
@@ -2735,6 +2807,7 @@ impl Controller {
             self.last_selected = self.state.navigation.selected();
         }
         self.refresh_thumbnails(ui, screen);
+        self.refresh_video_thumbnails(ui, screen);
         if screen_changed && self.last_screen.is_some() {
             ui.set_screen_transition_generation(ui.get_screen_transition_generation() + 1);
         }
@@ -2836,6 +2909,41 @@ impl Controller {
             self.last_lyric = active;
         }
         self.last_scale = scale;
+    }
+
+    fn refresh_video_thumbnails(&mut self, ui: &AppWindow, screen: &Screen) {
+        let changed = self.video_thumbnails.poll();
+        if *screen != Screen::Videos {
+            return;
+        }
+        if changed {
+            // Row zero is Import; the remaining rows retain their video IDs.
+            for (id, video) in self.state.videos.iter().enumerate() {
+                if let Some(mut row) = self.library_rows.row_data(id + 1) {
+                    row.artwork = self
+                        .video_thumbnails
+                        .cached(&video.path)
+                        .unwrap_or_default();
+                    self.library_rows.set_row_data(id + 1, row);
+                }
+            }
+        }
+        // Request only visible rows plus one on either side, without rebuilding
+        // title/subtitle strings. One pending receiver bounds extraction.
+        let height = ui.get_list_row_height().max(1.0);
+        let start = ((-ui.get_list_scroll_y()).max(0.0) / height).floor() as usize;
+        let end = start + (ui.get_list_viewport_height() / height).ceil() as usize + 1;
+        for video in self
+            .state
+            .videos
+            .iter()
+            .take(end)
+            .skip(start.saturating_sub(2))
+        {
+            if !self.video_thumbnails.request(video) {
+                break;
+            }
+        }
     }
 
     fn refresh_thumbnails(&mut self, ui: &AppWindow, screen: &Screen) {
@@ -3328,52 +3436,242 @@ impl Controller {
         }
     }
 
+    fn cancel_online_lyrics(&mut self) {
+        if let Some(token) = self.online_lyrics_cancel.as_ref() {
+            token.cancel();
+        }
+        self.translation_after_lookup = None;
+        if let Some(path) = self.online_lyrics_path.as_ref() {
+            self.state
+                .lyrics_lookup_status
+                .insert(path.clone(), "Online lyric search cancelled".into());
+            self.rows_dirty = true;
+        }
+    }
+
+    fn start_online_lyrics(&mut self, ui: &AppWindow, id: usize, translate_after: bool) {
+        if self.online_lyrics_request.is_some()
+            || self.lyrics_edit.is_some()
+            || self.translation_request.is_some()
+            || self.importing.is_some()
+        {
+            self.state.notice = "A lyric request is already running".into();
+            self.sync(ui);
+            return;
+        }
+        let result = (|| -> Result<_, String> {
+            let track = self.state.tracks.get(id).ok_or("Choose a song first")?;
+            if !track.lyrics.is_empty() {
+                return Err("Lyrics are already available".into());
+            }
+            let request = crate::library::online_lyrics::Request::new(track);
+            let settings =
+                crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"))?;
+            if !settings.has_key() {
+                return Err("Configure a DeepSeek API key first".into());
+            }
+            Ok((request, settings))
+        })();
+        let (request, settings) = match result {
+            Ok(value) => value,
+            Err(message) => {
+                if let Some(track) = self.state.tracks.get(id) {
+                    self.state
+                        .lyrics_lookup_status
+                        .insert(track.path.clone(), message.clone());
+                    self.rows_dirty = true;
+                }
+                self.state.notice = message;
+                self.sync(ui);
+                return;
+            }
+        };
+        self.translation_after_lookup = translate_after.then(|| request.path.clone());
+        self.online_lyrics_path = Some(request.path.clone());
+        self.state
+            .lyrics_lookup_status
+            .insert(request.path.clone(), "Searching online lyrics…".into());
+        self.rows_dirty = true;
+        let cancellation = crate::translation::Cancellation::default();
+        let worker_cancellation = cancellation.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = crate::ai::DeepSeek::new(&settings).and_then(|provider| {
+                crate::library::online_lyrics::lookup(&request, &provider, &worker_cancellation)
+            });
+            let _ = sender.send((request, result));
+        });
+        self.online_lyrics_request = Some(receiver);
+        self.online_lyrics_cancel = Some(cancellation);
+        self.state.notice = "Searching online lyrics…".into();
+        self.sync(ui);
+    }
+
+    fn accepts_online_lyrics(&self, request: &crate::library::online_lyrics::Request) -> bool {
+        self.lyrics_edit.is_none()
+            && !self.state.unavailable_tracks.contains(&request.path)
+            && !self
+                .online_lyrics_cancel
+                .as_ref()
+                .is_some_and(|token| token.is_cancelled())
+            && self.state.tracks.iter().any(|track| request.matches(track))
+            && (self.translation_after_lookup.is_none()
+                || self
+                    .state
+                    .current
+                    .and_then(|id| self.state.tracks.get(id))
+                    .is_some_and(|track| track.path == request.path))
+    }
+
+    fn poll_online_lyrics(&mut self, ui: &AppWindow) {
+        use std::sync::mpsc::TryRecvError;
+        let Some(receiver) = self.online_lyrics_request.as_ref() else {
+            return;
+        };
+        let result = match receiver.try_recv() {
+            Ok(value) => value,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => {
+                self.online_lyrics_request = None;
+                self.online_lyrics_cancel = None;
+                self.translation_after_lookup = None;
+                self.state.notice = "Online lyric search failed".into();
+                if let Some(path) = self.online_lyrics_path.take() {
+                    self.state
+                        .lyrics_lookup_status
+                        .insert(path, self.state.notice.clone());
+                }
+                self.rows_dirty = true;
+                self.sync(ui);
+                return;
+            }
+        };
+        self.online_lyrics_request = None;
+        let accepted = self.accepts_online_lyrics(&result.0);
+        self.online_lyrics_cancel = None;
+        match result {
+            (request, Ok(found)) if accepted => {
+                self.lyrics_edit = Some(scanner::store_online_lyrics(
+                    self.directory.join("library.sqlite3"),
+                    request.path,
+                    found,
+                ));
+                self.state.notice = "Saving online lyrics…".into();
+            }
+            (_, Ok(_)) => {
+                self.translation_after_lookup = None;
+                self.state.notice = "Song or lyrics changed; online result discarded".into();
+            }
+            (_, Err(error)) => {
+                self.translation_after_lookup = None;
+                self.state.notice = error;
+            }
+        }
+        if let Some(path) = self.online_lyrics_path.as_ref() {
+            self.state
+                .lyrics_lookup_status
+                .insert(path.clone(), self.state.notice.clone());
+        }
+        if self.lyrics_edit.is_none() {
+            self.online_lyrics_path = None;
+        }
+        self.rows_dirty = true;
+        self.sync(ui);
+    }
+
     fn translation_command(&mut self, ui: &AppWindow, command: crate::translation::Command) {
         use crate::translation::Command;
         match command {
-            Command::Translate | Command::Regenerate => self.start_translation(ui),
+            Command::Translate => {
+                self.translation_visible = true;
+                self.lyrics_dirty = true;
+                self.save_settings(ui);
+                let cached = self
+                    .state
+                    .current
+                    .and_then(|id| self.state.tracks.get(id))
+                    .is_some_and(|track| {
+                        let request = crate::translation::Request {
+                            request_id: 0,
+                            track_id: track.path.clone(),
+                            target: self.settings.translation_target,
+                            provider_version: self.translation_provider_version(),
+                            source: Self::translation_source(track),
+                        };
+                        self.translation_cache.get(&request.cache_key()).is_some()
+                    });
+                if cached {
+                    self.translation_visible = true;
+                    self.lyrics_dirty = true;
+                    self.state.notice = "Translation ready".into();
+                    self.sync(ui);
+                } else {
+                    self.start_translation(ui);
+                }
+            }
+            Command::Regenerate => {
+                self.translation_visible = true;
+                self.lyrics_dirty = true;
+                self.save_settings(ui);
+                self.start_translation(ui);
+            }
             Command::Cancel => {
+                let finding = self.online_lyrics_path.is_some();
+                self.cancel_online_lyrics();
                 if let Some(token) = self.translation_cancel.as_ref() {
                     token.cancel();
                 }
                 self.translation_request_id = self.translation_request_id.wrapping_add(1);
-                self.state.notice = "Translation cancellation requested".into();
+                self.state.notice = if finding {
+                    "Online lyric search cancelled"
+                } else {
+                    "Translation cancellation requested"
+                }
+                .into();
                 self.sync(ui);
             }
             Command::Toggle => {
                 self.translation_visible = !self.translation_visible;
+                self.save_settings(ui);
                 self.lyrics_dirty = true;
                 self.sync(ui);
             }
             Command::Remove => {
+                self.cancel_online_lyrics();
                 self.state.notice = match self.remove_translation_for_current() {
-                    Ok(()) => "Translation removed".into(),
+                    Ok(()) => {
+                        self.save_settings(ui);
+                        "Translation removed".into()
+                    }
                     Err(error) => error,
                 };
                 self.sync(ui);
             }
             Command::SetTarget(target) => self.set_translation_target(ui, target),
+            Command::FindLyrics => {
+                if let Some(id) = self.state.current {
+                    self.start_online_lyrics(ui, id, false);
+                } else {
+                    self.state.notice = "Choose a song first".into();
+                    self.sync(ui);
+                }
+            }
         }
     }
 
     fn start_translation(&mut self, ui: &AppWindow) {
         if self.translation_request.is_some() {
             self.state.notice = "Translation is already running".into();
+            self.sync(ui);
             return;
         }
-        let Some(track) = self
-            .state
-            .current
-            .and_then(|id| self.state.tracks.get(id))
-            .cloned()
-        else {
+        let Some(track) = self.state.current.and_then(|id| self.state.tracks.get(id)) else {
             self.state.notice = "Choose a song first".into();
             self.sync(ui);
             return;
         };
         if track.lyrics.is_empty() {
-            self.state.notice = "No lyrics available".into();
-            self.sync(ui);
+            self.start_online_lyrics(ui, self.state.current.unwrap(), true);
             return;
         }
         let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
@@ -3387,7 +3685,7 @@ impl Controller {
             track_id: track.path.clone(),
             target: self.settings.translation_target,
             provider_version: format!("{}:{model}", crate::translation::PROMPT_VERSION),
-            source: Self::translation_source(&track),
+            source: Self::translation_source(track),
         };
         let (sender, receiver) = std::sync::mpsc::channel();
         let active_request = request.clone();
@@ -3453,10 +3751,7 @@ impl Controller {
                     .translation_cache
                     .save(&self.directory.join("translations.json"))
                 {
-                    Ok(()) => {
-                        self.translation_visible = true;
-                        "Translation ready"
-                    }
+                    Ok(()) => "Translation ready",
                     Err(_) => {
                         self.translation_cache = previous;
                         "Could not save translation cache"
@@ -3474,11 +3769,11 @@ impl Controller {
         ui: &AppWindow,
         target: crate::translation::TargetLanguage,
     ) {
+        self.cancel_online_lyrics();
         self.settings.translation_target = target;
         if let Some(token) = self.translation_cancel.take() {
             token.cancel();
         }
-        self.translation_visible = false;
         self.lyrics_dirty = true;
         self.save_settings(ui);
         self.sync(ui);
@@ -3525,6 +3820,7 @@ impl Controller {
             return Err(format!("Could not remove translation: {error:?}"));
         }
         self.translation_visible = false;
+        self.settings.translation_visible = false;
         self.lyrics_dirty = true;
         Ok(())
     }
@@ -3943,6 +4239,7 @@ impl Controller {
 
 impl Drop for Controller {
     fn drop(&mut self) {
+        self.cancel_online_lyrics();
         // Drain queued user ratings/statistics before process exit.
         let _ = self.statistics_commands.send(StatisticsCommand::Shutdown);
         if let Some(worker) = self.statistics_writer.take() {
@@ -4352,6 +4649,201 @@ mod ai_controller_tests {
             &crate::translation::Cancellation::default(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn cached_translation_is_available_from_settings_without_a_provider_request() {
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let mut controller = Controller::new(directory.path().to_owned());
+        let track = make_track(
+            directory.path().join("song.wav"),
+            "Song",
+            Lyrics::plain_text("hello"),
+        );
+        let request = translation_request(&track, 1, TargetLanguage::English);
+        controller.translation_cache.insert(fixture_translation(
+            &request,
+            serde_json::json!({"translations":["hello translated"]}),
+        ));
+        controller.state.tracks = vec![track];
+        controller.state.current = Some(0);
+        let ui = AppWindow::new().unwrap();
+        controller.translation_command(&ui, crate::translation::Command::Translate);
+        assert!(controller.translation_visible);
+        assert!(controller.translation_request.is_none());
+        assert!(controller.online_lyrics_request.is_none());
+        assert_eq!(
+            ui.get_translated_lines().row_data(0).unwrap(),
+            "hello translated"
+        );
+        assert_eq!(
+            ui.get_displayed_lyric_lines().row_data(0).unwrap(),
+            "hello translated"
+        );
+        assert!(!ui.get_romaji_displayed());
+        assert!(
+            controller.state.romaji_visible,
+            "translation must preserve R's preference"
+        );
+        controller.translation_command(&ui, crate::translation::Command::Toggle);
+        assert_eq!(ui.get_displayed_lyric_lines().row_data(0).unwrap(), "hello");
+        assert!(ui.get_romaji_displayed());
+        assert!(
+            !Settings::load(&directory.path().join("settings.json"))
+                .unwrap()
+                .translation_visible
+        );
+        controller.state.romaji_visible = false;
+        controller.translation_command(&ui, crate::translation::Command::Toggle);
+        controller.translation_command(&ui, crate::translation::Command::Toggle);
+        assert!(
+            !ui.get_romaji_displayed(),
+            "T off cannot enable a disabled R preference"
+        );
+    }
+
+    #[test]
+    fn translation_completion_cannot_override_a_later_t_off() {
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let mut controller = Controller::new(directory.path().to_owned());
+        let track = make_track(
+            directory.path().join("song.wav"),
+            "Song",
+            Lyrics::plain_text("hello"),
+        );
+        let request = translation_request(&track, 8, TargetLanguage::English);
+        let translation =
+            fixture_translation(&request, serde_json::json!({"translations":["translated"]}));
+        controller.state.tracks = vec![track];
+        controller.state.current = Some(0);
+        controller.translation_request_id = 8;
+        controller.translation_visible = true;
+        let ui = AppWindow::new().unwrap();
+        controller.translation_command(&ui, crate::translation::Command::Toggle);
+        assert_eq!(
+            controller.apply_translation_result(request, Ok(translation)),
+            "Translation ready"
+        );
+        assert!(!controller.translation_visible);
+        assert!(
+            !Settings::load(&directory.path().join("settings.json"))
+                .unwrap()
+                .translation_visible
+        );
+        controller.sync(&ui);
+        assert_eq!(ui.get_displayed_lyric_lines().row_data(0).unwrap(), "hello");
+    }
+
+    #[test]
+    fn online_lyrics_reject_skips_metadata_changes_edits_and_cancellation_before_storage() {
+        use crate::library::{
+            database::{Database, LyricsAssociation},
+            online_lyrics::{Found, Request},
+        };
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let mut controller = Controller::new(directory.path().to_owned());
+        let track = make_track(directory.path().join("song.wav"), "Song", Lyrics::default());
+        let request = Request::new(&track);
+        controller.translation_after_lookup = Some(track.path.clone());
+        controller.state.tracks = vec![track.clone()];
+        controller.state.current = Some(0);
+        assert!(controller.accepts_online_lyrics(&request));
+        controller.state.current = None;
+        assert!(!controller.accepts_online_lyrics(&request));
+        controller.translation_after_lookup = None;
+        assert!(
+            controller.accepts_online_lyrics(&request),
+            "explicit Find can target a song that is not playing"
+        );
+        controller.translation_after_lookup = Some(request.path.clone());
+        controller.state.current = Some(0);
+        controller.state.tracks[0].title = "different recording".into();
+        assert!(!controller.accepts_online_lyrics(&request));
+        controller.state.tracks[0] = track.clone();
+        controller.state.tracks[0].lyrics = Lyrics::plain_text("manual edit");
+        assert!(!controller.accepts_online_lyrics(&request));
+        controller.state.tracks[0] = track;
+        let cancellation = crate::translation::Cancellation::default();
+        cancellation.cancel();
+        controller.online_lyrics_cancel = Some(cancellation);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender
+            .send((
+                request.clone(),
+                Ok(Found {
+                    lyrics: Lyrics::plain_text("found online"),
+                    source_url: "https://lrclib.net/api/get/1".into(),
+                }),
+            ))
+            .unwrap();
+        controller.online_lyrics_request = Some(receiver);
+        let ui = AppWindow::new().unwrap();
+        controller.poll_online_lyrics(&ui);
+        assert!(controller.lyrics_edit.is_none());
+        assert!(controller.state.tracks[0].lyrics.is_empty());
+        let db = Database::open(&directory.path().join("library.sqlite3")).unwrap();
+        assert!(matches!(
+            db.lyrics_association(&request.path).unwrap(),
+            LyricsAssociation::Automatic
+        ));
+    }
+
+    #[test]
+    fn accepted_online_lyrics_publish_after_storage_and_survive_restart() {
+        use crate::library::{
+            database::Database,
+            online_lyrics::{Found, Request},
+        };
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let mut controller = Controller::new(directory.path().to_owned());
+        let track = make_track(directory.path().join("song.wav"), "Song", Lyrics::default());
+        let request = Request::new(&track);
+        controller.state.tracks = vec![track.clone()];
+        controller.state.current = Some(0);
+        let lyrics = Lyrics::parse("[00:01]original first\n[00:02]original second");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender
+            .send((
+                request,
+                Ok(Found {
+                    lyrics: lyrics.clone(),
+                    source_url: "https://lrclib.net/api/get/1".into(),
+                }),
+            ))
+            .unwrap();
+        controller.online_lyrics_request = Some(receiver);
+        let ui = AppWindow::new().unwrap();
+        controller.poll_online_lyrics(&ui);
+        assert!(
+            !controller.dialog_open,
+            "background lyric storage must not block playback keys"
+        );
+        assert!(
+            controller.state.tracks[0].lyrics.is_empty(),
+            "publish only after durable storage"
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while controller.lyrics_edit.is_some() && std::time::Instant::now() < deadline {
+            controller.poll(&ui);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(controller.lyrics_edit.is_none());
+        assert_eq!(controller.state.tracks[0].lyrics, lyrics);
+        assert_eq!(ui.get_lyric_lines().row_count(), 2);
+        assert!(
+            controller.translation_request.is_none(),
+            "Find alone does not translate"
+        );
+        let mut reloaded = track;
+        Database::open(&directory.path().join("library.sqlite3"))
+            .unwrap()
+            .apply_lyrics(&mut reloaded)
+            .unwrap();
+        assert_eq!(reloaded.lyrics, lyrics);
     }
 
     #[test]

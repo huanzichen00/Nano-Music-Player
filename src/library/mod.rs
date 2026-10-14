@@ -2,6 +2,7 @@ pub mod database;
 pub mod deletion_monitor;
 pub mod library_monitor;
 pub mod lyrics;
+pub mod online_lyrics;
 pub mod playlists;
 pub mod romaji;
 pub mod scanner;

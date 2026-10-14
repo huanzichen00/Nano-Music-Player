@@ -8,6 +8,7 @@ pub mod navigation;
 pub mod state;
 mod thumbnails;
 pub mod typography;
+mod video_thumbnails;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use slint::{ComponentHandle, Timer, TimerMode};

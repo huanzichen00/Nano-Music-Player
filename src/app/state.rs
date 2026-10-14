@@ -25,6 +25,7 @@ pub enum Target {
     Font(Font),
     GeniusPreview,
     Translation(crate::translation::Command),
+    FindLyrics(usize),
 }
 
 #[derive(Clone)]
@@ -51,6 +52,9 @@ pub enum Effect {
     RomajiVisibilityChanged,
     ConfigureDeepSeek,
     Translation(crate::translation::Command),
+    FindLyrics {
+        id: usize,
+    },
     GeniusPreview,
     NewPlaylist,
     EditPlaylist {
@@ -118,6 +122,7 @@ pub struct State {
     pub romaji_visible: bool,
     pub translation_target: crate::translation::TargetLanguage,
     pub translation_visible: bool,
+    pub lyrics_lookup_status: HashMap<PathBuf, String>,
     pub romaji: HashMap<PathBuf, crate::library::romaji::Romaji>,
     pub romaji_generating: Option<PathBuf>,
     pub importing: bool,
@@ -173,6 +178,7 @@ impl Default for State {
             romaji_visible: true,
             translation_target: crate::translation::TargetLanguage::English,
             translation_visible: false,
+            lyrics_lookup_status: HashMap::new(),
             romaji: HashMap::new(),
             romaji_generating: None,
             importing: false,
@@ -382,6 +388,7 @@ impl State {
                     target: Target::Action(Action::ToggleRomaji),
                 },
                 row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
+                to("Find Lyrics", Screen::LyricSongs),
             ],
             Screen::SettingsSection(SettingsSection::Translation) => vec![
                 Row {
@@ -426,6 +433,10 @@ impl State {
                     Target::Translation(crate::translation::Command::Remove),
                 ),
                 row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
+                row(
+                    "Find Lyrics Online",
+                    Target::Translation(crate::translation::Command::FindLyrics),
+                ),
             ],
             Screen::SettingsSection(SettingsSection::TranslationLanguage) => {
                 crate::translation::TargetLanguage::ALL
@@ -479,10 +490,12 @@ impl State {
                     target: Target::Action(Action::ImportLyrics),
                 },
                 row("Remove Lyrics", Target::Action(Action::RemoveLyrics)),
-                row(
-                    "Use Automatic Lyrics",
-                    Target::Action(Action::AutomaticLyrics),
-                ),
+                Row {
+                    title: "Use Automatic Lyrics".into(),
+                    subtitle: "From audio tags and nearby files".into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::AutomaticLyrics),
+                },
                 row("Generate Romaji", Target::Action(Action::GenerateRomaji)),
                 row(
                     "Cancel Romaji Generation",
@@ -490,7 +503,68 @@ impl State {
                 ),
                 row("Remove Romaji", Target::Action(Action::RemoveRomaji)),
                 row("Show / Hide Romaji", Target::Action(Action::ToggleRomaji)),
+                to("Find Lyrics", Screen::LyricsSearch(*id)),
             ],
+            Screen::LyricSongs => {
+                let mut songs: Vec<_> = self
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, track)| self.track_available(track))
+                    .collect();
+                songs.sort_by_cached_key(|(_, track)| track_title_key(track));
+                songs
+                    .into_iter()
+                    .map(|(id, track)| Row {
+                        title: track.title.clone(),
+                        subtitle: track.artist.clone(),
+                        artwork_id: None,
+                        target: Target::Screen(Screen::LyricsSearch(id)),
+                    })
+                    .collect()
+            }
+            Screen::LyricsSearch(id) => self
+                .tracks
+                .get(*id)
+                .map(|track| {
+                    vec![
+                        Row {
+                            title: track.title.clone(),
+                            subtitle: track.artist.clone(),
+                            artwork_id: None,
+                            target: Target::Screen(Screen::LyricSongs),
+                        },
+                        Row {
+                            title: "Find Lyrics Online".into(),
+                            subtitle: self
+                                .lyrics_lookup_status
+                                .get(&track.path)
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    if track.lyrics.is_empty() {
+                                        "Search with DeepSeek"
+                                    } else {
+                                        "Lyrics are already available"
+                                    }
+                                    .into()
+                                }),
+                            artwork_id: None,
+                            target: Target::FindLyrics(*id),
+                        },
+                        row(
+                            "Cancel Lyric Search",
+                            Target::Translation(crate::translation::Command::Cancel),
+                        ),
+                        Row {
+                            title: "Lyrics for Track".into(),
+                            subtitle: "Import, replace or choose file lyrics".into(),
+                            artwork_id: None,
+                            target: Target::Screen(Screen::Lyrics(*id)),
+                        },
+                        row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
+                    ]
+                })
+                .unwrap_or_default(),
             Screen::Shortcuts => Action::CUSTOMIZABLE
                 .iter()
                 .map(|action| Row {
@@ -975,7 +1049,7 @@ impl State {
 
     pub fn lyrics_target(&self) -> Option<usize> {
         match self.navigation.current().screen {
-            Screen::Lyrics(id) => Some(id),
+            Screen::Lyrics(id) | Screen::LyricsSearch(id) => Some(id),
             Screen::Songs(_) | Screen::Search => self
                 .rows()
                 .get(self.navigation.selected())
@@ -1389,6 +1463,7 @@ impl State {
                                 Target::Translation(command) => {
                                     return vec![Effect::Translation(command)];
                                 }
+                                Target::FindLyrics(id) => return vec![Effect::FindLyrics { id }],
                                 Target::Shortcut(action) => {
                                     return vec![Effect::EditShortcut(action)];
                                 }
@@ -1660,6 +1735,9 @@ impl State {
                 self.navigation.open(Screen::NowPlaying);
             }
             ConfigureDeepSeek => return vec![Effect::ConfigureDeepSeek],
+            ToggleTranslation => {
+                return vec![Effect::Translation(crate::translation::Command::Toggle)];
+            }
             ToggleRomaji => {
                 self.romaji_visible = !self.romaji_visible;
                 return vec![Effect::RomajiVisibilityChanged];

@@ -152,6 +152,28 @@ impl Database {
         Ok(())
     }
 
+    /// Explicit downloads use the existing durable association, with a source URL.
+    /// A concurrent manual import or removal always wins over the download.
+    pub fn set_online_lyrics(
+        &self,
+        audio: &Path,
+        source: &str,
+        lyrics: &Lyrics,
+    ) -> Result<(), String> {
+        if lyrics.is_empty() {
+            return Err("No matching online lyrics found".into());
+        }
+        let bytes = serde_json::to_vec(lyrics).map_err(|e| e.to_string())?;
+        let changed = self.0.execute(
+            "INSERT OR IGNORE INTO lyrics_override(audio_path, source_path, lyrics, removed) VALUES (?, ?, ?, 0)",
+            params![audio.to_string_lossy(), source, bytes]
+        ).map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err("Lyrics were edited or removed; online result discarded".into());
+        }
+        Ok(())
+    }
+
     pub fn use_automatic_lyrics(&self, audio: &Path) -> Result<(), String> {
         self.0
             .execute(

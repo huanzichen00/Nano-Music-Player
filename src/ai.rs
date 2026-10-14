@@ -12,6 +12,7 @@ use std::{
 
 pub const DEFAULT_MODEL: &str = "deepseek-flash";
 const ENDPOINT: &str = "https://api.deepseek.com/chat/completions";
+const SEARCH_ENDPOINT: &str = "https://api.deepseek.com/anthropic/v1/messages";
 const RESPONSE_LIMIT: u64 = 1_048_576;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -176,6 +177,79 @@ impl DeepSeek {
                     "Cannot connect to DeepSeek"
                 }
             })?;
+        let body = Self::read_response(response)?;
+        let choice = body["choices"]
+            .as_array()
+            .filter(|choices| choices.len() == 1)
+            .and_then(|choices| choices.first())
+            .ok_or("DeepSeek returned an invalid response")?;
+        if choice["finish_reason"] != "stop" {
+            return Err("DeepSeek returned an incomplete response; nothing was saved".into());
+        }
+        let content = choice["message"]["content"]
+            .as_str()
+            .ok_or("DeepSeek returned an empty response")?;
+        serde_json::from_str(content).map_err(|_| "DeepSeek returned invalid JSON".into())
+    }
+
+    /// Native server-side search; URLs in model prose never count as search evidence.
+    pub fn search(&self, query: &str) -> Result<Vec<String>, String> {
+        self.search_at(SEARCH_ENDPOINT, query)
+    }
+
+    fn search_at(&self, endpoint: &str, query: &str) -> Result<Vec<String>, String> {
+        let response = self.client.post(endpoint)
+            .bearer_auth(&self.api_key)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&json!({
+                "model": self.model,
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": [{"type": "text", "text": format!("Perform a web search for the query: {query}")}]}],
+                "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 1}]
+            }))
+            .send().map_err(|error| if error.is_timeout() { "DeepSeek request timed out" } else { "Cannot connect to DeepSeek" })?;
+        let body = Self::read_response(response)?;
+        if body["stop_reason"] != "end_turn" {
+            return Err("DeepSeek returned an incomplete search response".into());
+        }
+        let blocks = body["content"]
+            .as_array()
+            .ok_or("DeepSeek returned an invalid search response")?;
+        let mut searched = false;
+        let mut sources = Vec::new();
+        for block in blocks
+            .iter()
+            .filter(|block| block["type"] == "web_search_tool_result")
+        {
+            searched = true;
+            let results = block["content"]
+                .as_array()
+                .ok_or("DeepSeek web search failed")?;
+            if results
+                .iter()
+                .any(|result| result["type"] == "web_search_tool_result_error")
+            {
+                return Err("DeepSeek web search failed".into());
+            }
+            for result in results
+                .iter()
+                .filter(|result| result["type"] == "web_search_result")
+            {
+                if let Some(url) = result["url"].as_str().filter(|url| !url.is_empty()) {
+                    if sources.len() < 32 && !sources.iter().any(|existing| existing == url) {
+                        sources.push(url.to_owned());
+                    }
+                }
+            }
+        }
+        if !searched {
+            return Err("DeepSeek did not perform an online search".into());
+        }
+        Ok(sources)
+    }
+
+    fn read_response(response: reqwest::blocking::Response) -> Result<Value, String> {
         match response.status().as_u16() {
             200..=299 => {}
             401 | 403 => return Err("DeepSeek rejected the API key".into()),
@@ -192,20 +266,7 @@ impl DeepSeek {
         if bytes.len() as u64 > RESPONSE_LIMIT {
             return Err("DeepSeek response is too large".into());
         }
-        let body: Value =
-            serde_json::from_slice(&bytes).map_err(|_| "DeepSeek returned an invalid response")?;
-        let choice = body["choices"]
-            .as_array()
-            .filter(|choices| choices.len() == 1)
-            .and_then(|choices| choices.first())
-            .ok_or("DeepSeek returned an invalid response")?;
-        if choice["finish_reason"] != "stop" {
-            return Err("DeepSeek returned an incomplete response; nothing was saved".into());
-        }
-        let content = choice["message"]["content"]
-            .as_str()
-            .ok_or("DeepSeek returned an empty response")?;
-        serde_json::from_str(content).map_err(|_| "DeepSeek returned invalid JSON".into())
+        serde_json::from_slice(&bytes).map_err(|_| "DeepSeek returned an invalid response".into())
     }
 }
 
@@ -280,6 +341,48 @@ mod tests {
                 fs::metadata(path).unwrap().permissions().mode() & 0o777,
                 0o600
             );
+        }
+    }
+
+    #[test]
+    fn search_requires_native_results_and_never_accepts_urls_from_model_prose() {
+        for (content, stop, expected) in [
+            (
+                json!([{ "type": "web_search_tool_result", "content": [
+                    {"type": "web_search_result", "url": "https://lrclib.net/api/get/1"},
+                    {"type": "web_search_result", "url": "https://lrclib.net/api/get/1"}
+                ]}]),
+                "end_turn",
+                true,
+            ),
+            (
+                json!([{ "type": "text", "text": "https://lrclib.net/api/get/1" }]),
+                "end_turn",
+                false,
+            ),
+            (
+                json!([{ "type": "web_search_tool_result", "content": {"type": "web_search_tool_result_error"} }]),
+                "end_turn",
+                false,
+            ),
+            (
+                json!([{ "type": "web_search_tool_result", "content": [] }]),
+                "max_tokens",
+                false,
+            ),
+        ] {
+            let body = json!({"content": content, "stop_reason": stop}).to_string();
+            let (endpoint, server) = mock_request("200 OK", &body);
+            let client =
+                DeepSeek::with_endpoint(&settings(), &endpoint, Duration::from_secs(5)).unwrap();
+            let result = client.search_at(&endpoint, "Song Artist lyrics");
+            assert_eq!(result.is_ok(), expected);
+            if expected {
+                assert_eq!(result.unwrap(), ["https://lrclib.net/api/get/1"]);
+            }
+            let request = server.join().unwrap();
+            assert_eq!(request["tools"][0]["type"], "web_search_20250305");
+            assert_eq!(request["tools"][0]["max_uses"], 1);
         }
     }
 

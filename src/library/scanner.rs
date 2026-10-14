@@ -331,6 +331,25 @@ pub struct LyricsUpdate {
     pub lyrics: super::lyrics::Lyrics,
 }
 
+pub fn store_online_lyrics(
+    database_path: PathBuf,
+    path: PathBuf,
+    found: super::online_lyrics::Found,
+) -> Receiver<Result<Option<LyricsUpdate>, String>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let result = Database::open(&database_path).and_then(|db| {
+            db.set_online_lyrics(&path, &found.source_url, &found.lyrics)?;
+            Ok(Some(LyricsUpdate {
+                path,
+                lyrics: found.lyrics,
+            }))
+        });
+        let _ = sender.send(result);
+    });
+    receiver
+}
+
 /// Dialogs, parsing and persistent association changes are performed on a worker.
 pub fn edit_lyrics(
     database_path: PathBuf,

@@ -12,6 +12,7 @@ pub struct Settings {
     pub romaji_visible: bool,
     #[serde(default)]
     pub translation_target: crate::translation::TargetLanguage,
+    pub translation_visible: bool,
     pub zoom: f32,
     pub device_mode: bool,
     #[serde(default = "monitor_default")]
@@ -39,6 +40,7 @@ impl Default for Settings {
             smooth_slides: true,
             romaji_visible: true,
             translation_target: crate::translation::TargetLanguage::English,
+            translation_visible: false,
             zoom: 1.25,
             device_mode: true,
             monitor_deleted_files: false,

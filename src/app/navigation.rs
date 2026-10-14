@@ -47,6 +47,8 @@ pub enum Screen {
     SettingsSection(SettingsSection),
     Shortcuts,
     Lyrics(usize),
+    LyricSongs,
+    LyricsSearch(usize),
     Languages,
     Fonts,
     Placeholder(String),
@@ -83,6 +85,8 @@ impl Screen {
             },
             Self::Shortcuts => "Shortcuts",
             Self::Lyrics(_) => "Lyrics for Track",
+            Self::LyricSongs => "Choose Song",
+            Self::LyricsSearch(_) => "Find Lyrics",
             Self::Languages => "Language",
             Self::Fonts => "Font",
         }

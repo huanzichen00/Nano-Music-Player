@@ -52,6 +52,7 @@ pub enum Action {
     CancelRomaji,
     RemoveRomaji,
     ToggleRomaji,
+    ToggleTranslation,
     ConfigureDeepSeek,
     JumpToLetter,
     NewPlaylist,
@@ -96,7 +97,7 @@ impl Action {
             | Self::SeekBackward
             | Self::SeekForward
             | Self::ToggleLyrics => Category::Playback,
-            Self::ToggleRomaji => Category::Playback,
+            Self::ToggleRomaji | Self::ToggleTranslation => Category::Playback,
             Self::ToggleOverlay | Self::TrackList => Category::Playback,
             Self::ImportFolder
             | Self::ImportVideos
@@ -203,6 +204,7 @@ impl Action {
             Self::CancelRomaji => "Cancel Romaji Generation",
             Self::RemoveRomaji => "Remove Romaji",
             Self::ToggleRomaji => "Show / Hide Romaji",
+            Self::ToggleTranslation => "Show / Hide Translation",
             Self::ConfigureDeepSeek => "DeepSeek API…",
             Self::TrackList => "Album track list",
             Self::JumpToLetter => "Jump to letter",
@@ -248,6 +250,7 @@ impl Action {
         Self::CancelRomaji,
         Self::RemoveRomaji,
         Self::ToggleRomaji,
+        Self::ToggleTranslation,
         Self::ConfigureDeepSeek,
         Self::DeviceMode,
         Self::ScreenMode,

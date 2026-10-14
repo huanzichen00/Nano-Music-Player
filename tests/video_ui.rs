@@ -12,7 +12,7 @@ use nano_music_player::{
     video::{Status, library::Video, orientation},
 };
 use slint::{
-    ComponentHandle,
+    ComponentHandle, Model,
     platform::{PointerEventButton, WindowEvent},
 };
 use std::{
@@ -488,6 +488,21 @@ fn actual_video_import_frames_rotation_and_music_handoff() {
         !c.state.video_importing && c.state.videos.len() == 1
     });
     assert!(directory.path().join("videos.json").is_file());
+    {
+        let mut c = controller.borrow_mut();
+        c.state.navigation.open(Screen::Videos);
+        c.execute(&ui, Action::FinishSearchEditing);
+    }
+    wait_for(&ui, &controller, |_, ui| {
+        ui.get_rows()
+            .row_data(1)
+            .is_some_and(|row| row.artwork.size().width > 0)
+    });
+    let row = ui.get_rows().row_data(1).unwrap();
+    assert!(row.show_artwork);
+    assert_eq!(row.artwork.size().width, 96);
+    assert_eq!(row.artwork.size().height, 54);
+    snapshot(&ui, "video-native-list-thumbnail");
     open_video(&ui, &controller, 1);
     wait_for(&ui, &controller, |c, ui| {
         c.state.video_status == Status::Playing
