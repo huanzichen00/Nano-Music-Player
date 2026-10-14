@@ -77,7 +77,8 @@ claim a new live DeepSeek translation-quality check or audible Gapless check.
 Release build, native playback and installed interface results are recorded after
 final verification below.
 
-- Formatting/checks and all-target tests pass: 288 passed, 23 intentionally ignored.
+- Formatting/checks and all-target tests pass: 296 passed, 24 intentionally ignored
+  after the translation-layout and thumbnail corrections.
 - All-target Clippy passes with warnings denied and the same three pre-existing
   lint classes allowed as in the recovery pass.
 - Native CoreAudio playback/transport/statistics tests: three passed.
@@ -86,3 +87,9 @@ final verification below.
 - Focused final tests verify asynchronous lyric persistence leaves playback keys
   available and empty synchronized records fall back to plain lyrics or fail.
 - The optimized release build passes. Production audio-core source is unchanged.
+- A rendered regression checks that original and translated glyphs occupy separate
+  vertical regions, wrapped text contributes its full height, missing translations
+  preserve originals, and T restores both enabled and disabled romaji preferences.
+  The installed app's lyric panel was disabled during the final native check;
+  that native visual comparison remains unverified. See
+  [installed verification](UI_REFERENCE_VERIFICATION.md) for the actual GUI results.

@@ -96,3 +96,40 @@ These GUI checks do not verify audible Gapless continuity, clipping, physical
 trackpad momentum or a live DeepSeek request. The separate Apple Recent Items
 system-menu crash described in `docs/PLAYBACK_RECOVERY.md` is still not proven
 fixed. The original checkout's three uncommitted files remain preserved.
+
+## Translation and thumbnail follow-up, 2026-10-14
+
+Separate tasks implemented the original/translation layout and random video
+previews in the recovery worktree. Integrated code commits are `e0681f0` and
+`b8be1e6`, pushed to both `main` and `restore/reliable-playback`. The installed
+bundle executable SHA-256 is
+`94a077258f3409e501be47178863c4de24a3b005ba02eb330299d79b963ca3de`.
+
+The running installed app showed all three real video previews with the compact
+Videos header, 58-logical-pixel rows and an 80×45 thumbnail area. The 4:3 clip
+retained its full aspect inside that area. Preview selection uses a random
+per-session seed to sample 15–85% of duration and remains stable across renders
+and image eviction. A silent native FFmpeg fixture verifies its selected frame
+comes from the middle section and preserves rotation/SAR.
+
+The first installed launch retained placeholders. Independent extraction of all
+three files succeeded. macOS recorded a Downloads-folder permission change for
+the app after that launch; a fresh process then loaded all three previews. This
+supports an access-related failure, rather than a proven UI publication defect.
+Failed previews are cached until library invalidation or restart. No macOS
+privacy database or permissions were changed by this work.
+
+The installed app played the real cached-translation song Deathwish: elapsed time
+advanced from 0:15 to 0:23 before the user paused it. Its lyric panel was disabled,
+and the user resumed control before its native visual comparison completed.
+Original-plus-translation separation, wrapping, empty/missing entries, T/romaji
+priority and active-line scrolling pass the software-rendered regression instead.
+No new paid translation request was needed for this follow-up.
+
+Formatting, all-target check and all-target tests pass: 296 tests passed, 24 opt-in
+tests ignored. Clippy passes with the same three pre-existing lint allowances.
+The adjusted video tests pass again after their two new lint warnings were fixed.
+Three ignored CoreAudio playback/transport/statistics tests and the ignored native
+video playback/rotation/music-handoff test were explicitly run and pass. The
+optimized release build passes. Audible Gapless continuity, clipping and physical
+trackpad/Shift+S behavior remain unverified; audio-core source was not changed.
