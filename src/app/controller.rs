@@ -4679,7 +4679,8 @@ mod ai_controller_tests {
         );
         assert_eq!(
             ui.get_displayed_lyric_lines().row_data(0).unwrap(),
-            "hello translated"
+            "hello",
+            "translation must stay below the original lyric"
         );
         assert!(!ui.get_romaji_displayed());
         assert!(

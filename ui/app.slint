@@ -155,7 +155,7 @@ export component AppWindow inherits Window {
     in property <bool> romaji-visible;
     in property <[string]> translated-lines;
     in property <bool> translation-visible;
-    out property <[string]> displayed-lyric-lines: root.translation-visible ? root.translated-lines : root.lyric-lines;
+    out property <[string]> displayed-lyric-lines: root.lyric-lines;
     out property <bool> romaji-displayed: root.romaji-visible && !root.translation-visible;
     in property <bool> deepseek-settings-open;
     in property <bool> deepseek-key-configured;
@@ -457,7 +457,7 @@ export component AppWindow inherits Window {
                 shuffle: root.shuffle; repeat-mode: root.repeat-mode;
                 overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.displayed-lyric-lines; active-lyric: root.active-lyric;
                 romaji-lines: root.romaji-lines; romaji-visible: root.romaji-displayed;
-                translation-visible: root.translation-visible;
+                translated-lines: root.translated-lines; translation-visible: root.translation-visible;
                 lyric-scroll-y <=> root.previous-lyric-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 toggle-overlay => { root.command("toggle_overlay"); keyboard.focus(); }
@@ -535,7 +535,7 @@ export component AppWindow inherits Window {
                 shuffle: root.shuffle; repeat-mode: root.repeat-mode;
                 overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.displayed-lyric-lines; active-lyric: root.active-lyric;
                 romaji-lines: root.romaji-lines; romaji-visible: root.romaji-displayed;
-                translation-visible: root.translation-visible;
+                translated-lines: root.translated-lines; translation-visible: root.translation-visible;
                 lyric-scroll-y <=> root.lyric-scroll-y;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 toggle-overlay => { root.command("toggle_overlay"); keyboard.focus(); }

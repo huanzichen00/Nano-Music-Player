@@ -5,9 +5,10 @@ Show, Cancel, Remove, DeepSeek credentials and Find Lyrics Online. The native me
 and device rows dispatch the same typed commands. Translation language is saved
 independently of interface language. Translate reuses a valid exact-source cache;
 Regenerate makes a new request. Show Translation and plain T control the same
-persisted, optional display mode (Off by default). When On, the lyrics area shows
-only the translated lines; original text and romaji are hidden. Turning it Off
-restores original lyrics and the existing R/romaji preference. Switching modes
+persisted, optional display mode (Off by default). Original lyrics always remain
+visible. When On, each translation appears on a separate line underneath its
+original, and romaji is hidden. Turning it Off restores the existing R/romaji
+preference. Switching modes
 never generates a network request. A pending result cannot override a later T-off
 choice. T uses a free default chord; migration preserves custom T assignments and
 current-format explicit unassignment.
