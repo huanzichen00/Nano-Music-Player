@@ -111,3 +111,35 @@ retain their existing path. Continuous-tail, new-gesture, immediate keyboard and
 Home-page tests exercise actual dispatch through the controller. TouchArea supplies
 no physical gesture phase, so this is quiet-interval suppression; real Mac trackpad
 gestures still require human verification.
+
+## Final verification
+
+- Formatting and `cargo check` pass. The complete default suite passes: **270
+  passed, 21 ignored**. The ignored comparison cases are run explicitly below.
+- All-target Clippy with `-D warnings` passes with only the three existing lint
+  classes allowed (`collapsible_if`, `needless_borrow`,
+  `field_reassign_with_default`); see the earlier audio verification for locations.
+- `tests/playback_runtime.rs --ignored --test-threads=1`: **2 passed**, including
+  completion/statistics/artwork and seek/skip/pause/resume/Stop on real output.
+- The generated native video import/rotation/music-handoff test: **1 passed**.
+- Debug and optimized-release native historical/current comparison: **8 passed
+  each**, including the real
+  library controller regression at a 256-descriptor soft limit.
+- A packaged native debug candidate, with a fixed isolated config launcher, loaded
+  the real library copy. Its song position advanced from 0:00 to 0:51, and the native
+  Playback menu opened and accepted an action. Numeric open descriptors were **14**
+  while playing; the earlier installed process had **554** (different processes,
+  not a controlled benchmark). The native candidate shut down with exit status 0.
+- The QA bundle's distinct ID was tiled by AeroSpace, fighting the app's aspect
+  maintenance. Its window was explicitly floated for QA; no global AeroSpace
+  configuration was changed. The production `org.nano.music-player` ID retains
+  the existing user floating rule.
+- Before delivery, the normal library still contains **53 tracks and one playlist**.
+  Settings/database snapshots and the previous app bundle are retained for rollback.
+  Main's original plan SHA-256 is unchanged; production `src/audio` matches `129f836`.
+
+The separate native Apple Recent Items crash has not been reproduced or proven
+fixed. Ordinary app menu validation does not cover that system-menu failure.
+Audible Gapless quality, physical trackpad gestures and hardware output loss remain
+unverified. Disabling monitoring is a deliberate functionality reduction for
+reliability; it does not assert that every reported crash is eliminated.
