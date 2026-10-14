@@ -130,7 +130,7 @@ fn pdf_rating_strip_tap_drag_clear_persistence_and_keyboard_guards() {
     assert!(ui.get_rating_visible());
     assert_eq!(ui.get_rating_title(), "First song");
     assert_eq!(ui.get_rating(), 0);
-    assert_eq!(ui.get_list_header_height(), 96.0 * ui.get_display_scale());
+    assert_eq!(ui.get_list_header_height(), 48.0 * ui.get_display_scale());
     snapshot(&ui, "rating-before.png");
     pointer(&ui, true, 150.0, 96.0);
     pointer(&ui, false, 150.0, 96.0);

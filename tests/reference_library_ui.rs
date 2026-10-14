@@ -126,7 +126,8 @@ fn photo_icons_toolbar_live_title_and_black_rating_screen_render() {
         c.execute(&ui, Action::TrackList);
     }
     assert!(ui.get_rating_visible());
-    assert_eq!(ui.get_list_header_height(), 96. * ui.get_display_scale());
+    assert!(!ui.get_shuffle_list());
+    assert_eq!(ui.get_list_header_height(), 48. * ui.get_display_scale());
     snapshot(&ui, "reference-rating-black.png");
     let shot = ui.window().take_snapshot().unwrap();
     let scale = ui.window().scale_factor();
@@ -148,7 +149,7 @@ fn photo_icons_toolbar_live_title_and_black_rating_screen_render() {
         );
     }
     snapshot(&ui, "reference-rating-black.png");
-    assert!(matches!(c.borrow().state.rows()[1].target, Target::Play(0)));
+    assert!(matches!(c.borrow().state.rows()[0].target, Target::Play(0)));
     assert!(matches!(
         c.borrow().state.navigation.current().screen,
         Screen::Songs(Filter::Album { .. })

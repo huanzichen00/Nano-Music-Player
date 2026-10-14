@@ -17,8 +17,9 @@ Settings now opens five groups: Display, Playback, Lyrics, Language and Keyboard
 Shortcuts. Display holds window/font options. Playback holds Gapless and a
 ReplayGain level with the existing gain controls. The rating album track list
 uses black throughout its LCD header and body. Shuffle rows use the same height
-as regular rows and appear only in song lists (including playlists) and artist
-album views. Search and the Albums category have no Shuffle row.
+as regular rows. Album song lists, including the black rating view, now omit the
+Shuffle row too. Other song lists (including playlists) and artist views retain
+it. Search and the Albums category have no Shuffle row.
 
 Shift+S starts all available songs in shuffled order, independently of the
 current view. Plain S retains its existing toggle. The keymap migration adds the

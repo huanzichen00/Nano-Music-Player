@@ -195,10 +195,11 @@ impl State {
     }
 
     pub fn supports_list_shuffle(&self) -> bool {
-        matches!(
-            self.navigation.current().screen,
-            Screen::Songs(_) | Screen::Artist(_)
-        )
+        match self.navigation.current().screen {
+            Screen::Songs(Filter::Album { .. }) => false,
+            Screen::Songs(_) | Screen::Artist(_) => true,
+            _ => false,
+        }
     }
 
     pub fn rows(&self) -> Vec<Row> {

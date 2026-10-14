@@ -71,7 +71,7 @@ fn album_tracks_order_known_numbers_then_unknown_and_deterministic_ties() {
             artist: Some("A".into()),
         }),
     );
-    let rows = s.rows().into_iter().skip(1).collect::<Vec<_>>();
+    let rows = s.rows();
     assert_eq!(
         rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
         ["ALPHA", "Alpha", "beta", "zulu", "unknown"]

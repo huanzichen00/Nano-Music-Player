@@ -816,13 +816,13 @@ fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata()
     );
     state.navigation.select(1);
     state.apply(Action::Activate);
-    assert_eq!(state.rows().len(), 2);
-    assert!(matches!(state.rows()[1].target, Target::Play(0)));
+    assert_eq!(state.rows().len(), 1);
+    assert!(matches!(state.rows()[0].target, Target::Play(0)));
     state.navigation.open(Screen::Songs(Filter::Album {
         name: "Shared".to_owned(),
         artist: None,
     }));
-    assert_eq!(state.rows().len(), 3);
+    assert_eq!(state.rows().len(), 2);
     state
         .navigation
         .open(Screen::Songs(Filter::Genre("Jazz".to_owned())));
@@ -1575,7 +1575,7 @@ fn settings_and_album_track_list_are_real_navigation_screens() {
     state.apply(Action::TrackList);
     assert_eq!(
         state.rows().len(),
-        2,
+        1,
         "same-named albums remain scoped to their artist"
     );
     state.apply(Action::Back);

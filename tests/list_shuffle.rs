@@ -48,13 +48,6 @@ fn fixture(screen: Screen) -> State {
 fn shuffle_entry_plays_only_the_current_list_and_keeps_canonical_order() {
     for (screen, canonical) in [
         (Screen::Songs(Filter::All), vec![2, 1, 0]),
-        (
-            Screen::Songs(Filter::Album {
-                name: "One".into(),
-                artist: Some("A".into()),
-            }),
-            vec![1, 0],
-        ),
         (Screen::Songs(Filter::Genre("Rock".into())), vec![1, 0]),
         (
             Screen::Songs(Filter::Playlist {
@@ -111,4 +104,21 @@ fn letter_jump_skips_shuffle_control_and_empty_shuffle_is_harmless() {
     state.navigation.open(Screen::Settings);
     assert!(!state.supports_list_shuffle());
     assert!(state.apply(Action::ShuffleList).is_empty());
+}
+
+#[test]
+fn album_lists_start_with_the_first_track_and_have_no_shuffle_control() {
+    let mut state = fixture(Screen::Songs(Filter::Album {
+        name: "One".into(),
+        artist: Some("A".into()),
+    }));
+    assert!(!state.supports_list_shuffle());
+    assert_eq!(state.rows().len(), 2);
+    assert!(matches!(state.rows()[0].target, Target::Play(1)));
+    assert!(state.apply(Action::ShuffleList).is_empty());
+    state.navigation.select(0);
+    state.apply(Action::Activate);
+    assert_eq!(state.current, Some(1));
+    assert_eq!(state.queue.order, [1, 0]);
+    assert!(!state.shuffle);
 }
