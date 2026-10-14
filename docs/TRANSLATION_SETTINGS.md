@@ -82,11 +82,13 @@ claim a new live DeepSeek translation-quality check or audible Gapless check.
 Release build, native playback and installed interface results are recorded after
 final verification below.
 
-- Formatting/checks and all-target tests pass: 296 passed, 24 intentionally ignored
-  after the translation-layout and thumbnail corrections.
+- Formatting/checks and all-target tests pass: 298 passed, 25 intentionally ignored
+  after the layout, thumbnail and T-generation corrections.
 - All-target Clippy passes with warnings denied and the same three pre-existing
   lint classes allowed as in the recovery pass.
-- Native CoreAudio playback/transport/statistics tests: three passed.
+- Native CoreAudio playback/transport/statistics/translation-shortcut tests:
+  four passed. The new test starts a real worker with deliberately invalid test
+  credentials, observes its failure and T-off, and verifies native audio continues.
 - The native video import/frame/rotation/music-handoff test also passes with a
   real 96×54 thumbnail assertion from an FFmpeg-generated video.
 - Focused final tests verify asynchronous lyric persistence leaves playback keys
@@ -98,3 +100,8 @@ final verification below.
   The installed app's lyric panel was disabled during the final native check;
   that native visual comparison remains unverified. See
   [installed verification](UI_REFERENCE_VERIFICATION.md) for the actual GUI results.
+
+The T follow-up also checks both initially disabled and inherited-enabled display
+preferences, cached reuse without HTTP, the missing-source lookup path, unchanged
+romaji preference, single-worker admission and late-result visibility. It does
+not make a new live provider request or claim a new translation-quality check.
