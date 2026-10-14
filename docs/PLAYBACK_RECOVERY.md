@@ -105,7 +105,7 @@ explicit temporary directories and was completed separately.
 The real Slint scroll dispatcher reproduces a second Back when a large horizontal
 momentum delta arrives 260 ms after the first Back, after the screen transition
 settles. A shared UI burst latch now persists across Library/Now Playing/Home
-views. Horizontal activity restarts a single 500 ms quiet timer after consumption;
+views. Horizontal activity restarts a single 300 ms quiet timer after consumption;
 disabling/re-enabling a view does not clear it. Pointer swipes and keyboard Back
 retain their existing path. Continuous-tail, new-gesture, immediate keyboard and
 Home-page tests exercise actual dispatch through the controller. TouchArea supplies
@@ -143,3 +143,11 @@ fixed. Ordinary app menu validation does not cover that system-menu failure.
 Audible Gapless quality, physical trackpad gestures and hardware output loss remain
 unverified. Disabling monitoring is a deliberate functionality reduction for
 reliability; it does not assert that every reported crash is eliminated.
+
+The user confirmed that the installed 500 ms latch eliminated the double Back,
+but reported that the next slide felt delayed. The quiet interval is reduced to
+300 ms. Continuous momentum, including a delta 260 ms after navigation, still
+restarts the latch. The regression now requires another deliberate gesture to
+work after 350 ms of quiet; it fails with the old 500 ms interval. Screen animation
+and its input blocking duration are unchanged. Human confirmation of the shorter
+interval remains pending.

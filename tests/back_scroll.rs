@@ -114,7 +114,7 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
         "Albums",
         "continuous momentum keeps the same gesture latched"
     );
-    tick(550); // A new gesture after a quiet interval can navigate again.
+    tick(350); // A new gesture after a quiet interval can navigate again.
     scroll(60.0, 0.0);
     assert_eq!(ui.get_screen_title(), "Music");
     // Keyboard Back remains immediate and independent of the scroll latch.
@@ -124,14 +124,14 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
         Screen::Home
     );
     tick(0);
-    tick(300);
+    tick(260); // Home is settled while the same burst is still active.
     scroll(-60.0, 0.0);
     assert_eq!(
         ui.get_home_page(),
         0,
         "Back momentum must not turn a Home page"
     );
-    tick(550);
+    tick(350);
     scroll(-60.0, 0.0);
     assert_eq!(ui.get_home_page(), 1, "a new Home gesture remains usable");
 }
