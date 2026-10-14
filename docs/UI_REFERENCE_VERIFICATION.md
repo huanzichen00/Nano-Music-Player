@@ -61,13 +61,37 @@ Audible gaplessness, clipping and physical trackpad momentum are not newly
 verified by this pass. Native application replacement/GUI smoke results are
 recorded below after the final check.
 
-## Installation state
+## Installed release verification, 2026-10-14
 
 The optimized candidate was copied into the production bundle, signed ad hoc,
 and installed with executable-hash and plist checks plus a recoverable previous
-bundle backup. The Mac locked before the final release-candidate GUI smoke check.
-The running production process has not been restarted by this pass; the installed
-files take effect on the next launch. Final native Music/Albums/Playlists/rating
-GUI verification and the restart remain pending until the Mac is unlocked.
-The earlier native side-by-side font fixture and all audio/video tests above did
-run; this limitation is specific to the final production GUI check.
+bundle backup. After the Mac was unlocked, the previous process was quit normally
+and the installed app restarted. Its executable SHA-256 is
+`1dae10be31634d90ec0b3e0f6dd169c01a060da2196690745362fe851298c1e4`.
+
+The following were checked in the running production app, using its current
+101-song library:
+
+- Music has the reference icons, compact header and current song subtitle.
+- Albums starts with All Songs, its 101-song count and generic music artwork.
+- Playlists has the Add/Edit toolbar and Genius, rating and playlist icons.
+- The rating album track list is black throughout the LCD header and body.
+- Settings opens the five groups above; Display shows Classic and the existing
+  display controls. Small gray subtitles render without the broken strokes seen
+  in the earlier FemtoVG comparison at this scale.
+- The native Playback menu's Shuffle All Songs action starts a shuffled library
+  track. Ordinary playback was also started in the installed app and its elapsed
+  position advanced from 0:00 to 0:17, with the pause control displayed.
+- No repeated resizing was observed during these checks. The production bundle
+  continues to use the existing AeroSpace floating rule.
+
+The saved version-5 keymap contains Shift+S for Shuffle All and plain S for the
+existing toggle. The native-output regression passes when it explicitly delivers
+Shift key-down and S. Computer-use chord synthesis resolved to plain S in this
+app, so a physical Shift+S press on this Mac remains unverified. This does not
+affect the verified native menu command.
+
+These GUI checks do not verify audible Gapless continuity, clipping, physical
+trackpad momentum or a live DeepSeek request. The separate Apple Recent Items
+system-menu crash described in `docs/PLAYBACK_RECOVERY.md` is still not proven
+fixed. The original checkout's three uncommitted files remain preserved.

@@ -5,6 +5,10 @@ Recovery work lives in the isolated `restore/reliable-playback` worktree. Main a
 contains `47b8f89`, the release immediately before Gapless/ReplayGain and the
 related feature batch. The user identified that period as the working baseline.
 
+This document records the recovery milestone. The later UI changes, shorter Back
+interval, expanded test totals and final installed-app checks are recorded in
+`docs/UI_REFERENCE_VERIFICATION.md`; production audio-core source remains unchanged.
+
 ## Acceptance and plan
 
 1. Compare the exact historical engine with the current engine on real CoreAudio,
