@@ -128,19 +128,29 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
     );
     controller.borrow_mut().execute(&ui, Action::NowPlaying);
     ui.invoke_focus_screen();
-    for _ in 0..2 {
-        let previous = ui.get_translation_visible();
+    // Display is already On from the earlier Translate action, but this song
+    // has no translation. Its first T requests generation; its second hides it.
+    for shown in [true, false] {
         ui.window()
             .dispatch_event(WindowEvent::KeyPressed { text: "t".into() });
         ui.window()
             .dispatch_event(WindowEvent::KeyReleased { text: "t".into() });
-        assert_eq!(ui.get_translation_visible(), !previous);
+        assert_eq!(ui.get_translation_visible(), shown);
         assert_eq!(
             Settings::load(&directory.path().join("settings.json"))
                 .unwrap()
                 .translation_visible,
-            !previous
+            shown
         );
-        assert_eq!(ui.get_romaji_displayed(), previous);
+        assert_eq!(ui.get_romaji_displayed(), !shown);
+        if shown {
+            assert!(ui.get_notice().contains("Invalid DeepSeek API key"));
+            let c = controller.borrow();
+            assert!(
+                c.state
+                    .lyrics_lookup_status
+                    .contains_key(&c.state.tracks[1].path)
+            );
+        }
     }
 }

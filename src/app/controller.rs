@@ -228,6 +228,9 @@ pub struct Controller {
     translation_request_id: u64,
     translation_active_request: Option<crate::translation::Request>,
     translation_visible: bool,
+    // The display preference can be inherited by another song. Remember which
+    // song T enabled so its next press still hides an incomplete/failed result.
+    translation_shortcut_track: Option<PathBuf>,
     translation_cancel: Option<crate::translation::Cancellation>,
     online_lyrics_request: Option<
         Receiver<(
@@ -392,6 +395,7 @@ impl Controller {
             translation_request_id: 0,
             translation_active_request: None,
             translation_visible,
+            translation_shortcut_track: None,
             translation_cancel: None,
             online_lyrics_request: None,
             online_lyrics_cancel: None,
@@ -787,6 +791,26 @@ impl Controller {
         ) {
             self.cancel_gapless_prefetch();
             self.failed_prefetch = None;
+        }
+        if action == Action::ToggleTranslation {
+            let track = self
+                .state
+                .current
+                .and_then(|id| self.state.tracks.get(id))
+                .map(|track| track.path.clone());
+            let inherited_missing_translation = track.is_some()
+                && self.translation_shortcut_track != track
+                && self.translation_request.is_none()
+                && self.online_lyrics_request.is_none()
+                && self.translation_after_lookup.is_none()
+                && !self.current_translation_cached();
+            if !self.translation_visible || inherited_missing_translation {
+                // Reuse the existing worker/cache path, including lyric lookup.
+                // Settings remains a display-only toggle.
+                self.translation_shortcut_track = track;
+                self.translation_command(ui, crate::translation::Command::Translate);
+                return;
+            }
         }
         let effects = self.state.apply(action);
         // Start audio immediately; focus effects still need the new screen to exist.
@@ -3579,6 +3603,22 @@ impl Controller {
         self.sync(ui);
     }
 
+    fn current_translation_cached(&self) -> bool {
+        self.state
+            .current
+            .and_then(|id| self.state.tracks.get(id))
+            .is_some_and(|track| {
+                let request = crate::translation::Request {
+                    request_id: 0,
+                    track_id: track.path.clone(),
+                    target: self.settings.translation_target,
+                    provider_version: self.translation_provider_version(),
+                    source: Self::translation_source(track),
+                };
+                self.translation_cache.get(&request.cache_key()).is_some()
+            })
+    }
+
     fn translation_command(&mut self, ui: &AppWindow, command: crate::translation::Command) {
         use crate::translation::Command;
         match command {
@@ -3586,21 +3626,7 @@ impl Controller {
                 self.translation_visible = true;
                 self.lyrics_dirty = true;
                 self.save_settings(ui);
-                let cached = self
-                    .state
-                    .current
-                    .and_then(|id| self.state.tracks.get(id))
-                    .is_some_and(|track| {
-                        let request = crate::translation::Request {
-                            request_id: 0,
-                            track_id: track.path.clone(),
-                            target: self.settings.translation_target,
-                            provider_version: self.translation_provider_version(),
-                            source: Self::translation_source(track),
-                        };
-                        self.translation_cache.get(&request.cache_key()).is_some()
-                    });
-                if cached {
+                if self.current_translation_cached() {
                     self.translation_visible = true;
                     self.lyrics_dirty = true;
                     self.state.notice = "Translation ready".into();
@@ -3632,6 +3658,9 @@ impl Controller {
             }
             Command::Toggle => {
                 self.translation_visible = !self.translation_visible;
+                if !self.translation_visible {
+                    self.translation_shortcut_track = None;
+                }
                 self.save_settings(ui);
                 self.lyrics_dirty = true;
                 self.sync(ui);
@@ -3770,6 +3799,9 @@ impl Controller {
         target: crate::translation::TargetLanguage,
     ) {
         self.cancel_online_lyrics();
+        if self.settings.translation_target != target {
+            self.translation_shortcut_track = None;
+        }
         self.settings.translation_target = target;
         if let Some(token) = self.translation_cancel.take() {
             token.cancel();
@@ -4696,12 +4728,97 @@ mod ai_controller_tests {
                 .translation_visible
         );
         controller.state.romaji_visible = false;
-        controller.translation_command(&ui, crate::translation::Command::Toggle);
-        controller.translation_command(&ui, crate::translation::Command::Toggle);
+        controller.execute(&ui, Action::ToggleTranslation);
+        assert!(
+            controller.translation_request.is_none(),
+            "T must reuse the cache offline"
+        );
+        assert!(controller.online_lyrics_request.is_none());
+        controller.execute(&ui, Action::ToggleTranslation);
         assert!(
             !ui.get_romaji_displayed(),
             "T off cannot enable a disabled R preference"
         );
+    }
+
+    #[test]
+    fn t_starts_missing_translation_once_and_late_completion_keeps_it_hidden() {
+        i_slint_backend_testing::init_no_event_loop();
+        for initially_enabled in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            // Parsing fails before any provider can use an environment credential.
+            std::fs::write(
+                directory.path().join("deepseek.json"),
+                "invalid test configuration",
+            )
+            .unwrap();
+            let mut controller = Controller::new(directory.path().to_owned());
+            let track = make_track(
+                directory.path().join("song.wav"),
+                "Song",
+                Lyrics::plain_text("hello"),
+            );
+            controller.state.tracks = vec![track];
+            controller.state.current = Some(0);
+            controller.translation_visible = initially_enabled;
+            let ui = AppWindow::new().unwrap();
+            controller.execute(&ui, Action::ToggleTranslation);
+            assert!(ui.get_translation_visible());
+            assert!(controller.translation_request.is_some());
+            assert!(controller.online_lyrics_request.is_none());
+            let request = controller.translation_active_request.clone().unwrap();
+            assert_eq!(request.source[0].text, "hello");
+            assert!(ui.get_notice().contains("Generating translation"));
+            assert!(!ui.get_romaji_displayed());
+            assert!(controller.state.romaji_visible);
+
+            controller.execute(&ui, Action::ToggleTranslation);
+            assert!(!ui.get_translation_visible());
+            assert!(ui.get_romaji_displayed());
+            assert_eq!(controller.translation_request_id, request.request_id);
+            assert!(controller.translation_request.is_some());
+            let translation =
+                fixture_translation(&request, serde_json::json!({"translations":["translated"]}));
+            assert_eq!(
+                controller.apply_translation_result(request, Ok(translation)),
+                "Translation ready"
+            );
+            controller.sync(&ui);
+            assert!(!ui.get_translation_visible());
+            assert!(
+                !Settings::load(&directory.path().join("settings.json"))
+                    .unwrap()
+                    .translation_visible
+            );
+            assert_eq!(ui.get_displayed_lyric_lines().row_data(0).unwrap(), "hello");
+        }
+    }
+
+    #[test]
+    fn t_without_source_lyrics_enters_the_existing_online_lookup_path() {
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("deepseek.json"),
+            "invalid test configuration",
+        )
+        .unwrap();
+        let mut controller = Controller::new(directory.path().to_owned());
+        let track = make_track(directory.path().join("song.wav"), "Song", Lyrics::default());
+        let path = track.path.clone();
+        controller.state.tracks = vec![track];
+        controller.state.current = Some(0);
+        let ui = AppWindow::new().unwrap();
+        controller.execute(&ui, Action::ToggleTranslation);
+        assert!(ui.get_translation_visible());
+        assert!(controller.state.lyrics_lookup_status.contains_key(&path));
+        assert!(controller.translation_request.is_none());
+        assert!(
+            controller.online_lyrics_request.is_none(),
+            "invalid credentials must prevent HTTP"
+        );
+        controller.execute(&ui, Action::ToggleTranslation);
+        assert!(!ui.get_translation_visible());
     }
 
     #[test]

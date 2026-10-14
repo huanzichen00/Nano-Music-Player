@@ -8,8 +8,13 @@ Regenerate makes a new request. Show Translation and plain T control the same
 persisted, optional display mode (Off by default). Original lyrics always remain
 visible. When On, each translation appears on a separate line underneath its
 original, and romaji is hidden. Turning it Off restores the existing R/romaji
-preference. Switching modes
-never generates a network request. A pending result cannot override a later T-off
+preference. Enabling with T reuses an exact-source cache, or starts translation
+when it is missing (first finding source lyrics online if necessary). The first
+T press on a new song without translation also starts generation if the display
+preference was inherited from another song; the next press hides it, including
+after a failed request. Show
+Translation in Settings remains a display-only toggle. Turning T off never
+starts a request, and a pending result cannot override a later T-off
 choice. T uses a free default chord; migration preserves custom T assignments and
 current-format explicit unassignment.
 

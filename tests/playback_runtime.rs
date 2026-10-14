@@ -36,6 +36,87 @@ fn write_tone(path: &std::path::Path) {
 }
 
 #[test]
+#[ignore = "requires native audio output; verifies T generation leaves playback running"]
+fn native_t_translation_generation_and_failure_do_not_interrupt_audio() {
+    use slint::platform::WindowEvent;
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let music = directory.path().join("music");
+    std::fs::create_dir(&music).unwrap();
+    write_tone(&music.join("song.wav"));
+    std::fs::write(music.join("song.txt"), "Original test lyric").unwrap();
+    scanner::scan_folders(&directory.path().join("library.sqlite3"), &[music]).unwrap();
+    // Exercise the real worker without using a production key or opening HTTP.
+    std::fs::write(
+        directory.path().join("deepseek.json"),
+        "invalid test configuration",
+    )
+    .unwrap();
+    nano_music_player::app::config::Settings {
+        translation_visible: true,
+        ..Default::default()
+    }
+    .save(&directory.path().join("settings.json"))
+    .unwrap();
+    let ui = AppWindow::new().unwrap();
+    let controller = Rc::new(RefCell::new(Controller::new(directory.path().to_owned())));
+    connect(&ui, &controller);
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while controller.borrow().state.tracks.is_empty() && Instant::now() < deadline {
+        controller.borrow_mut().poll(&ui);
+        thread::sleep(Duration::from_millis(10));
+    }
+    {
+        let mut c = controller.borrow_mut();
+        assert_eq!(c.state.tracks.len(), 1);
+        assert!(!c.state.tracks[0].lyrics.is_empty());
+        c.state.navigation.open(Screen::Songs(Filter::All));
+        c.state.navigation.select(1);
+        c.execute(&ui, Action::Activate);
+    }
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while controller.borrow().state.position < 0.1 && Instant::now() < deadline {
+        controller.borrow_mut().poll(&ui);
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(controller.borrow().state.status, PlaybackStatus::Playing);
+    let position = controller.borrow().state.position;
+    ui.invoke_focus_screen();
+    for event in [
+        WindowEvent::KeyPressed { text: "t".into() },
+        WindowEvent::KeyReleased { text: "t".into() },
+    ] {
+        ui.window().dispatch_event(event);
+    }
+    assert!(ui.get_translation_visible());
+    assert!(ui.get_notice().contains("Generating translation"));
+    let deadline = Instant::now() + Duration::from_secs(1);
+    while ui.get_notice().contains("Generating translation") && Instant::now() < deadline {
+        controller.borrow_mut().poll(&ui);
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(ui.get_notice().contains("Translation failed"));
+    assert!(ui.get_translation_visible());
+    for event in [
+        WindowEvent::KeyPressed { text: "t".into() },
+        WindowEvent::KeyReleased { text: "t".into() },
+    ] {
+        ui.window().dispatch_event(event);
+    }
+    assert!(!ui.get_translation_visible());
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while controller.borrow().state.position < position + 0.2 && Instant::now() < deadline {
+        controller.borrow_mut().poll(&ui);
+        assert_ne!(controller.borrow().state.status, PlaybackStatus::Error);
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(controller.borrow().state.position >= position + 0.2);
+    assert_eq!(controller.borrow().state.status, PlaybackStatus::Playing);
+    assert_eq!(controller.borrow().state.current, Some(0));
+    assert!(!ui.get_translation_visible());
+}
+
+#[test]
 #[ignore = "requires a working native audio output; explicitly run for release smoke verification"]
 fn native_playback_gapless_statistics_and_artwork_do_not_crash() {
     slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
