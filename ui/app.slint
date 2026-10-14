@@ -75,7 +75,7 @@ export component AppWindow inherits Window {
             }
         }
     }
-    private property <bool> previous-artwork-list: root.previous-screen == 1 && root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork;
+    private property <bool> previous-artwork-list: root.previous-screen == 1 && ((root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork) || (root.previous-rows.length > 1 && root.previous-rows[1].icon == 9));
     out property <length> transition-offset: root.transition-active ? root.current-screen-x : 0px;
     out property <length> previous-transition-offset: root.transition-active ? root.previous-screen-x : 0px;
     out property <length> home-transition-offset: home.page-slide-offset;
@@ -194,7 +194,7 @@ export component AppWindow inherits Window {
     out property <float> list-row-height: library.row-height / 1px;
     out property <float> list-viewport-height: library.height / 1px;
     out property <float> list-header-height: library.header-height / 1px;
-    private property <bool> artwork-list: root.screen == 1 && root.rows.length > (root.shuffle-list ? 1 : 0) && root.rows[root.shuffle-list ? 1 : 0].show-artwork;
+    private property <bool> artwork-list: root.screen == 1 && ((root.rows.length > (root.shuffle-list ? 1 : 0) && root.rows[root.shuffle-list ? 1 : 0].show-artwork) || (root.rows.length > 1 && root.rows[1].icon == 9));
     in-out property <length> lyric-scroll-y;
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;

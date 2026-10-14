@@ -10,6 +10,9 @@ export global ListMetrics {
     // PDF page 10: 82-pixel rows / 340-pixel LCD width × 240 logical units.
     out property <float> artwork-row-height: 58;
     out property <float> artwork-padding: 1;
+    out property <float> video-thumbnail-width: 80;
+    out property <float> video-thumbnail-height: 45;
+    out property <float> video-thumbnail-padding: 6;
 }
 
 // Keep horizontal Back recognition outside the list rows so a completed swipe
@@ -77,7 +80,10 @@ export component LibraryView inherits Rectangle {
     in-out property <string> search-text;
     in-out property <length> scroll-y;
     out property <bool> search-focused: input.has-focus;
-    out property <length> row-height: (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
+    // Videos starts with an Import action, then artwork rows. Its action must
+    // not force the thumbnails and two-line titles into 48-pixel text rows.
+    private property <bool> video-list: root.rows.length > 1 && root.rows[1].icon == 9;
+    out property <length> row-height: (root.video-list || (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork) ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
     callback edited(string);
     public function focus-search() { input.focus(); }
@@ -167,13 +173,16 @@ export component LibraryView inherits Rectangle {
                 colorize: (root.selected == index && root.keyboard-navigation) ? white : #555; image-fit: contain;
             }
             if row.show-artwork: Rectangle {
-                x: ListMetrics.artwork-padding * 1px * root.s; y: self.x;
-                width: parent.height - 2 * self.x; height: self.width; background: row.artwork.width > 0 ? #e0e3e6 : @linear-gradient(180deg, #455b71, #101d2b);
+                x: (row.icon == 9 ? ListMetrics.video-thumbnail-padding : ListMetrics.artwork-padding) * 1px * root.s;
+                width: row.icon == 9 ? ListMetrics.video-thumbnail-width * 1px * root.s : parent.height - 2 * self.x;
+                height: row.icon == 9 ? ListMetrics.video-thumbnail-height * 1px * root.s : self.width;
+                y: (parent.height - self.height) / 2;
+                background: row.artwork.width > 0 ? #e0e3e6 : @linear-gradient(180deg, #455b71, #101d2b);
                 Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row.artwork; image-fit: contain; }
                 if row.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row.icon == 9 ? @image-url("../assets/generated/videos.png") : @image-url("../assets/icons/nano/songs.png"); colorize: row.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
             }
             Text {
-                x: row.show-artwork ? root.row-height + 6px * root.s : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
+                x: row.show-artwork ? (row.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
                 y: row.subtitle == "" ? 0px : (parent.height - 40px * root.s) / 2;
                 width: parent.width - self.x - 25px * root.s; height: row.subtitle == "" ? parent.height : 23px * root.s;
                 text: row.title; color: root.rating-visible || (root.selected == index && root.keyboard-navigation) ? white : #111;
@@ -181,7 +190,7 @@ export component LibraryView inherits Rectangle {
                 font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
             if row.subtitle != "": Text {
-                x: row.show-artwork ? root.row-height + 6px * root.s : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
+                x: row.show-artwork ? (row.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
                 y: (parent.height - 40px * root.s) / 2 + 23px * root.s;
                 width: parent.width - self.x - 25px * root.s; height: 17px * root.s;
                 text: row.subtitle; color: (root.selected == index && root.keyboard-navigation) ? #e1efff : #929292; font-size: (row.show-artwork || root.music-list || root.playlist-list ? 14px : 11px) * root.s; overflow: elide;

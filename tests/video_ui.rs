@@ -89,6 +89,123 @@ fn open_video(ui: &AppWindow, controller: &RefCell<Controller>, row: usize) {
 }
 
 #[test]
+fn video_list_import_row_uses_artwork_stride_and_contains_landscape_and_portrait_frames() {
+    let directory = tempfile::tempdir().unwrap();
+    let (ui, controller) = setup(directory.path());
+    {
+        let mut c = controller.borrow_mut();
+        c.state.smooth_slides = false;
+        c.state.merge_videos(vec![
+            Video {
+                path: directory.path().join("landscape.mp4"),
+                title: "Landscape frame".into(),
+                duration: 10.0,
+                width: 320,
+                height: 180,
+                display_aspect: 16.0 / 9.0,
+                video_codec: "h264".into(),
+                audio_codec: None,
+            },
+            Video {
+                path: directory.path().join("portrait.mp4"),
+                title: "Portrait frame".into(),
+                duration: 10.0,
+                width: 180,
+                height: 320,
+                display_aspect: 9.0 / 16.0,
+                video_codec: "h264".into(),
+                audio_codec: None,
+            },
+        ]);
+        c.state.navigation.open(Screen::Videos);
+        c.execute(&ui, Action::FinishSearchEditing);
+    }
+    let activated = Rc::new(RefCell::new(Vec::new()));
+    let clicks = activated.clone();
+    // Observe row hit targets without opening a native playback session.
+    ui.on_item_clicked(move |row| clicks.borrow_mut().push(row));
+    let colors = [[239, 17, 33, 255], [19, 221, 47, 255]];
+    for zoom in [0.75, 1.25, 2.0] {
+        for mode in [Action::ScreenMode, Action::DeviceMode] {
+            controller.borrow_mut().state.zoom = zoom;
+            controller.borrow_mut().execute(&ui, mode);
+            ui.set_list_scroll_y(0.0);
+            assert!(!ui.get_rows().row_data(0).unwrap().show_artwork);
+            for (index, (width, height)) in [(96, 54), (54, 96)].into_iter().enumerate() {
+                let mut pixels = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(width, height);
+                pixels
+                    .make_mut_bytes()
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .for_each(|pixel| pixel.copy_from_slice(&colors[index]));
+                let mut row = ui.get_rows().row_data(index + 1).unwrap();
+                row.artwork = slint::Image::from_rgba8(pixels);
+                ui.get_rows().set_row_data(index + 1, row);
+            }
+            let scale = ui.get_display_scale();
+            assert!((ui.get_list_row_height() - 58.0 * scale).abs() < 0.01);
+            snapshot(
+                &ui,
+                &format!("video-list-geometry-{zoom}-{}", ui.get_device_mode()),
+            );
+            let rendered = ui.window().take_snapshot().unwrap();
+            let factor = ui.window().scale_factor();
+            let pixel_scale = scale * factor;
+            let mut bounds = [(u32::MAX, u32::MAX, 0, 0); 2];
+            for (index, pixel) in rendered.as_bytes().as_chunks::<4>().0.iter().enumerate() {
+                for (color, bound) in colors.iter().zip(&mut bounds) {
+                    if pixel == color {
+                        let x = index as u32 % rendered.width();
+                        let y = index as u32 / rendered.width();
+                        bound.0 = bound.0.min(x);
+                        bound.1 = bound.1.min(y);
+                        bound.2 = bound.2.max(x);
+                        bound.3 = bound.3.max(y);
+                    }
+                }
+            }
+            for (index, &(left, top, right, bottom)) in bounds.iter().enumerate() {
+                assert!(
+                    left != u32::MAX,
+                    "missing frame at zoom {zoom}, device {}",
+                    ui.get_device_mode()
+                );
+                let width = (right - left + 1) as f32;
+                let height = (bottom - top + 1) as f32;
+                let expected_width = if index == 0 { 80.0 } else { 45.0 * 9.0 / 16.0 };
+                assert!(
+                    (width - expected_width * pixel_scale).abs() <= 2.0,
+                    "frame width {width}, zoom {zoom}"
+                );
+                assert!(
+                    (height - 45.0 * pixel_scale).abs() <= 2.0,
+                    "frame height {height}, zoom {zoom}"
+                );
+                let position = slint::LogicalPosition::new(
+                    (left + right) as f32 / 2.0 / factor,
+                    (top + bottom) as f32 / 2.0 / factor,
+                );
+                for event in [
+                    WindowEvent::PointerPressed {
+                        position,
+                        button: PointerEventButton::Left,
+                    },
+                    WindowEvent::PointerReleased {
+                        position,
+                        button: PointerEventButton::Left,
+                    },
+                ] {
+                    ui.window().dispatch_event(event);
+                }
+            }
+            assert!(((bounds[1].1 - bounds[0].1) as f32 - 58.0 * pixel_scale).abs() <= 1.0);
+        }
+    }
+    assert_eq!(*activated.borrow(), [1, 2].repeat(6));
+}
+
+#[test]
 fn whole_device_rotation_controls_modes_zoom_and_portrait_restoration() {
     let directory = tempfile::tempdir().unwrap();
     let (ui, controller) = setup(directory.path());
