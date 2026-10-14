@@ -166,7 +166,7 @@ fn native_playback_gapless_statistics_and_artwork_do_not_crash() {
         let mut c = controller.borrow_mut();
         c.state.navigation.open(Screen::Groups(Group::Playlists));
         c.execute(&ui, Action::FinishSearchEditing);
-        assert_eq!(c.state.rows().len(), 6);
+        assert_eq!(c.state.rows().len(), 8);
         assert_eq!(c.state.smart_playlists[&SmartPlaylist::MostPlayed].len(), 2);
         assert!(c.state.smart_playlists[&SmartPlaylist::NeverPlayed].is_empty());
     }
@@ -302,4 +302,87 @@ fn native_rapid_seeks_skips_pause_resume_and_stop_remain_responsive() {
         matches!(event, AudioEvent::Stopped { handoff: 456 })
     });
     assert!(engine.events.try_recv().is_err());
+}
+
+#[test]
+#[ignore = "requires a working native audio output; verifies the global Shuffle All shortcut"]
+fn native_shuffle_all_shortcut_starts_audio_from_an_empty_search() {
+    use slint::platform::{Key, WindowEvent};
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
+            ..Default::default()
+        },
+    )))
+    .unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let music = tmp.path().join("music");
+    std::fs::create_dir(&music).unwrap();
+    for name in ["first.wav", "second.wav"] {
+        write_tone(&music.join(name));
+    }
+    scanner::scan_folders(&tmp.path().join("library.sqlite3"), &[music]).unwrap();
+    let ui = AppWindow::new().unwrap();
+    let controller = Rc::new(RefCell::new(Controller::new(tmp.path().to_path_buf())));
+    connect(&ui, &controller);
+    controller.borrow_mut().initialize(&ui);
+    ui.show().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while controller.borrow().state.tracks.len() < 2 && Instant::now() < deadline {
+        controller.borrow_mut().poll(&ui);
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(controller.borrow().state.tracks.len(), 2);
+    {
+        let mut c = controller.borrow_mut();
+        c.state.navigation.open(Screen::Search);
+        c.state.query = "no matching songs".into();
+        c.execute(&ui, Action::FinishSearchEditing);
+    }
+    assert!(controller.borrow().state.rows().is_empty());
+    ui.invoke_focus_screen();
+    ui.window().dispatch_event(WindowEvent::KeyPressed {
+        text: Key::Shift.into(),
+    });
+    ui.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: "S".into() });
+    ui.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: "S".into() });
+    ui.window().dispatch_event(WindowEvent::KeyReleased {
+        text: Key::Shift.into(),
+    });
+    assert!(controller.borrow().state.shuffle);
+    let wait_for_audio = |expected: Option<usize>| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            controller.borrow_mut().poll(&ui);
+            let c = controller.borrow();
+            assert_ne!(c.state.status, PlaybackStatus::Error, "{}", c.state.notice);
+            if c.state.status == PlaybackStatus::Playing
+                && c.state.position > 0.2
+                && expected.is_none_or(|id| c.state.current == Some(id))
+            {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Shuffle All did not advance native audio"
+            );
+            drop(c);
+            thread::sleep(Duration::from_millis(10));
+        }
+    };
+    wait_for_audio(None);
+    let next = {
+        let c = controller.borrow();
+        let mut ids = c.state.queue.order.clone();
+        ids.sort_unstable();
+        assert_eq!(ids, [0, 1]);
+        c.state.queue.order[1]
+    };
+    controller.borrow_mut().execute(&ui, Action::NextTrack);
+    wait_for_audio(Some(next));
+    controller.borrow_mut().execute(&ui, Action::TogglePlay);
+    assert!(controller.borrow().state.paused);
+    ui.hide().unwrap();
 }

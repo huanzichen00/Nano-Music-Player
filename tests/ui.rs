@@ -273,7 +273,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     controller.borrow_mut().state.navigation.select(0);
     controller.borrow_mut().execute(&ui, Action::Activate); // Selects Music from Home.
-    controller.borrow_mut().state.navigation.select(3); // Albums inside Music.
+    controller.borrow_mut().state.navigation.select(4); // Albums inside Music.
     controller.borrow_mut().execute(&ui, Action::Activate);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(110));
     assert_eq!(ui.get_previous_screen(), 1);
@@ -300,6 +300,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     assert_eq!(ui.get_previous_rows().row_count(), 0);
     controller.borrow_mut().execute(&ui, Action::Settings);
+    ui.invoke_item_clicked(0);
     let smooth_slides = controller
         .borrow()
         .state
@@ -350,17 +351,17 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert_eq!(ui.get_selected(), 0);
     tap(&ui, Key::Return);
     assert_eq!(ui.get_screen_title(), "Music");
-    assert_eq!(ui.get_rows().row_data(6).unwrap().title, "Genius");
+    assert_eq!(ui.get_rows().row_data(1).unwrap().title, "Genius Mixes");
     // The manual's right-swipe Back applies to library levels. A multi-frame
     // swipe over an album row must not activate that row and restores parent selection.
-    controller.borrow_mut().state.navigation.select(3);
+    controller.borrow_mut().state.navigation.select(4);
     controller.borrow_mut().poll(&ui);
     controller.borrow_mut().execute(&ui, Action::Activate);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     assert_eq!(ui.get_screen_title(), "Albums");
     drag(&ui, (70.0, 150.0), (130.0, 152.0));
     assert_eq!(ui.get_screen_title(), "Music");
-    assert_eq!(ui.get_selected(), 3, "Back restores the parent selection");
+    assert_eq!(ui.get_selected(), 4, "Back restores the parent selection");
     // Accumulated trackpad deltas also navigate Back from the current library level.
     let scale = ui.get_display_scale();
     scroll(&ui, 120.0, 150.0, 18.0 * scale, 0.0);
@@ -374,7 +375,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert_eq!(ui.get_selected(), 0, "Back restores the Home selection");
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     controller.borrow_mut().execute(&ui, Action::Activate);
-    controller.borrow_mut().state.navigation.select(4);
+    controller.borrow_mut().state.navigation.select(5);
     controller.borrow_mut().execute(&ui, Action::Activate);
     i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(300));
     assert_eq!(ui.get_screen_title(), "Songs");
@@ -390,7 +391,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert_eq!(ui.get_screen_title(), "Music");
     ui.set_notice("".into());
     snapshot(&ui, "music-genius-entry");
-    click(&ui, 120.0, 376.0);
+    click(&ui, 120.0, 98.0);
     assert!(ui.get_genius_preview_open());
     assert_eq!(ui.get_screen_title(), "Music");
     tap(&ui, Key::Return);
@@ -404,7 +405,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     assert!(!ui.get_genius_preview_open());
     controller.borrow_mut().state.navigation.select(0);
     controller.borrow_mut().poll(&ui);
-    for _ in 0..4 {
+    for _ in 0..5 {
         tap(&ui, Key::DownArrow);
     }
     tap(&ui, Key::Return);
@@ -428,7 +429,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     snapshot(&ui, "songs");
     tap(&ui, Key::Escape);
     assert_eq!(ui.get_screen_title(), "Music");
-    assert_eq!(ui.get_selected(), 4);
+    assert_eq!(ui.get_selected(), 5);
 
     primary(&ui, "f");
     assert_eq!(ui.get_screen(), 3);
@@ -486,7 +487,8 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, "m");
     assert!(!controller.borrow().state.muted);
     tap(&ui, Key::DownArrow);
-    tap(&ui, Key::DownArrow); // Shuffle is the first selectable item above the songs.
+    // Search results have no Shuffle row.
+    // The first Down selected the second matching song already.
     tap(&ui, Key::Return);
     assert_eq!(ui.get_screen(), 2);
     assert_eq!(ui.get_track_title(), "Test Song 01");
@@ -641,7 +643,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, Key::Return);
     assert_eq!(ui.get_screen_title(), "Settings");
     snapshot(&ui, "settings");
-    tap(&ui, "l");
+    ui.invoke_item_clicked(4);
     assert_eq!(ui.get_screen_title(), "Shortcuts");
     snapshot(&ui, "customize-shortcuts");
     tap(&ui, "j"); // Move selection down.
@@ -955,8 +957,8 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
             ));
         controller.execute(&ui, Action::FinishSearchEditing);
     }
-    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "Shuffle");
-    assert!(!ui.get_rows().row_data(0).unwrap().show_artwork);
+    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "All Songs");
+    assert!(ui.get_rows().row_data(0).unwrap().show_artwork);
     assert!(ui.get_rows().row_data(1).unwrap().show_artwork);
     wait_for_library_artwork(&ui, &controller, 1);
     assert!(ui.get_rows().row_data(1).unwrap().artwork.size().width > 0);
@@ -1009,10 +1011,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     tap(&ui, "f");
     tap(&ui, "z");
     assert_eq!(ui.get_selected(), 10);
-    assert!(
-        (ui.get_list_scroll_y() - (406.0 - 32.0 - 10.0 * 58.0) * ui.get_display_scale()).abs()
-            < 0.01
-    );
+    assert!((ui.get_list_scroll_y() - (406.0 - 11.0 * 58.0) * ui.get_display_scale()).abs() < 0.01);
     for row in 4..11 {
         wait_for_library_artwork(&ui, &controller, row);
     }
@@ -1037,7 +1036,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         (Language::English, "Language", "Settings"),
     ] {
         ui.invoke_command("settings".into());
-        ui.invoke_item_clicked(5);
+        ui.invoke_item_clicked(3);
         assert_eq!(
             controller.borrow().state.navigation.current().screen,
             Screen::Languages
@@ -1327,10 +1326,10 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     controller.borrow_mut().poll(&ui);
     // The fixed Add toolbar participates in exactly the same J/K selection as the rows.
     assert_eq!(ui.get_selected(), 0);
-    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "Add Playlist");
+    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "Add");
     tap(&ui, "j");
     assert_eq!(ui.get_selected(), 1);
-    assert_eq!(ui.get_rows().row_data(1).unwrap().title, "All Songs");
+    assert_eq!(ui.get_rows().row_data(1).unwrap().title, "Edit");
     tap(&ui, "k");
     assert_eq!(ui.get_selected(), 0);
     tap(&ui, Key::Return);
@@ -1347,7 +1346,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         controller.borrow().state.queue.current(),
         queue_before_playlist
     );
-    click(&ui, 120.0, 42.0); // Add toolbar uses the same semantic row activation.
+    click(&ui, 60.0, 42.0); // Add toolbar uses the same semantic row activation.
     assert!(ui.get_playlist_editor_open());
     tap(&ui, "k");
     assert_eq!(
@@ -1514,6 +1513,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     use nano_music_player::app::typography::Font;
     let track_before = controller.borrow().state.tracks[1].clone();
     ui.invoke_command("settings".into());
+    ui.invoke_item_clicked(0);
     let font_row = controller
         .borrow()
         .state
@@ -1615,6 +1615,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     // The persisted native window level is independent of playback and display mode.
     assert!(ui.get_keep_on_top());
     ui.invoke_command("settings".into());
+    ui.invoke_item_clicked(0);
     for expected in [false, true] {
         let size = ui.window().size();
         let always_on_top = controller

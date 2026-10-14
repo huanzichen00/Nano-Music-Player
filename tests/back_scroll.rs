@@ -5,7 +5,7 @@ use nano_music_player::{
         controller::{Controller, connect},
         navigation::{Filter, Group, Screen},
     },
-    ui::AppWindow,
+    ui::{AppWindow, BackScroll},
 };
 use slint::{ComponentHandle, platform::WindowEvent};
 use std::{cell::RefCell, rc::Rc, time::Duration};
@@ -87,8 +87,11 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
         0.0,
         "initial transition must settle"
     );
-    let scroll = |dx, dy| {
+    let scroll = |dx: f32, dy: f32| {
         let s = ui.get_display_scale();
+        if dx.abs() > 1.5 * dy.abs() {
+            ui.global::<BackScroll>().invoke_activity();
+        }
         ui.window().dispatch_event(WindowEvent::PointerScrolled {
             position: point(&ui, 120.0, 100.0),
             delta_x: dx * s,
@@ -98,23 +101,16 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
     };
     scroll(60.0, 0.0);
     assert_eq!(ui.get_screen_title(), "Albums");
-    tick(260); // The screen has settled, but this gesture's momentum continues.
-    scroll(60.0, 0.0);
-    assert_eq!(
-        ui.get_screen_title(),
-        "Albums",
-        "momentum must not trigger a second Back"
-    );
-    for _ in 0..5 {
-        tick(150);
+    for _ in 0..20 {
+        tick(20);
         scroll(60.0, 0.0);
+        assert_eq!(
+            ui.get_screen_title(),
+            "Albums",
+            "continuous momentum must not trigger another Back"
+        );
     }
-    assert_eq!(
-        ui.get_screen_title(),
-        "Albums",
-        "continuous momentum keeps the same gesture latched"
-    );
-    tick(350); // A new gesture after a quiet interval can navigate again.
+    tick(100); // A separate gesture is accepted after only 80ms of silence.
     scroll(60.0, 0.0);
     assert_eq!(ui.get_screen_title(), "Music");
     // Keyboard Back remains immediate and independent of the scroll latch.
@@ -124,14 +120,16 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
         Screen::Home
     );
     tick(0);
-    tick(260); // Home is settled while the same burst is still active.
-    scroll(-60.0, 0.0);
+    for _ in 0..15 {
+        tick(20);
+        scroll(-60.0, 0.0);
+    }
     assert_eq!(
         ui.get_home_page(),
         0,
         "Back momentum must not turn a Home page"
     );
-    tick(350);
+    tick(100);
     scroll(-60.0, 0.0);
     assert_eq!(ui.get_home_page(), 1, "a new Home gesture remains usable");
 }

@@ -151,7 +151,7 @@ impl Default for Keymap {
             (Character(','), Action::Settings),
         ];
         Self {
-            version: 4,
+            version: 5,
             bindings: plain
                 .into_iter()
                 .map(|(key, action)| Binding {
@@ -178,6 +178,15 @@ impl Default for Keymap {
                     },
                     optional_shift: false,
                 }))
+                .chain(std::iter::once(Binding {
+                    action: Action::ShuffleAll,
+                    key: Letter('s'),
+                    modifiers: Modifiers {
+                        shift: true,
+                        ..Modifiers::default()
+                    },
+                    optional_shift: false,
+                }))
                 .collect(),
         }
     }
@@ -185,7 +194,7 @@ impl Default for Keymap {
 
 impl Keymap {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.version, 1..=4) {
+        if !matches!(self.version, 1..=5) {
             return Err(format!(
                 "Unsupported shortcut file version: {}",
                 self.version
@@ -231,7 +240,9 @@ impl Keymap {
                     .map_err(|e| format!("Invalid shortcuts.json: {e}"))?;
             map.validate()?;
             // Upgrade only exact shipped defaults. User-edited maps are preserved.
-            let mut v3 = Self::default();
+            let mut v4 = Self::default();
+            v4.bindings.retain(|b| b.action != Action::ShuffleAll);
+            let mut v3 = v4.clone();
             v3.bindings.retain(|b| b.action != Action::JumpToLetter);
             let mut v2 = v3.clone();
             for binding in &mut v2.bindings {
@@ -266,6 +277,27 @@ impl Keymap {
                     && map.bindings.iter().all(|b| v3.bindings.contains(b)))
             {
                 map = Self::default();
+                map.save(path)?;
+            }
+            if map.version < 5 {
+                // Add the new command without replacing aliases or stealing a custom chord.
+                let shortcut = Self::default()
+                    .bindings
+                    .into_iter()
+                    .find(|binding| binding.action == Action::ShuffleAll)
+                    .unwrap();
+                if !map
+                    .bindings
+                    .iter()
+                    .any(|binding| binding.action == Action::ShuffleAll)
+                    && !map
+                        .bindings
+                        .iter()
+                        .any(|binding| binding.matches(&shortcut.key, shortcut.modifiers))
+                {
+                    map.bindings.push(shortcut);
+                }
+                map.version = 5;
                 map.save(path)?;
             }
             Ok(map)

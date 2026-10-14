@@ -9,7 +9,7 @@ export component RatingControl inherits Rectangle {
     in property <bool> enabled: true;
     callback changed(int);
     height: 48px * root.s;
-    background: @linear-gradient(180deg, #fafafa, #ededed);
+    background: black;
     accessible-role: slider;
     accessible-label: I18n.tr("Song rating") + ": " + root.title;
     accessible-enabled: root.enabled;
@@ -22,21 +22,21 @@ export component RatingControl inherits Rectangle {
     accessible-action-decrement => { if root.enabled { root.changed(max(0, root.value - 1)); } }
     Text {
         x: 8px * root.s; y: 2px * root.s; width: parent.width - 16px * root.s; height: 16px * root.s;
-        text: root.title; font-size: 11px * root.s; color: #737a82; horizontal-alignment: center; overflow: elide;
+        text: root.title; font-size: 11px * root.s; color: #ddd; horizontal-alignment: center; overflow: elide;
     }
     for index in 5: Rectangle {
         x: parent.width / 2 - 75px * root.s + index * 30px * root.s;
         y: 20px * root.s; width: 30px * root.s; height: 24px * root.s;
         if index < root.value: Image {
             x: 7px * root.s; y: 3px * root.s; width: 16px * root.s; height: 16px * root.s;
-            source: @image-url("../assets/icons/rating-star.svg"); colorize: root.enabled ? #87919d : #abb1b8; image-fit: contain;
+            source: @image-url("../assets/icons/rating-star.svg"); colorize: root.enabled ? #fff : #999; image-fit: contain;
         }
         if index >= root.value: Rectangle {
             x: 13px * root.s; y: 9px * root.s; width: 4px * root.s; height: 4px * root.s;
-            border-radius: 2px * root.s; background: #a7adb4;
+            border-radius: 2px * root.s; background: #888;
         }
     }
-    Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #c9cdd2; }
+    Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #333; }
     touch := TouchArea {
         enabled: root.enabled;
         x: parent.width / 2 - 105px * root.s; y: 18px * root.s;

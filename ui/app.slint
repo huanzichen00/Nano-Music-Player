@@ -51,6 +51,7 @@ export component AppWindow inherits Window {
     in property <int> previous-home-transition-direction: 1;
     in-out property <[LibraryRow]> previous-rows;
     in property <bool> previous-playlist-list;
+    in property <bool> previous-music-list;
     in property <bool> previous-playlist-content;
     in property <bool> previous-shuffle-list;
     in property <bool> previous-rating-visible;
@@ -64,7 +65,7 @@ export component AppWindow inherits Window {
     private property <length> current-screen-x: 0px;
     private property <length> previous-screen-x: 0px;
     transition-completion := Timer {
-        interval: 230ms; running: false;
+        interval: 150ms; running: false;
         triggered => {
             self.stop();
             // A navigation event can publish new rows before its change handler
@@ -79,8 +80,8 @@ export component AppWindow inherits Window {
     out property <length> previous-transition-offset: root.transition-active ? root.previous-screen-x : 0px;
     out property <length> home-transition-offset: home.page-slide-offset;
     out property <length> home-outgoing-transition-offset: home.page-outgoing-offset;
-    animate current-screen-x { duration: root.transition-animating ? 220ms : 0ms; easing: ease-in-out; }
-    animate previous-screen-x { duration: root.transition-animating ? 220ms : 0ms; easing: ease-in-out; }
+    animate current-screen-x { duration: root.transition-animating ? 140ms : 0ms; easing: ease-in-out; }
+    animate previous-screen-x { duration: root.transition-animating ? 140ms : 0ms; easing: ease-in-out; }
     changed screen-transition-generation => {
         root.reset-screen-motion();
         root.active-transition-generation = root.screen-transition-generation;
@@ -177,7 +178,9 @@ export component AppWindow inherits Window {
     in property <bool> playlist-persisted;
     in property <bool> playlist-library-loading: false;
     in property <bool> playlist-saving: false;
-    in property <bool> playlist-list: false;
+    in property <bool> playlist-list;
+    in property <bool> music-list;
+    in property <bool> playlist-list-editing;
     in property <bool> playlist-content: false;
     in property <bool> shuffle-list: false;
     in property <bool> playlist-editing: false;
@@ -293,6 +296,7 @@ export component AppWindow inherits Window {
         Menu {
             title: I18n.tr("Playback");
             MenuItem { title: I18n.tr("Play / Pause"); activated => { root.command("toggle_play"); } }
+            MenuItem { title: I18n.tr("Shuffle All Songs"); activated => { root.command("shuffle_all"); } }
             MenuItem { title: I18n.tr("Next Track"); activated => { root.command("next_track"); } }
             MenuItem { title: I18n.tr("Previous Track"); activated => { root.command("previous_track"); } }
             MenuItem { title: I18n.tr("Now Playing"); activated => { root.command("now_playing"); } }
@@ -399,32 +403,31 @@ export component AppWindow inherits Window {
             }
             Rectangle {
                 x: 0px; y: 0px; height: 26px * root.s;
-                background: root.previous-screen == 0 || root.previous-screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
-                if !root.previous-artwork-list && !root.previous-playlist-list && !root.previous-playlist-content: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.previous-screen == 0 || root.previous-screen == 2 ? white : #333; horizontal-alignment: center; }
+                background: root.previous-rating-visible ? black : root.previous-screen == 0 || root.previous-screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
+                if !root.previous-artwork-list && !root.previous-playlist-list && !root.previous-playlist-content && !root.previous-music-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.previous-rating-visible || root.previous-screen == 0 || root.previous-screen == 2 ? white : #333; horizontal-alignment: center; }
                 if root.previous-screen == 2: Rectangle {
                     x: 0px; y: 0px; width: 65px * root.s; height: parent.height;
                     Image { x: 6px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: white; }
                     Text { x: 17px * root.s; width: parent.width - self.x; text: I18n.tr("Back"); font-size: 11px * root.s; color: white; vertical-alignment: center; overflow: elide; }
                     TouchArea { enabled: false; clicked => { root.command("back"); keyboard.focus(); } }
                 }
-                if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content: Text { x: 20px * root.s; width: 164px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
-                if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
-                if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
+                if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list: Text { x: 6px * root.s; width: 164px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
+                if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
                 if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.previous-screen == 0 || root.previous-screen == 2 ? #eee : #2a73be; }
                 Rectangle {
                     x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
                     border-color: #888; border-width: 1px * root.s; background: transparent;
-                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.previous-screen == 0 || root.previous-screen == 2 ? #e1e9f4 : #7a994c; }
+                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.previous-rating-visible || root.previous-screen == 0 || root.previous-screen == 2 ? #e1e9f4 : #7a994c; }
                 }
             }
             Rectangle {
-                visible: root.previous-screen != 0 && root.previous-screen != 2 && !root.previous-artwork-list && !root.previous-playlist-list && !root.previous-playlist-content;
+                visible: root.previous-screen != 0 && root.previous-screen != 2 && !root.previous-artwork-list && !root.previous-playlist-list && !root.previous-playlist-content && !root.previous-music-list;
                 y: 26px * root.s; height: 38px * root.s;
-                background: @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: #969ca1;
-                Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; overflow: elide; }
+                background: root.previous-rating-visible ? black : @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: root.previous-rating-visible ? black : #969ca1;
+                Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: root.previous-rating-visible ? white : #252a30; horizontal-alignment: center; overflow: elide; }
                 Rectangle {
                     x: 5px * root.s; y: 6px * root.s; width: 39px * root.s; height: 26px * root.s;
-                    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: @linear-gradient(180deg, #d9e0e5, #99a3af);
+                    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: root.previous-rating-visible ? #222 : @linear-gradient(180deg, #d9e0e5, #99a3af);
                     Image { source: @image-url("../assets/icons/chevron-left.svg"); colorize: #fff; x: 14px * root.s; y: 6px * root.s; width: 10px * root.s; height: 14px * root.s; }
                     TouchArea { clicked => { root.command("back"); keyboard.focus(); } }
                 }
@@ -432,11 +435,11 @@ export component AppWindow inherits Window {
             previous-library := LibraryView {
                 visible: root.previous-screen == 1 || root.previous-screen == 3 || root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8;
                 enabled: false;
-                y: (root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
-                playlist-list: root.previous-playlist-list; playlist-content: root.previous-playlist-content; shuffle-list: root.previous-shuffle-list;
+                y: (root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                playlist-list: root.previous-playlist-list; music-list: root.previous-music-list; playlist-content: root.previous-playlist-content; shuffle-list: root.previous-shuffle-list;
                 rating-visible: root.previous-rating-visible; rating-title: root.previous-rating-title; rating: root.previous-rating;
                 compact-title: root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8; rows: root.previous-rows; selected: root.previous-selected; search: root.previous-screen == 3;
-                text-font-family: root.ui-font-family;
+                text-font-family: root.ui-font-family; keyboard-navigation: root.keyboard-navigation;
                 search-text <=> root.search-text; scroll-y <=> root.previous-list-scroll-y;
                 activated(index) => { root.item-clicked(index); if !root.playlist-editor-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }
@@ -474,32 +477,31 @@ export component AppWindow inherits Window {
             }
             Rectangle {
                 x: 0px; y: 0px; height: 26px * root.s;
-                background: root.screen == 0 || root.screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
-                if !root.artwork-list && !root.playlist-list && !root.playlist-content: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
+                background: root.rating-visible ? black : root.screen == 0 || root.screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
+                if !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.rating-visible || root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
                 if root.screen == 2: Rectangle {
                     x: 0px; y: 0px; width: 65px * root.s; height: parent.height;
                     Image { x: 6px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: white; }
                     Text { x: 17px * root.s; width: parent.width - self.x; text: I18n.tr("Back"); font-size: 11px * root.s; color: white; vertical-alignment: center; overflow: elide; }
                     TouchArea { enabled: now-playing.navigation-enabled; clicked => { root.command("back"); keyboard.focus(); } }
                 }
-                if root.artwork-list || root.playlist-list || root.playlist-content: Text { x: 20px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
-                if root.artwork-list || root.playlist-list || root.playlist-content: Image { x: 5px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: #555; }
-                if root.artwork-list || root.playlist-list || root.playlist-content: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
+                if root.artwork-list || root.playlist-list || root.playlist-content || root.music-list: Text { x: 6px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
+                if root.artwork-list || root.playlist-list || root.playlist-content || root.music-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
                 if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.screen == 0 || root.screen == 2 ? #eee : #2a73be; }
                 Rectangle {
                     x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
                     border-color: #888; border-width: 1px * root.s; background: transparent;
-                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.screen == 0 || root.screen == 2 ? #e1e9f4 : #7a994c; }
+                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.rating-visible || root.screen == 0 || root.screen == 2 ? #e1e9f4 : #7a994c; }
                 }
             }
             Rectangle {
-                visible: root.screen != 0 && root.screen != 2 && !root.artwork-list && !root.playlist-list && !root.playlist-content;
+                visible: root.screen != 0 && root.screen != 2 && !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list;
                 y: 26px * root.s; height: 38px * root.s;
-                background: @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: #969ca1;
-                Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; overflow: elide; }
+                background: root.rating-visible ? black : @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: root.rating-visible ? black : #969ca1;
+                Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: root.rating-visible ? white : #252a30; horizontal-alignment: center; overflow: elide; }
                 Rectangle {
                     x: 5px * root.s; y: 6px * root.s; width: 39px * root.s; height: 26px * root.s;
-                    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: @linear-gradient(180deg, #d9e0e5, #99a3af);
+                    border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891; background: root.rating-visible ? #222 : @linear-gradient(180deg, #d9e0e5, #99a3af);
                     Image { source: @image-url("../assets/icons/chevron-left.svg"); colorize: #fff; x: 14px * root.s; y: 6px * root.s; width: 10px * root.s; height: 14px * root.s; }
                     TouchArea { clicked => { root.command("back"); keyboard.focus(); } }
                 }
@@ -507,15 +509,15 @@ export component AppWindow inherits Window {
             library := LibraryView {
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
-                y: (root.artwork-list || root.playlist-list || root.playlist-content ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
-                playlist-list: root.playlist-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
+                y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
                 rating-visible: root.rating-visible; rating-enabled: root.rating-enabled;
                 rating-title: root.rating-title; rating: root.rating;
                 rating-changed(value) => { root.rating-changed(root.rating-target-path, value); keyboard.focus(); }
                 edit-playlist => { root.command("edit_playlist"); keyboard.focus(); }
                 back => { root.command("back"); keyboard.focus(); }
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
-                text-font-family: root.ui-font-family;
+                text-font-family: root.ui-font-family; keyboard-navigation: root.keyboard-navigation;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
                 activated(index) => { root.item-clicked(index); if !root.playlist-editor-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }

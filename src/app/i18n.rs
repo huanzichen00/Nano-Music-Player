@@ -41,6 +41,33 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Display", "显示", "表示"),
+    (
+        "Mode, size, font & window",
+        "模式、大小、字体与窗口",
+        "モード・サイズ・フォント・ウィンドウ",
+    ),
+    (
+        "Gapless & volume normalization",
+        "无缝播放与音量均衡",
+        "ギャップレス・音量調整",
+    ),
+    (
+        "Track lyrics, romaji & AI",
+        "歌曲歌词、罗马音与 AI",
+        "歌詞・ローマ字・AI",
+    ),
+    ("Normalization Mode", "音量均衡模式", "音量調整モード"),
+    (
+        "Shuffle all songs",
+        "随机播放全部歌曲",
+        "全曲をシャッフル再生",
+    ),
+    (
+        "Shuffle All Songs",
+        "随机播放全部歌曲",
+        "全曲をシャッフル再生",
+    ),
     ("Song rating", "歌曲评分", "曲の評価"),
     (
         "Could not save rating",
@@ -48,6 +75,8 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "評価を保存できませんでした",
     ),
     ("Recently Added", "最近添加", "最近追加した曲"),
+    ("My Top Rated", "我的最高评分", "トップレート"),
+    ("Genius Mixes", "Genius 混音", "Genius Mix"),
     ("Most Played", "播放次数最多", "再生回数の多い曲"),
     ("Recently Played", "最近播放", "最近再生した曲"),
     ("Never Played", "从未播放", "未再生の曲"),

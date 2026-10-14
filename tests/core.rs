@@ -506,8 +506,9 @@ fn configurable_keymaps_round_trip_and_replace_defaults() {
     };
     fs::write(&path, serde_json::to_vec_pretty(&custom).unwrap()).unwrap();
     let loaded = Keymap::load_or_create(&path).unwrap();
-    assert_eq!(loaded.version, 1);
-    assert_eq!(loaded.bindings, custom.bindings);
+    assert_eq!(loaded.version, 5);
+    assert_eq!(&loaded.bindings[..custom.bindings.len()], custom.bindings);
+    assert_eq!(loaded.bindings.last().unwrap().action, Action::ShuffleAll);
     let dispatcher = Dispatcher::new(loaded);
     assert_eq!(
         dispatcher.dispatch(
@@ -684,11 +685,11 @@ fn empty_lists_and_a_library_refresh_keep_selection_valid() {
     state.navigation.select(2);
     state.query = "First".to_owned();
     state.merge_library(Vec::new());
-    assert_eq!(state.navigation.selected(), 1);
-    assert_eq!(state.selection_count(), 2);
+    assert_eq!(state.navigation.selected(), 0);
+    assert_eq!(state.selection_count(), 1);
     state.query = "nothing matches".to_owned();
     state.merge_library(Vec::new());
-    assert_eq!(state.selection_count(), 1);
+    assert_eq!(state.selection_count(), 0);
     assert_eq!(state.navigation.selected(), 0);
     assert!(state.apply(Action::Activate).is_empty());
 }
@@ -836,7 +837,7 @@ fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata()
         ("", 3),
     ] {
         state.query = query.to_owned();
-        assert_eq!(state.rows().len(), count + 1, "query {query:?}");
+        assert_eq!(state.rows().len(), count, "query {query:?}");
     }
 }
 
@@ -1525,7 +1526,8 @@ fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
         ..Keymap::default()
     };
     legacy.bindings.retain(|b| {
-        b.action != Action::Settings
+        b.action != Action::ShuffleAll
+            && b.action != Action::Settings
             && b.action != Action::JumpToLetter
             && !(b.action == Action::Home && b.modifiers.shift)
             && b.key != Key::Letter('y')
@@ -1547,10 +1549,9 @@ fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
     );
     legacy.bindings.pop();
     legacy.save(&path).unwrap();
-    assert_eq!(
-        Keymap::load_or_create(&path).unwrap().bindings,
-        legacy.bindings
-    );
+    let loaded = Keymap::load_or_create(&path).unwrap();
+    assert_eq!(&loaded.bindings[..legacy.bindings.len()], legacy.bindings);
+    assert_eq!(loaded.bindings.last().unwrap().action, Action::ShuffleAll);
 }
 
 #[test]
@@ -1560,6 +1561,7 @@ fn settings_and_album_track_list_are_real_navigation_screens() {
     state.navigation.select(1);
     state.apply(Action::Activate);
     assert_eq!(state.navigation.current().screen, Screen::Settings);
+    state.navigation.select(4);
     state.apply(Action::Activate);
     assert_eq!(state.navigation.current().screen, Screen::Shortcuts);
     assert!(matches!(
@@ -1634,7 +1636,9 @@ fn font_choices_migrate_persist_and_keep_settings_navigation() {
     let mut settings = Settings::load(&path).unwrap();
     assert_eq!(settings.font, Font::Classic);
     let mut state = music_state();
-    state.navigation.open(Screen::Settings);
+    state.navigation.open(Screen::SettingsSection(
+        nano_music_player::app::navigation::SettingsSection::Display,
+    ));
     let font_row = state
         .rows()
         .iter()
@@ -1655,7 +1659,10 @@ fn font_choices_migrate_persist_and_keep_settings_navigation() {
         assert_eq!(Settings::load(&path).unwrap().font, font);
     }
     state.apply(Action::Back);
-    assert_eq!(state.navigation.current().screen, Screen::Settings);
+    assert_eq!(
+        state.navigation.current().screen,
+        Screen::SettingsSection(nano_music_player::app::navigation::SettingsSection::Display)
+    );
     assert_eq!(state.navigation.selected(), font_row);
     state.apply(Action::Activate);
     assert_eq!(state.navigation.selected(), Font::JetBrainsMono.index());
@@ -1678,7 +1685,9 @@ fn always_on_top_defaults_migrates_and_toggles_without_changing_playback() {
     state.start(1);
     state.status = PlaybackStatus::Paused;
     state.position = 23.5;
-    state.navigation.open(Screen::Settings);
+    state.navigation.open(Screen::SettingsSection(
+        nano_music_player::app::navigation::SettingsSection::Display,
+    ));
     let row = state
         .rows()
         .iter()
@@ -1730,18 +1739,20 @@ fn saved_playlists_keep_path_order_after_library_merge_and_build_the_correct_que
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
         [
-            "Add Playlist",
-            "All Songs",
+            "Add",
+            "Edit",
+            "Genius",
+            "My Top Rated",
+            "Recently Played",
+            "alpha",
+            "Zulu",
             "Recently Added",
             "Most Played",
-            "Recently Played",
-            "Never Played",
-            "alpha",
-            "Zulu"
+            "Never Played"
         ]
     );
-    assert_eq!(state.selection_count(), 8);
-    state.navigation.select(7);
+    assert_eq!(state.selection_count(), 10);
+    state.navigation.select(6);
     state.apply(Action::Activate);
     assert!(matches!(
         state.navigation.current().screen,
@@ -1790,7 +1801,7 @@ fn playlist_creation_and_all_songs_share_keyboard_selection() {
     let mut state = music_state();
     state.navigation.open(Screen::Groups(Group::Playlists));
     assert_eq!(state.navigation.selected(), 0);
-    assert_eq!(state.selection_count(), 6);
+    assert_eq!(state.selection_count(), 8);
     assert!(matches!(
         state.rows()[0].target,
         Target::Action(Action::NewPlaylist)
@@ -1805,6 +1816,9 @@ fn playlist_creation_and_all_songs_share_keyboard_selection() {
     ));
     assert_eq!(state.current, None);
     state.apply(Action::SelectNext);
+    state.apply(Action::Activate);
+    assert!(state.playlist_list_editing);
+    state.navigation.open(Screen::Groups(Group::Albums));
     state.apply(Action::Activate);
     assert_eq!(
         state.navigation.current().screen,

@@ -81,7 +81,7 @@ fn library_publishes_immediate_covers_and_sharpening_preserves_model_and_selecti
     assert!(
         ui.get_rows()
             .iter()
-            .filter(|row| row.show_artwork)
+            .skip(1)
             .all(|row| row.artwork.size().width == 96)
     );
     // Changing DPI/zoom requests sharper visible covers without rebuilding rows.

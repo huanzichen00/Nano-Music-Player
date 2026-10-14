@@ -9,6 +9,7 @@ pub enum Group {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Filter {
     All,
+    TopRated,
     Album {
         name: String,
         artist: Option<String>,
@@ -19,6 +20,14 @@ pub enum Filter {
         name: String,
     },
     SmartPlaylist(crate::library::statistics::SmartPlaylist),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsSection {
+    Display,
+    Playback,
+    ReplayGain,
+    Lyrics,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +42,7 @@ pub enum Screen {
     Search,
     NowPlaying,
     Settings,
+    SettingsSection(SettingsSection),
     Shortcuts,
     Lyrics(usize),
     Languages,
@@ -53,6 +63,7 @@ impl Screen {
             Self::Groups(Group::Playlists) => "Playlists",
             Self::Artist(name) | Self::Placeholder(name) => name,
             Self::Songs(Filter::All) => "Songs",
+            Self::Songs(Filter::TopRated) => "My Top Rated",
             Self::Songs(Filter::Album { name, .. }) => name,
             Self::Songs(Filter::Genre(name)) => name,
             Self::Songs(Filter::Playlist { name, .. }) => name,
@@ -60,6 +71,12 @@ impl Screen {
             Self::Search => "Search",
             Self::NowPlaying => "Now Playing",
             Self::Settings => "Settings",
+            Self::SettingsSection(section) => match section {
+                SettingsSection::Display => "Display",
+                SettingsSection::Playback => "Playback",
+                SettingsSection::ReplayGain => "ReplayGain",
+                SettingsSection::Lyrics => "Lyrics",
+            },
             Self::Shortcuts => "Shortcuts",
             Self::Lyrics(_) => "Lyrics for Track",
             Self::Languages => "Language",

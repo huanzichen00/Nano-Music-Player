@@ -70,8 +70,10 @@ fn wheel(ui: &AppWindow, delta_x: f32) {
 }
 
 fn frame(ui: &AppWindow) -> slint::SharedPixelBuffer<slint::Rgba8Pixel> {
-    // Keep exact settled-frame comparisons independent of a wall-clock minute change.
+    // Freeze time-dependent chrome, including the three-second startup notice.
+    // Its expiry is independent of screen transitions and the mock animation clock.
     ui.set_clock_text("9:41 AM".into());
+    ui.set_notice("".into());
     // Invalidate the software renderer's cached frame as a native input event does.
     ui.window().dispatch_event(WindowEvent::PointerMoved {
         position: slint::LogicalPosition::new(0.0, 0.0),
@@ -176,14 +178,15 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     ui.invoke_focus_screen();
     tick(0);
     let home = frame(&ui);
+    save(&home, "home-baseline");
     for cycle in 0..3 {
         let before = frame(&ui);
         click(&ui, 60.0, 80.0); // Music icon remains usable after returning Home.
         assert_eq!(ui.get_screen_title(), "Music");
         slide(&ui, &before, 1.0, &format!("screen-{cycle}-music"));
-        key(&ui, "j");
-        key(&ui, "j");
-        key(&ui, "j");
+        for _ in 0..4 {
+            key(&ui, "j");
+        }
         let before = frame(&ui);
         key(&ui, "l");
         assert_eq!(ui.get_screen_title(), "Albums");
@@ -199,19 +202,20 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
         ui.invoke_command("home".into());
         tick(0);
         settled(&ui);
-        assert_eq!(
-            frame(&ui).as_bytes(),
-            home.as_bytes(),
+        let returned_home = frame(&ui);
+        save(&returned_home, &format!("home-return-{cycle}"));
+        assert!(
+            returned_home.as_bytes() == home.as_bytes(),
             "Home has no residual outgoing screen or offset"
         );
     }
     key(&ui, Key::Return);
     settled(&ui);
-    key(&ui, "j");
-    key(&ui, "j");
-    key(&ui, "j");
+    for _ in 0..4 {
+        key(&ui, "j");
+    }
     key(&ui, "l");
-    tick(210);
+    tick(130);
     // The old deadline can fire before the next frame processes Back's change handler.
     raw_key(&ui, "h");
     tick(30);
@@ -229,7 +233,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     save(&frame(&ui), "screen-interrupted-back-middle");
     settled(&ui);
     key(&ui, "l");
-    tick(210);
+    tick(130);
     // Also cover commands which publish a generation without dispatching another input frame.
     controller.borrow_mut().execute(&ui, Action::Back);
     tick(30);
@@ -291,6 +295,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     key(&ui, Key::Return);
     tick(60);
     assert!(ui.get_transition_offset() > 0.0);
+    key(&ui, Key::Return); // Display is the first Settings level.
     let toggle = ui
         .get_rows()
         .iter()

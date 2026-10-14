@@ -2051,6 +2051,7 @@ impl Controller {
         self.pending_ratings
             .insert(path.to_path_buf(), (request, previous));
         self.state.ratings.insert(path.to_path_buf(), stars);
+        self.rows_dirty = true;
         if self
             .statistics_commands
             .send(StatisticsCommand::Rate {
@@ -2078,6 +2079,7 @@ impl Controller {
                     }
                     self.state.ratings = ratings;
                     self.state.ratings_ready = true;
+                    self.rows_dirty = true;
                 }
                 StatisticsEvent::RatingSaved {
                     path,
@@ -2090,6 +2092,7 @@ impl Controller {
                             self.pending_ratings.remove(&path);
                             if result.is_err() {
                                 self.state.ratings.insert(path, previous);
+                                self.rows_dirty = true;
                                 self.state.notice = "Could not save rating".into();
                             }
                         } else if request < expected && result.is_ok() {
@@ -2430,6 +2433,7 @@ impl Controller {
             ui.set_previous_home_transition_direction(ui.get_home_transition_direction());
             ui.set_previous_rows(ui.get_rows());
             ui.set_previous_playlist_list(ui.get_playlist_list());
+            ui.set_previous_music_list(ui.get_music_list());
             ui.set_previous_playlist_content(ui.get_playlist_content());
             ui.set_previous_shuffle_list(ui.get_shuffle_list());
             ui.set_previous_rating_visible(ui.get_rating_visible());
@@ -2469,7 +2473,7 @@ impl Controller {
             Screen::VideoPlaying => 9,
             Screen::Search => 3,
             Screen::Placeholder(_) => 4,
-            Screen::Settings => 5,
+            Screen::Settings | Screen::SettingsSection(_) => 5,
             Screen::Shortcuts => 6,
             Screen::Lyrics(_) => 7,
             Screen::Languages | Screen::Fonts => 8,
@@ -2499,6 +2503,8 @@ impl Controller {
                 .unwrap_or(0) as i32,
         );
         ui.set_playlist_list(matches!(screen, Screen::Groups(Group::Playlists)));
+        ui.set_playlist_list_editing(self.state.playlist_list_editing);
+        ui.set_music_list(*screen == Screen::Music);
         ui.set_playlist_content(matches!(screen, Screen::Songs(Filter::Playlist { .. })));
         ui.set_shuffle_list(self.state.supports_list_shuffle());
         ui.set_ui_font_family(self.state.font.family().into());
@@ -2568,7 +2574,11 @@ impl Controller {
             )
             .into(),
         );
-        if screen_changed || self.rows_dirty || self.last_query != self.state.query {
+        if screen_changed
+            || self.rows_dirty
+            || self.last_query != self.state.query
+            || (*screen == Screen::Music && self.last_track != self.state.current)
+        {
             let metadata_rows = matches!(
                 screen,
                 Screen::Groups(Group::Artists | Group::Albums | Group::Genres)
@@ -2582,6 +2592,28 @@ impl Controller {
             let rows = source_rows
                 .into_iter()
                 .map(|row| LibraryRow {
+                    icon: match (&row.target, screen) {
+                        (Target::GeniusPreview, _) => 1,
+                        (Target::Screen(Screen::NowPlaying), Screen::Music) => 8,
+                        (Target::Screen(Screen::Groups(Group::Playlists)), Screen::Music) => 2,
+                        (Target::Screen(Screen::Groups(Group::Artists)), Screen::Music) => 3,
+                        (Target::Screen(Screen::Groups(Group::Albums)), Screen::Music) => 4,
+                        (Target::Screen(Screen::Songs(Filter::All)), Screen::Music) => 5,
+                        (Target::Screen(Screen::Groups(Group::Genres)), Screen::Music) => 6,
+                        (
+                            Target::Screen(Screen::Songs(
+                                Filter::TopRated
+                                | Filter::SmartPlaylist(
+                                    crate::library::statistics::SmartPlaylist::MostPlayed
+                                    | crate::library::statistics::SmartPlaylist::RecentlyAdded
+                                    | crate::library::statistics::SmartPlaylist::NeverPlayed,
+                                ),
+                            )),
+                            _,
+                        ) => 7,
+                        (Target::Screen(Screen::Songs(_)), Screen::Groups(Group::Playlists)) => 2,
+                        _ => 0,
+                    },
                     title: if matches!(&row.target, Target::PlayVideo(_))
                         || (metadata_rows && !matches!(&row.target, Target::Action(_)))
                         || matches!(
@@ -2598,6 +2630,8 @@ impl Controller {
                         i18n::notice(self.state.language, &row.subtitle).into()
                     } else {
                         if metadata_rows
+                            || (*screen == Screen::Music
+                                && matches!(row.target, Target::Screen(Screen::NowPlaying)))
                             || matches!(
                                 screen,
                                 Screen::Lyrics(_) | Screen::Languages | Screen::Fonts
@@ -2620,14 +2654,16 @@ impl Controller {
                                     | super::navigation::Group::Albums
                             ) | Screen::Artist(_)
                         ),
-                    chevron: !matches!(
-                        row.target,
-                        Target::Play(_)
-                            | Target::Action(Action::ShuffleList)
-                            | Target::PlayVideo(_)
-                            | Target::Language(_)
-                            | Target::Font(_)
-                    ),
+                    chevron: !(*screen == Screen::Music
+                        && matches!(row.target, Target::Screen(Screen::NowPlaying)))
+                        && !matches!(
+                            row.target,
+                            Target::Play(_)
+                                | Target::Action(Action::ShuffleList)
+                                | Target::PlayVideo(_)
+                                | Target::Language(_)
+                                | Target::Font(_)
+                        ),
                     font_family: if let Target::Font(font) = row.target {
                         font.family().into()
                     } else {
@@ -2657,6 +2693,7 @@ impl Controller {
                     | Screen::Songs(_)
                     | Screen::Search
                     | Screen::Settings
+                    | Screen::SettingsSection(_)
                     | Screen::Shortcuts
                     | Screen::Lyrics(_)
                     | Screen::Languages
@@ -2665,7 +2702,10 @@ impl Controller {
                 let row_height = ui.get_list_row_height();
                 let playlist_list = *screen == Screen::Groups(Group::Playlists);
                 let row_index = self.state.navigation.selected().saturating_sub(
-                    if matches!(screen, Screen::Songs(Filter::Playlist { .. })) {
+                    if matches!(
+                        screen,
+                        Screen::Songs(Filter::Playlist { .. }) | Screen::Groups(Group::Playlists)
+                    ) {
                         2
                     } else {
                         usize::from(playlist_list || self.state.supports_list_shuffle())
@@ -3876,6 +3916,27 @@ impl Drop for Controller {
 }
 
 pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
+    use slint::winit_030::{
+        EventResult, WinitWindowAccessor,
+        winit::event::{MouseScrollDelta, WindowEvent},
+    };
+    // Native wheel activity must survive temporarily disabled/translating views.
+    // Observe only: ordinary scrolling and Slint event dispatch remain unchanged.
+    let scroll_activity_ui = ui.as_weak();
+    ui.window().on_winit_window_event(move |_, event| {
+        if let WindowEvent::MouseWheel { delta, .. } = event {
+            let (x, y) = match delta {
+                MouseScrollDelta::LineDelta(x, y) => (f64::from(*x), f64::from(*y)),
+                MouseScrollDelta::PixelDelta(p) => (p.x, p.y),
+            };
+            if x.abs() > 1.5 * y.abs()
+                && let Some(ui) = scroll_activity_ui.upgrade()
+            {
+                ui.global::<BackScroll>().invoke_activity();
+            }
+        }
+        EventResult::Propagate
+    });
     // Keep scroll-burst ownership independent of view/transition lifetimes.
     let scroll_timeout = slint::Timer::default();
     let scroll_ui = ui.as_weak();
@@ -3886,7 +3947,7 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
             let weak = ui.as_weak();
             scroll_timeout.start(
                 slint::TimerMode::SingleShot,
-                std::time::Duration::from_millis(300),
+                std::time::Duration::from_millis(80),
                 move || {
                     if let Some(ui) = weak.upgrade() {
                         ui.global::<BackScroll>().set_consumed(false);

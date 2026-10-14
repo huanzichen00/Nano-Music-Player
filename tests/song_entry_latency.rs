@@ -142,6 +142,7 @@ fn song_metadata_is_immediate_and_background_covers_follow_the_current_track() {
     while ui
         .get_rows()
         .iter()
+        .skip(1) // All Songs has a static fallback rather than decoded album art.
         .any(|row| row.show_artwork && row.artwork.size().width == 0)
     {
         assert!(Instant::now() < deadline);

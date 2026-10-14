@@ -1,7 +1,7 @@
 use nano_music_player::{
     app::{
         action::Action,
-        navigation::{Filter, Group, Screen},
+        navigation::{Filter, Screen},
         state::{State, Target},
     },
     library::{Track, lyrics::Lyrics, playlists::Playlist},
@@ -64,8 +64,6 @@ fn shuffle_entry_plays_only_the_current_list_and_keeps_canonical_order() {
             vec![2, 0],
         ),
         (Screen::Artist("A".into()), vec![1, 0]),
-        (Screen::Groups(Group::Albums), vec![1, 0, 2]),
-        (Screen::Search, vec![1]),
     ] {
         let mut state = fixture(screen.clone());
         state.query = "Shuffle Song".into();

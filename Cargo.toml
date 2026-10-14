@@ -6,7 +6,7 @@ rust-version = "1.92"
 description = "An iPod nano inspired desktop music player with centralized keyboard interaction"
 
 [dependencies]
-slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "accessibility", "compat-1-18"] }
+slint = { version = "=1.18.1", default-features = false, features = ["std", "backend-winit", "renderer-femtovg", "accessibility", "compat-1-18", "unstable-winit-030"] }
 rodio = { version = "=0.21.1", default-features = false, features = ["playback", "symphonia-all"] }
 rfd = "0.15.4"
 lofty = "0.22.4"

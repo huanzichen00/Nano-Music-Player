@@ -1,0 +1,42 @@
+[
+  {
+    "asset": "genius.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Genius atom: three intersecting elliptical orbits around a small central dot from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "playlist.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Playlists symbol: four short horizontal list lines at left and an eighth music note at right from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "artists.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Artists symbol: a singer's simple head-and-shoulders silhouette on the right and a small microphone on a stand on the left from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "albums.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Albums symbol: two slightly overlapping square album sleeves, with a single eighth music note in the front sleeve from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "songs.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Songs symbol: a single upright eighth music note with one curved flag and an oval notehead from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "genres.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Genres symbol: two musical noteheads joined by a diagonal beam, like the Genres row in the reference from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "smart-playlist.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the My Top Rated smart playlist symbol: a small eight-tooth gear with a circular hole, matching the third reference photo from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  },
+  {
+    "asset": "speaker.png",
+    "mode": "built-in imagegen",
+    "prompt": "Use case: ui-mockup. Asset type: one transparent UI icon for a native music player. The attached screenshots are reference images only. Recreate the Now Playing speaker symbol: a small solid speaker cone at left with two sound-wave arcs to its right from the original iPod nano menu, retaining its recognizable silhouette. Draw ONLY this single icon centered in a square 256 by 256 PNG canvas, occupying about 82 percent of the canvas. Crisp, simple, optically balanced, medium blue-gray (#84909b) flat fill with very subtle original-style shading. Clearly legible at 22 pixels. Match the photos rather than modernizing or adding decoration. No text, no border, no tile, no drop shadow. True transparent background."
+  }
+]

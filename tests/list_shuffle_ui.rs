@@ -114,9 +114,10 @@ fn shuffle_header_pointer_keyboard_and_cover_geometry_use_the_same_model() {
         .open(Screen::Groups(Group::Albums));
     controller.borrow_mut().poll(&ui);
     assert_eq!(ui.get_list_row_height(), 58.0 * ui.get_display_scale());
-    assert_eq!(ui.get_list_header_height(), 32.0 * ui.get_display_scale());
+    assert_eq!(ui.get_list_header_height(), 0.0);
     assert_eq!(ui.get_rows().row_count(), 2);
-    assert!(!ui.get_rows().row_data(0).unwrap().show_artwork);
+    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "All Songs");
+    assert!(ui.get_rows().row_data(0).unwrap().show_artwork);
     assert!(ui.get_rows().row_data(1).unwrap().show_artwork);
     tap(&ui, "f");
     tap(&ui, "r");

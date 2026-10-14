@@ -1,7 +1,7 @@
 use super::{
     action::Action,
     i18n::Language,
-    navigation::{Filter, Group, Navigation, Screen},
+    navigation::{Filter, Group, Navigation, Screen, SettingsSection},
     typography::Font,
 };
 use crate::{
@@ -87,6 +87,7 @@ pub struct State {
     pub video_overlay: bool,
     pub video_importing: bool,
     pub playlists: Vec<crate::library::playlists::Playlist>,
+    pub playlist_list_editing: bool,
     pub smart_playlists: HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>,
     pub ratings: HashMap<PathBuf, u8>,
     pub ratings_ready: bool,
@@ -140,6 +141,7 @@ impl Default for State {
             video_overlay: true,
             video_importing: false,
             playlists: Vec::new(),
+            playlist_list_editing: false,
             smart_playlists: HashMap::new(),
             ratings: HashMap::new(),
             ratings_ready: false,
@@ -189,7 +191,7 @@ impl State {
     pub fn supports_list_shuffle(&self) -> bool {
         matches!(
             self.navigation.current().screen,
-            Screen::Songs(_) | Screen::Search | Screen::Groups(Group::Albums) | Screen::Artist(_)
+            Screen::Songs(_) | Screen::Artist(_)
         )
     }
 
@@ -249,11 +251,37 @@ impl State {
             }
             Screen::Settings => vec![
                 Row {
+                    title: "Display".into(),
+                    subtitle: "Mode, size, font & window".into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::SettingsSection(SettingsSection::Display)),
+                },
+                Row {
+                    title: "Playback".into(),
+                    subtitle: "Gapless & volume normalization".into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::SettingsSection(SettingsSection::Playback)),
+                },
+                Row {
+                    title: "Lyrics".into(),
+                    subtitle: "Track lyrics, romaji & AI".into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::SettingsSection(SettingsSection::Lyrics)),
+                },
+                Row {
+                    title: "Language".into(),
+                    subtitle: self.language.label().into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::Languages),
+                },
+                Row {
                     title: "Keyboard Shortcuts".into(),
                     subtitle: "Customize keys and navigation".into(),
                     artwork_id: None,
                     target: Target::Screen(Screen::Shortcuts),
                 },
+            ],
+            Screen::SettingsSection(SettingsSection::Display) => vec![
                 Row {
                     title: "Display Mode".into(),
                     subtitle: if self.device_mode { "Device" } else { "Screen" }.into(),
@@ -266,19 +294,26 @@ impl State {
                 },
                 row("Zoom In", Target::Action(Action::ZoomIn)),
                 row("Zoom Out", Target::Action(Action::ZoomOut)),
-                row("Lyrics for Track", Target::Action(Action::ManageLyrics)),
                 Row {
-                    title: "Language".into(),
-                    subtitle: self.language.label().into(),
+                    title: "Font".into(),
+                    subtitle: self.font.label().into(),
                     artwork_id: None,
-                    target: Target::Screen(Screen::Languages),
+                    target: Target::Screen(Screen::Fonts),
                 },
                 Row {
-                    title: "Show Romaji".into(),
-                    subtitle: if self.romaji_visible { "On" } else { "Off" }.into(),
+                    title: "Smooth Slides".into(),
+                    subtitle: if self.smooth_slides { "On" } else { "Off" }.into(),
                     artwork_id: None,
-                    target: Target::Action(Action::ToggleRomaji),
+                    target: Target::Action(Action::ToggleSmoothSlides),
                 },
+                Row {
+                    title: "Always on Top".into(),
+                    subtitle: if self.always_on_top { "On" } else { "Off" }.into(),
+                    artwork_id: None,
+                    target: Target::Action(Action::ToggleAlwaysOnTop),
+                },
+            ],
+            Screen::SettingsSection(SettingsSection::Playback) => vec![
                 Row {
                     title: "Gapless Playback".into(),
                     subtitle: if self.gapless_playback { "On" } else { "Off" }.into(),
@@ -287,6 +322,19 @@ impl State {
                 },
                 Row {
                     title: "ReplayGain".into(),
+                    subtitle: match self.replay_gain_mode {
+                        crate::audio::gain::GainMode::Off => "Off",
+                        crate::audio::gain::GainMode::Track => "Track",
+                        crate::audio::gain::GainMode::Album => "Album",
+                    }
+                    .into(),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::SettingsSection(SettingsSection::ReplayGain)),
+                },
+            ],
+            Screen::SettingsSection(SettingsSection::ReplayGain) => vec![
+                Row {
+                    title: "Normalization Mode".into(),
                     subtitle: match self.replay_gain_mode {
                         crate::audio::gain::GainMode::Off => "Off",
                         crate::audio::gain::GainMode::Track => "Track",
@@ -313,29 +361,16 @@ impl State {
                     artwork_id: None,
                     target: Target::Action(Action::ToggleReplayGainClipping),
                 },
+            ],
+            Screen::SettingsSection(SettingsSection::Lyrics) => vec![
+                row("Lyrics for Track", Target::Action(Action::ManageLyrics)),
                 Row {
-                    title: "Smooth Slides".into(),
-                    subtitle: if self.smooth_slides {
-                        "On · Screens slide in the navigation direction".into()
-                    } else {
-                        "Off · Screens slide in the navigation direction".into()
-                    },
+                    title: "Show Romaji".into(),
+                    subtitle: if self.romaji_visible { "On" } else { "Off" }.into(),
                     artwork_id: None,
-                    target: Target::Action(Action::ToggleSmoothSlides),
+                    target: Target::Action(Action::ToggleRomaji),
                 },
                 row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
-                Row {
-                    title: "Font".into(),
-                    subtitle: self.font.label().into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::Fonts),
-                },
-                Row {
-                    title: "Always on Top".into(),
-                    subtitle: if self.always_on_top { "On" } else { "Off" }.into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::ToggleAlwaysOnTop),
-                },
             ],
             Screen::Fonts => Font::ALL
                 .into_iter()
@@ -399,18 +434,28 @@ impl State {
                 )))
                 .collect(),
             Screen::Music => vec![
-                to("Now Playing", Screen::NowPlaying),
+                Row {
+                    title: "Now Playing".into(),
+                    subtitle: if self.video_active {
+                        self.video_current
+                            .and_then(|id| self.videos.get(id))
+                            .map(|track| track.title.clone())
+                            .unwrap_or_default()
+                    } else {
+                        self.current
+                            .and_then(|id| self.tracks.get(id))
+                            .map(|track| track.title.clone())
+                            .unwrap_or_default()
+                    },
+                    artwork_id: None,
+                    target: Target::Screen(Screen::NowPlaying),
+                },
+                row("Genius Mixes", Target::GeniusPreview),
                 to("Playlists", Screen::Groups(Group::Playlists)),
                 to("Artists", Screen::Groups(Group::Artists)),
                 to("Albums", Screen::Groups(Group::Albums)),
                 to("Songs", Screen::Songs(Filter::All)),
                 to("Genres", Screen::Groups(Group::Genres)),
-                Row {
-                    title: "Genius".into(),
-                    subtitle: "Create from local songs".into(),
-                    artwork_id: None,
-                    target: Target::GeniusPreview,
-                },
                 row("Search", Target::Action(Action::Search)),
                 row("Import Music…", Target::Action(Action::ImportFolder)),
             ],
@@ -418,29 +463,28 @@ impl State {
                 let mut playlists: Vec<_> = self.playlists.iter().collect();
                 playlists.sort_by_cached_key(|p| (p.name.to_lowercase(), p.name.clone(), p.id));
                 let mut rows = vec![
-                    row("Add Playlist", Target::Action(Action::NewPlaylist)),
+                    row("Add", Target::Action(Action::NewPlaylist)),
+                    row("Edit", Target::Action(Action::EditPlaylist)),
+                    row("Genius", Target::GeniusPreview),
                     Row {
-                        title: "All Songs".into(),
-                        subtitle: format!(
-                            "{} songs",
-                            self.tracks
-                                .iter()
-                                .filter(|t| self.track_available(t))
-                                .count()
-                        ),
+                        title: "My Top Rated".into(),
+                        subtitle: format!("{} songs", self.top_rated_ids().len()),
                         artwork_id: None,
-                        target: Target::Screen(Screen::Songs(Filter::All)),
+                        target: Target::Screen(Screen::Songs(Filter::TopRated)),
                     },
                 ];
-                rows.extend(crate::library::statistics::SmartPlaylist::ALL.map(|kind| {
-                    let count = self.smart_playlists.get(&kind).map_or(0, Vec::len);
-                    Row {
-                        title: kind.label().into(),
-                        subtitle: format!("{count} songs"),
-                        artwork_id: None,
-                        target: Target::Screen(Screen::Songs(Filter::SmartPlaylist(kind))),
-                    }
-                }));
+                let smart_row = |kind: crate::library::statistics::SmartPlaylist| Row {
+                    title: kind.label().into(),
+                    subtitle: format!(
+                        "{} songs",
+                        self.smart_playlists.get(&kind).map_or(0, Vec::len)
+                    ),
+                    artwork_id: None,
+                    target: Target::Screen(Screen::Songs(Filter::SmartPlaylist(kind))),
+                };
+                rows.push(smart_row(
+                    crate::library::statistics::SmartPlaylist::RecentlyPlayed,
+                ));
                 rows.extend(playlists.into_iter().map(|playlist| Row {
                     title: playlist.name.clone(),
                     subtitle: format!(
@@ -459,10 +503,47 @@ impl State {
                         name: playlist.name.clone(),
                     })),
                 }));
+                rows.extend(
+                    crate::library::statistics::SmartPlaylist::ALL
+                        .into_iter()
+                        .filter(|kind| {
+                            *kind != crate::library::statistics::SmartPlaylist::RecentlyPlayed
+                        })
+                        .map(smart_row),
+                );
+                rows
+            }
+            Screen::Groups(Group::Albums) => {
+                let mut rows = self.group_rows(&Group::Albums, None);
+                rows.insert(
+                    0,
+                    Row {
+                        title: "All Songs".into(),
+                        subtitle: format!(
+                            "{} songs",
+                            self.tracks
+                                .iter()
+                                .filter(|track| self.track_available(track))
+                                .count()
+                        ),
+                        artwork_id: None,
+                        target: Target::Screen(Screen::Songs(Filter::All)),
+                    },
+                );
                 rows
             }
             Screen::Groups(group) => self.group_rows(group, None),
             Screen::Artist(artist) => self.group_rows(&Group::Albums, Some(artist)),
+            Screen::Songs(Filter::TopRated) => self
+                .top_rated_ids()
+                .into_iter()
+                .map(|id| Row {
+                    title: self.tracks[id].title.clone(),
+                    subtitle: self.tracks[id].artist.clone(),
+                    artwork_id: None,
+                    target: Target::Play(id),
+                })
+                .collect(),
             Screen::Songs(_) | Screen::Search => {
                 if let Screen::Songs(Filter::Playlist { id, .. }) =
                     &self.navigation.current().screen
@@ -668,6 +749,39 @@ impl State {
         }
     }
 
+    fn start_shuffled(&mut self, ids: Vec<usize>) -> Vec<Effect> {
+        use rand::seq::IndexedRandom;
+        let Some(&start) = ids.choose(&mut rand::rng()) else {
+            return Vec::new();
+        };
+        self.shuffle = true;
+        self.queue.set(ids, start, true);
+        self.navigation.open(Screen::NowPlaying);
+        self.navigation.select(1);
+        self.start(start)
+    }
+
+    fn top_rated_ids(&self) -> Vec<usize> {
+        let mut ids: Vec<_> = self
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| {
+                self.track_available(track)
+                    && self.ratings.get(&track.path).copied().unwrap_or(0) >= 4
+            })
+            .map(|(id, _)| id)
+            .collect();
+        ids.sort_by(|a, b| {
+            self.ratings[&self.tracks[*b].path]
+                .cmp(&self.ratings[&self.tracks[*a].path])
+                .then_with(|| {
+                    track_title_key(&self.tracks[*a]).cmp(&track_title_key(&self.tracks[*b]))
+                })
+        });
+        ids
+    }
+
     pub fn selection_count(&self) -> usize {
         match &self.navigation.current().screen {
             Screen::Home => {
@@ -680,7 +794,7 @@ impl State {
             Screen::NowPlaying => 7,
             Screen::VideoPlaying => 5,
             Screen::Groups(Group::Playlists) => {
-                2 + crate::library::statistics::SmartPlaylist::ALL.len() + self.playlists.len()
+                4 + crate::library::statistics::SmartPlaylist::ALL.len() + self.playlists.len()
             }
             Screen::Groups(group) => {
                 self.tracks
@@ -1166,6 +1280,15 @@ impl State {
                         if let Some(row) = self.rows().get(selected) {
                             match row.target.clone() {
                                 Target::Screen(screen) => {
+                                    if self.playlist_list_editing
+                                        && self.navigation.current().screen
+                                            == Screen::Groups(Group::Playlists)
+                                    {
+                                        if let Screen::Songs(Filter::Playlist { id, .. }) = screen {
+                                            return vec![Effect::EditPlaylist { id }];
+                                        }
+                                        return Vec::new();
+                                    }
                                     let screen =
                                         if self.video_active && screen == Screen::NowPlaying {
                                             Screen::VideoPlaying
@@ -1221,6 +1344,12 @@ impl State {
                 }
             }
             Back => {
+                if self.playlist_list_editing
+                    && self.navigation.current().screen == Screen::Groups(Group::Playlists)
+                {
+                    self.playlist_list_editing = false;
+                    return vec![Effect::FocusScreen];
+                }
                 let video = self.navigation.current().screen == Screen::VideoPlaying;
                 self.navigation.back();
                 if video {
@@ -1233,6 +1362,7 @@ impl State {
                 return vec![Effect::FocusScreen];
             }
             Home => {
+                self.playlist_list_editing = false;
                 self.reference_open = false;
                 self.navigation.home();
                 self.home_page = 0;
@@ -1287,10 +1417,7 @@ impl State {
                 if !self.supports_list_shuffle() {
                     return Vec::new();
                 }
-                let ids: Vec<_> = if matches!(
-                    self.navigation.current().screen,
-                    Screen::Groups(Group::Albums) | Screen::Artist(_)
-                ) {
+                let ids: Vec<_> = if matches!(self.navigation.current().screen, Screen::Artist(_)) {
                     // Album collections use only the tracks represented by their album rows.
                     self.list_rows()
                         .iter()
@@ -1299,6 +1426,7 @@ impl State {
                                 .tracks
                                 .iter()
                                 .enumerate()
+                                .filter(|(_, track)| self.track_available(track))
                                 .filter(|(_, track)| match &row.target {
                                     Target::Screen(Screen::Songs(Filter::Album {
                                         name,
@@ -1331,15 +1459,20 @@ impl State {
                         })
                         .collect()
                 };
-                use rand::seq::IndexedRandom;
-                let Some(&start) = ids.choose(&mut rand::rng()) else {
-                    return Vec::new();
-                };
-                self.shuffle = true;
-                self.queue.set(ids, start, true);
-                self.navigation.open(Screen::NowPlaying);
-                self.navigation.select(1);
-                return self.start(start);
+                return self.start_shuffled(ids);
+            }
+            ShuffleAll => {
+                let mut ids: Vec<_> = self
+                    .tracks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, track)| self.track_available(track))
+                    .map(|(id, _)| id)
+                    .collect();
+                ids.sort_by(|a, b| {
+                    track_title_key(&self.tracks[*a]).cmp(&track_title_key(&self.tracks[*b]))
+                });
+                return self.start_shuffled(ids);
             }
             ToggleShuffle => {
                 self.shuffle = !self.shuffle;
@@ -1426,6 +1559,9 @@ impl State {
                 return vec![Effect::WindowPreferencesChanged];
             }
             EditPlaylist => {
+                if self.navigation.current().screen == Screen::Groups(Group::Playlists) {
+                    self.playlist_list_editing = !self.playlist_list_editing;
+                }
                 if let Screen::Songs(Filter::Playlist { id, .. }) = self.navigation.current().screen
                 {
                     return vec![Effect::EditPlaylist { id }];
