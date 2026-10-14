@@ -41,7 +41,7 @@ impl Default for Settings {
             translation_target: crate::translation::TargetLanguage::English,
             zoom: 1.25,
             device_mode: true,
-            monitor_deleted_files: true,
+            monitor_deleted_files: false,
             monitor_roots: Vec::new(),
             gapless_playback: true,
             replay_gain_mode: crate::audio::gain::GainMode::Off,
@@ -58,7 +58,7 @@ fn smooth_slides_default() -> bool {
 }
 
 fn monitor_default() -> bool {
-    true
+    false
 }
 
 fn gapless_default() -> bool {

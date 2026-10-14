@@ -265,10 +265,17 @@ pub struct Controller {
 impl Controller {
     pub fn new(directory: PathBuf) -> Self {
         let mut state = State::default();
-        let settings = Settings::load(&directory.join("settings.json")).unwrap_or_else(|message| {
-            state.notice = message;
-            Settings::default()
-        });
+        let mut settings =
+            Settings::load(&directory.join("settings.json")).unwrap_or_else(|message| {
+                state.notice = message;
+                Settings::default()
+            });
+        // Suspend automatic filesystem monitoring for the recovery release.
+        // Recursive kqueue watches retain descriptors for every library file;
+        // the two overlapping watchers can prevent decoders/output from opening.
+        // Honor this suspension for existing settings too, while retaining roots
+        // and the watcher code for comparison. Startup refresh/import still work.
+        settings.monitor_deleted_files = false;
         state.language = settings.language;
         state.font = settings.font;
         state.always_on_top = settings.always_on_top;
@@ -4551,6 +4558,34 @@ mod deletion_controller_tests {
         library::{Track, deletion_monitor::EventMessage, lyrics::Lyrics},
     };
     use std::{fs, thread, time::Instant};
+
+    #[test]
+    fn recovery_disables_existing_watchers_without_discarding_roots_or_gain_preferences() {
+        let directory = tempfile::tempdir().unwrap();
+        let roots = vec![directory.path().join("music")];
+        Settings {
+            monitor_deleted_files: true,
+            monitor_roots: roots.clone(),
+            gapless_playback: true,
+            replay_gain_mode: crate::audio::gain::GainMode::Album,
+            ..Default::default()
+        }
+        .save(&directory.path().join("settings.json"))
+        .unwrap();
+        let mut controller = Controller::new(directory.path().to_path_buf());
+        controller.start_deletion_monitor();
+        controller.start_library_monitor();
+        assert!(!controller.settings.monitor_deleted_files);
+        assert!(controller.deletion_events.is_none());
+        assert!(controller.library_monitor.is_none());
+        assert!(controller.deletion_worker.is_none());
+        assert_eq!(controller.settings.monitor_roots, roots);
+        assert!(controller.state.gapless_playback);
+        assert_eq!(
+            controller.state.replay_gain_mode,
+            crate::audio::gain::GainMode::Album
+        );
+    }
 
     fn fixture_track(path: PathBuf, title: &str) -> Track {
         Track {
