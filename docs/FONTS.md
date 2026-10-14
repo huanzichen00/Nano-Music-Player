@@ -1,9 +1,16 @@
 # Font selection
 
-Settings → Font offers Classic, Maple Mono and JetBrains Mono. A selection applies
-immediately to the interface, music metadata and lyrics, and persists in
-`settings.json`. Classic keeps the existing Helvetica Neue preference; systems
-without that family use Slint's system fallback. Old settings default to Classic.
+Settings → Display → Font offers Classic, Maple Mono and JetBrains Mono.
+A selection applies immediately to the interface, music metadata and lyrics, and persists in
+`settings.json`. Classic keeps Helvetica Neue; systems without that family use
+Slint's system fallback. On macOS the application defaults to Skia for text rendering. Native
+comparisons at the installed window scale reproduced broken small-text strokes
+with the OpenGL FemtoVG renderer for Helvetica Neue, Helvetica and Arial; the
+same widget fixture looked clean with Skia, without changing the font family.
+The diagnostic fixture is `examples/font_render_audit.rs`; set
+`SLINT_BACKEND=winit-femtovg` to compare the previous renderer. Explicit backend
+overrides remain supported. Other platforms retain their existing renderer.
+Old settings default to Classic.
 Font changes leave the stored metadata, lyric content and timestamps untouched.
 
 The picker previews each family with Latin letters (including Ss), digits,
@@ -23,3 +30,8 @@ Verification includes old-config migration, all-choice round trips, returning to
 the selected Settings row, controller restart, unchanged music text, and rendered
 glyph differences. The visual fixtures show Latin, Japanese and Chinese lyrics;
 native Windows/Linux font fallback is not verified on this macOS host.
+
+The observed native artifacts resemble Slint’s documented [half-pixel glyph
+texture sampling issue](https://github.com/slint-ui/slint/issues/6298). This is
+a diagnosis from the side-by-side native fixtures, not a claim that its earlier
+upstream fix covers this particular machine and Slint 1.18.1 build.

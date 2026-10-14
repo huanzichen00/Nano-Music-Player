@@ -12,6 +12,16 @@ pub mod typography;
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use slint::{ComponentHandle, Timer, TimerMode};
     use std::{cell::RefCell, rc::Rc, time::Duration};
+    // The OpenGL glyph atlas tears small text at some fractional window scales
+    // on macOS. Skia rendered the same native fixtures correctly without a font
+    // substitution. Keep explicit backend overrides available for diagnostics.
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("SLINT_BACKEND").is_none() {
+        slint::BackendSelector::new()
+            .backend_name("winit".into())
+            .renderer_name("skia".into())
+            .select()?;
+    }
     let directory = config::config_dir()?;
     let ui = crate::ui::AppWindow::new()?;
     let controller = Rc::new(RefCell::new(controller::Controller::new(directory)));
