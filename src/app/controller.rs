@@ -36,6 +36,10 @@ use std::{
 mod genius;
 use genius::GeniusService;
 
+#[path = "controller/playlists.rs"]
+mod playlist_service;
+use playlist_service::PlaylistsService;
+
 enum PendingMedia {
     Music {
         handoff: u64,
@@ -80,14 +84,8 @@ pub struct Controller {
     listening_clock: std::time::Instant,
     loading: Option<Receiver<thumbnails::LoadEvent>>,
     library_ready: bool,
-    playlist_loading: Option<Receiver<Result<Vec<playlists::Playlist>, String>>>,
-    playlist_saving: Option<Receiver<Result<playlists::Playlist, String>>>,
-    playlist_writer: Option<std::thread::JoinHandle<()>>,
-    playlist_suspended: bool,
-    playlist_edit_id: Option<i64>,
-    playlist_original_paths: HashSet<PathBuf>,
+    playlists: PlaylistsService,
     playlist_candidates: Vec<PlaylistCandidate>,
-    playlist_paths: Vec<PathBuf>,
     importing: Option<Receiver<thumbnails::ImportEvent>>,
     deletion_events: Option<crate::library::deletion_monitor::Monitor>,
     deletion_worker: Option<thumbnails::FileWorker>,
@@ -209,14 +207,8 @@ impl Controller {
             listening_clock: std::time::Instant::now(),
             loading,
             library_ready: false,
-            playlist_loading: Some(receiver),
-            playlist_saving: None,
-            playlist_writer: None,
-            playlist_suspended: false,
-            playlist_edit_id: None,
-            playlist_original_paths: HashSet::new(),
+            playlists: PlaylistsService::new(receiver),
             playlist_candidates: Vec::new(),
-            playlist_paths: Vec::new(),
             importing: None,
             deletion_events: None,
             deletion_worker: None,
@@ -451,7 +443,7 @@ impl Controller {
         }
         if ui.get_playlist_editor_open() {
             // Home hides the draft; reopening New Playlist resumes it unchanged.
-            self.playlist_suspended = true;
+            self.playlists.suspend();
             ui.set_playlist_editor_open(false);
         }
         self.shortcut_edit = None;
@@ -2761,21 +2753,16 @@ impl Controller {
     }
 
     fn refresh_playlist_candidates(&mut self) {
-        let mut songs: Vec<_> = self
-            .state
-            .tracks
+        self.playlists.refresh_candidates(
+            self.state
+                .tracks
+                .iter()
+                .filter(|song| self.state.track_available(song)),
+        );
+        self.playlist_candidates = self
+            .playlists
+            .candidates()
             .iter()
-            .filter(|song| self.state.track_available(song))
-            .collect();
-        songs.sort_by_cached_key(|song| {
-            (
-                song.title.to_lowercase(),
-                song.title.clone(),
-                song.path.clone(),
-            )
-        });
-        self.playlist_candidates = songs
-            .into_iter()
             .map(|song| PlaylistCandidate {
                 id: song.path.to_string_lossy().as_ref().into(),
                 title: song.title.as_str().into(),
@@ -2796,8 +2783,7 @@ impl Controller {
             return;
         }
         self.prepare_portrait_dialog(ui);
-        if self.playlist_suspended {
-            self.playlist_suspended = false;
+        if self.playlists.resume() {
             ui.set_playlist_editor_open(true);
             ui.invoke_focus_screen();
             return;
@@ -2806,9 +2792,7 @@ impl Controller {
             let Some(playlist) = self.state.playlists.iter().find(|p| p.id == id).cloned() else {
                 return;
             };
-            self.playlist_edit_id = Some(id);
-            self.playlist_paths = playlist.tracks;
-            self.playlist_original_paths = self.playlist_paths.iter().cloned().collect();
+            self.playlists.begin_edit(&playlist);
             self.refresh_playlist_candidates();
             ui.set_playlist_editing(true);
             ui.set_playlist_name(playlist.name.into());
@@ -2823,7 +2807,7 @@ impl Controller {
     }
 
     fn sync_playlist_draft(&self, ui: &AppWindow) {
-        let selected: HashSet<_> = self.playlist_paths.iter().collect();
+        let selected: HashSet<_> = self.playlists.paths().iter().collect();
         let candidates: Vec<_> = self
             .playlist_candidates
             .iter()
@@ -2838,7 +2822,8 @@ impl Controller {
             .map(|song| (PathBuf::from(song.id.as_str()), song))
             .collect();
         let draft = self
-            .playlist_paths
+            .playlists
+            .paths()
             .iter()
             .map(|path| {
                 by_path
@@ -2862,7 +2847,7 @@ impl Controller {
     }
 
     pub fn playlist_command(&mut self, ui: &AppWindow, command: &str, id: &str) {
-        if self.playlist_saving.is_some() {
+        if self.playlists.is_saving() {
             return;
         }
         if !matches!(command, "new" | "cancel") && !ui.get_playlist_editor_open() {
@@ -2873,12 +2858,9 @@ impl Controller {
             .strip_prefix("move:")
             .and_then(|index| index.parse::<usize>().ok())
         {
-            if let Some(source) = self.playlist_paths.iter().position(|p| p == &path) {
-                let target = target.min(self.playlist_paths.len() - 1);
-                let path = self.playlist_paths.remove(source);
-                self.playlist_paths.insert(target, path);
+            if self.playlists.move_to(&path, target) {
                 ui.set_playlist_message(
-                    if self.playlist_edit_id.is_some() {
+                    if self.playlists.is_editing() {
                         "Changes not saved"
                     } else {
                         "Draft only · not saved"
@@ -2891,10 +2873,8 @@ impl Controller {
         }
         match command {
             "new" => {
-                self.playlist_edit_id = None;
-                self.playlist_original_paths.clear();
+                self.playlists.begin_new();
                 ui.set_playlist_editing(false);
-                self.playlist_paths.clear();
                 self.refresh_playlist_candidates();
                 ui.set_playlist_saving(false);
                 ui.set_playlist_persisted(false);
@@ -2903,17 +2883,12 @@ impl Controller {
                 );
             }
             "toggle" => {
-                if !self.playlist_candidates.iter().any(|song| song.id == id) {
+                if !self.playlists.toggle(&path) {
                     return;
-                }
-                if let Some(index) = self.playlist_paths.iter().position(|p| *p == path) {
-                    self.playlist_paths.remove(index);
-                } else {
-                    self.playlist_paths.push(path);
                 }
             }
             "review" => {
-                if ui.get_playlist_name().trim().is_empty() && self.playlist_edit_id.is_none() {
+                if ui.get_playlist_name().trim().is_empty() && !self.playlists.is_editing() {
                     let prefix = self.text("New Playlist");
                     let mut number = 1;
                     let name = loop {
@@ -2931,51 +2906,18 @@ impl Controller {
                     ui.set_playlist_name(name.into());
                 }
             }
-            "up" | "down" => {
-                if let Some(index) = self.playlist_paths.iter().position(|p| *p == path) {
-                    let next = if command == "up" {
-                        index.saturating_sub(1)
-                    } else {
-                        (index + 1).min(self.playlist_paths.len() - 1)
-                    };
-                    self.playlist_paths.swap(index, next);
-                }
-            }
-            "remove" => self.playlist_paths.retain(|p| *p != path),
+            "up" | "down" => self.playlists.nudge(&path, command == "down"),
+            "remove" => self.playlists.remove(&path),
             "cancel" => {
-                self.playlist_edit_id = None;
-                self.playlist_original_paths.clear();
-                self.playlist_suspended = false;
-                self.playlist_paths.clear();
+                self.playlists.cancel();
                 self.playlist_candidates.clear();
             }
             "create" => {
-                let name = ui.get_playlist_name().trim().to_owned();
-                let paths = self.playlist_paths.clone();
-                let edit_id = self.playlist_edit_id;
-                let original = self.playlist_original_paths.clone();
-                let available: HashSet<_> = self
-                    .state
-                    .tracks
-                    .iter()
-                    .map(|song| song.path.clone())
-                    .collect();
-                let database = self.directory.join("library.sqlite3");
-                let (sender, receiver) = std::sync::mpsc::channel();
-                self.playlist_writer = Some(std::thread::spawn(move || {
-                    let result = if paths
-                        .iter()
-                        .any(|p| !original.contains(p) && (!available.contains(p) || !p.is_file()))
-                    {
-                        Err("selected songs are unavailable".into())
-                    } else if let Some(id) = edit_id {
-                        playlists::update(&database, id, &name, &paths)
-                    } else {
-                        playlists::create(&database, &name, &paths)
-                    };
-                    let _ = sender.send(result);
-                }));
-                self.playlist_saving = Some(receiver);
+                self.playlists.save(
+                    &self.directory.join("library.sqlite3"),
+                    ui.get_playlist_name().as_str(),
+                    &self.state.tracks,
+                );
                 ui.set_playlist_saving(true);
                 ui.set_playlist_message("Saving playlist…".into());
                 return;
@@ -2983,7 +2925,7 @@ impl Controller {
             _ => return,
         }
         ui.set_playlist_message(
-            if self.playlist_edit_id.is_some() {
+            if self.playlists.is_editing() {
                 "Changes not saved"
             } else {
                 "Draft only · not saved"
@@ -2994,12 +2936,7 @@ impl Controller {
     }
 
     fn poll_playlists(&mut self, ui: &AppWindow) {
-        if let Some(result) = self
-            .playlist_loading
-            .as_ref()
-            .and_then(|r| r.try_recv().ok())
-        {
-            self.playlist_loading = None;
+        if let Some(result) = self.playlists.poll_load() {
             match result {
                 Ok(playlists) => {
                     for playlist in playlists {
@@ -3014,28 +2951,20 @@ impl Controller {
         }
         if ui.get_playlist_editor_open() {
             ui.set_playlist_library_loading(self.state.tracks.is_empty() && !self.library_ready);
-            if self.playlist_candidates.is_empty() && !self.state.tracks.is_empty() {
+            if self.playlists.candidates().is_empty() && !self.state.tracks.is_empty() {
                 self.refresh_playlist_candidates();
                 self.sync_playlist_draft(ui);
             }
         }
-        if let Some(result) = self
-            .playlist_saving
-            .as_ref()
-            .and_then(|r| r.try_recv().ok())
-        {
-            self.playlist_saving = None;
-            if let Some(worker) = self.playlist_writer.take() {
-                let _ = worker.join();
-            }
+        if let Some(result) = self.playlists.poll_save() {
             ui.set_playlist_saving(false);
             match result {
-                Ok(playlist) => {
+                Ok(saved) => {
+                    let playlist = saved.playlist;
                     let screen = Screen::Songs(Filter::Playlist {
                         id: playlist.id,
                         name: playlist.name.clone(),
                     });
-                    let editing = self.playlist_edit_id.take().is_some();
                     self.state
                         .navigation
                         .rename_playlist(playlist.id, &playlist.name);
@@ -3051,15 +2980,12 @@ impl Controller {
                     }
                     self.rows_dirty = true;
                     ui.set_playlist_persisted(true);
-                    if ui.get_playlist_editor_open() && !editing {
+                    if ui.get_playlist_editor_open() && !saved.editing {
                         self.state.navigation.open(Screen::Groups(Group::Playlists));
                         self.state.navigation.open(screen);
                     }
                     ui.set_playlist_editor_open(false);
-                    self.playlist_suspended = false;
                     self.state.notice = "Playlist saved".into();
-                    self.playlist_paths.clear();
-                    self.playlist_original_paths.clear();
                     self.playlist_candidates.clear();
                     ui.invoke_focus_screen();
                 }
@@ -3643,9 +3569,7 @@ impl Drop for Controller {
         // Drain queued user ratings/statistics before process exit.
         self.statistics.shutdown();
         // Finish an explicit Create before shutdown, so a successful write survives restart.
-        if let Some(worker) = self.playlist_writer.take() {
-            let _ = worker.join();
-        }
+        self.playlists.shutdown();
     }
 }
 

@@ -122,3 +122,16 @@ in memory and write their valid Unicode projection, retaining the matching
 assertions. Existing lossy UI path identity remains unchanged. A test-only Track
 reference was qualified to eliminate an unused production import. Logs:
 `/tmp/nano-controller-genius-{check,focused,regression,all}.log`.
+
+### Playlist milestone
+
+Worker `f35e2eb` cherry-picked as `492504a`. Service owns 7 former draft/worker
+fields; Controller retains the UI candidate cache. Formatting/check: PASS.
+All library unit tests: **200 passed, 8 ignored** (4 new playlist cases).
+Playlist storage/editing, UI, modal-navigation and shuffle checks: **10 passed**.
+Full suite: **329 passed, 0 failed, 25 ignored**. Independent review identified
+and resolved per-drag String-to-SharedString allocations: candidate projection is
+cached at refresh, and draft updates clone Slint strings as before. Existing
+lossy path selection, draft recovery, failed saves, ID/order, missing originals
+and statistics-before-playlist shutdown are retained. Actual diff approved.
+Logs: `/tmp/nano-controller-playlists-{check,focused,regression,all}.log`.
