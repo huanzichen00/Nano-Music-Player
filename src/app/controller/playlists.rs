@@ -290,7 +290,8 @@ mod tests {
         };
         assert!(service.poll_load().is_none());
         sender.send(Ok(vec![playlist.clone()])).unwrap();
-        assert_eq!(service.poll_load().unwrap().unwrap(), [playlist.clone()]);
+        let loaded = service.poll_load().unwrap().unwrap();
+        assert_eq!(loaded.as_slice(), std::slice::from_ref(&playlist));
         assert!(service.poll_load().is_none());
         service.begin_edit(&playlist);
         service.refresh_candidates(&tracks);
@@ -411,7 +412,7 @@ mod tests {
             PathBuf::from(tracks[1].path.to_string_lossy().as_ref())
         );
         assert!(service.toggle(&displayed_path));
-        assert_eq!(service.paths(), [displayed_path.clone()]);
+        assert_eq!(service.paths(), std::slice::from_ref(&displayed_path));
         assert!(service.toggle(&displayed_path));
         assert!(service.paths().is_empty());
     }
