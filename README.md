@@ -2,6 +2,9 @@
 
 A Rust/Slint desktop music player inspired by the seventh-generation iPod nano. Device Mode fits the window to a narrow bezel and Home button; Screen Mode shows the display alone. Music playback, library browsing, keyboard navigation and synchronized lyrics work together through one action dispatcher.
 
+See the [0.1.1 integration record](docs/RELEASE_0_1_1.md) for included branches,
+merge compatibility changes and verification results.
+
 ## Run
 
 Requires Rust 1.92 or newer and a working system audio output.
