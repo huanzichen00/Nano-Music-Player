@@ -1,6 +1,12 @@
+mod genius;
+mod library;
 mod lyrics;
+#[path = "controller/playlists.rs"]
+mod playlist_service;
 mod statistics;
 mod video;
+
+use library::{LibraryTasks, LoadEvent as LibraryLoadEvent};
 use lyrics::{LookupEvent, LyricsService, RomajiEvent};
 
 use super::{
@@ -34,11 +40,8 @@ use std::{
     sync::mpsc::Receiver,
 };
 
-mod genius;
 use genius::GeniusService;
 
-#[path = "controller/playlists.rs"]
-mod playlist_service;
 use playlist_service::PlaylistsService;
 
 enum PendingMedia {
@@ -81,11 +84,9 @@ pub struct Controller {
     prefetch_token: u64,
     failed_prefetch: Option<(usize, usize)>,
     listening_clock: std::time::Instant,
-    loading: Option<Receiver<thumbnails::LoadEvent>>,
-    library_ready: bool,
+    library_tasks: LibraryTasks,
     playlists: PlaylistsService,
     playlist_candidates: Vec<PlaylistCandidate>,
-    importing: Option<Receiver<thumbnails::ImportEvent>>,
     deletion_events: Option<crate::library::deletion_monitor::Monitor>,
     deletion_worker: Option<thumbnails::FileWorker>,
     deletion_track_ids: HashMap<PathBuf, usize>,
@@ -151,20 +152,7 @@ impl Controller {
             });
         let database = directory.join("library.sqlite3");
         let statistics = StatisticsService::new(database.clone());
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let (library_sender, library_receiver) = std::sync::mpsc::sync_channel(2);
-        std::thread::spawn(move || {
-            // Migrate before the scanner's large metadata SELECT can hold a read lock.
-            // Both operations remain off the UI thread; a playlist error never blocks music.
-            let _ = sender.send(playlists::load(&database));
-            let loading = thumbnails::load(database);
-            while let Ok(event) = loading.recv() {
-                if library_sender.send(event).is_err() {
-                    break;
-                }
-            }
-        });
-        let loading = Some(library_receiver);
+        let (library_tasks, receiver) = LibraryTasks::start(database);
         let video_tasks = video::VideoTasks::new(directory.clone());
         match crate::video::subtitles::SubtitleAssociations::load(
             &directory.join("video-subtitles.json"),
@@ -202,11 +190,9 @@ impl Controller {
             prefetch_token: 0,
             failed_prefetch: None,
             listening_clock: std::time::Instant::now(),
-            loading,
-            library_ready: false,
+            library_tasks,
             playlists: PlaylistsService::new(receiver),
             playlist_candidates: Vec::new(),
-            importing: None,
             deletion_events: None,
             deletion_worker: None,
             deletion_track_ids: HashMap::new(),
@@ -635,10 +621,8 @@ impl Controller {
                 }
                 Effect::Import => {
                     self.dialog_open = true;
-                    self.importing = Some(thumbnails::import(
-                        self.directory.join("library.sqlite3"),
-                        translate(self.state.language, "Import Music Folder…"),
-                    ));
+                    self.library_tasks
+                        .start_import(translate(self.state.language, "Import Music Folder…"));
                 }
                 Effect::FocusSearch => ui.invoke_focus_search(),
                 Effect::FocusScreen => ui.invoke_focus_screen(),
@@ -1420,10 +1404,9 @@ impl Controller {
 
     pub fn poll(&mut self, ui: &AppWindow) {
         self.maintain_aspect_ratio(ui);
-        if let Some(result) = self.loading.as_ref().map(|receiver| receiver.try_recv()) {
-            match result {
-                Ok(thumbnails::LoadEvent::Cached(mut prepared)) => {
-                    self.library_ready = true;
+        if let Some(event) = self.library_tasks.poll_load() {
+            match event {
+                LibraryLoadEvent::Cached(mut prepared) => {
                     // An import can finish before startup publication. Keep its
                     // newer tracks instead of replacing them with cached rows.
                     prepared.value.retain(|track| {
@@ -1445,7 +1428,7 @@ impl Controller {
                     self.last_track = None;
                     self.rows_dirty = true;
                 }
-                Ok(thumbnails::LoadEvent::Refreshed { original, prepared }) => {
+                LibraryLoadEvent::Refreshed { original, prepared } => {
                     let Prepared { value, previews } = *prepared;
                     let artwork_changed = value.artwork != original.artwork;
                     if self.state.refresh_cached_track(&original, value) {
@@ -1460,35 +1443,24 @@ impl Controller {
                         self.rows_dirty = true;
                     }
                 }
-                Ok(thumbnails::LoadEvent::Error(message)) => {
-                    self.loading = None;
-                    self.library_ready = true;
+                LibraryLoadEvent::Error(message) => {
                     self.state.notice = message;
                 }
-                Ok(thumbnails::LoadEvent::Complete)
-                | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.loading = None;
-                    if !self.library_ready {
+                LibraryLoadEvent::Complete { missing_cached } => {
+                    if missing_cached {
                         self.state.notice =
                             "Library loading stopped before cached tracks arrived".into();
                     }
-                    self.library_ready = true;
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
-        while let Some(event) = self
-            .importing
-            .as_ref()
-            .and_then(|receiver| receiver.try_recv().ok())
-        {
+        while let Some(event) = self.library_tasks.poll_import() {
             let thumbnails::ImportEvent::Completed(result) = event else {
                 self.dialog_open = false;
                 self.state.notice = "Scanning music folders…".to_owned();
                 ui.invoke_focus_screen();
                 continue;
             };
-            self.importing = None;
             self.state.importing = false;
             self.dialog_open = false;
             match result {
@@ -2853,7 +2825,7 @@ impl Controller {
                 ui.set_playlist_saving(false);
                 ui.set_playlist_persisted(false);
                 ui.set_playlist_library_loading(
-                    self.state.tracks.is_empty() && !self.library_ready,
+                    self.state.tracks.is_empty() && !self.library_tasks.ready(),
                 );
             }
             "toggle" => {
@@ -2924,7 +2896,9 @@ impl Controller {
             }
         }
         if ui.get_playlist_editor_open() {
-            ui.set_playlist_library_loading(self.state.tracks.is_empty() && !self.library_ready);
+            ui.set_playlist_library_loading(
+                self.state.tracks.is_empty() && !self.library_tasks.ready(),
+            );
             if self.playlists.candidates().is_empty() && !self.state.tracks.is_empty() {
                 self.refresh_playlist_candidates();
                 self.sync_playlist_draft(ui);
@@ -3057,7 +3031,7 @@ impl Controller {
         if self.lyrics.lookup_busy()
             || self.lyrics_edit.is_some()
             || self.lyrics.translation_busy()
-            || self.importing.is_some()
+            || self.library_tasks.is_importing()
         {
             self.state.notice = "A lyric request is already running".into();
             self.sync(ui);
@@ -3860,32 +3834,31 @@ mod cached_library_controller_tests {
         controller.state.tracks = vec![imported];
         controller.state.navigation.open(Screen::Songs(Filter::All));
         let (sender, receiver) = std::sync::mpsc::channel();
-        controller.loading = Some(receiver);
+        controller.library_tasks.replace_loading(receiver, false);
         sender.send(cached).unwrap();
         let ui = AppWindow::new().unwrap();
         controller.initialize(&ui);
         controller.poll(&ui);
         assert_eq!(controller.state.tracks[0].title, "Newer imported title");
-        assert!(controller.library_ready);
+        assert!(controller.library_tasks.ready());
         assert!(
-            controller.loading.is_some(),
+            controller.library_tasks.loading_active(),
             "source refresh may still be running"
         );
         controller.execute(&ui, Action::NewPlaylist);
         assert!(!ui.get_playlist_library_loading());
         sender.send(thumbnails::LoadEvent::Complete).unwrap();
         controller.poll(&ui);
-        assert!(controller.loading.is_none());
+        assert!(!controller.library_tasks.loading_active());
 
         // A worker that stops before publication must not leave an endless
         // loading state. Existing imported tracks still remain available.
         let (sender, receiver) = std::sync::mpsc::channel::<thumbnails::LoadEvent>();
         drop(sender);
-        controller.loading = Some(receiver);
-        controller.library_ready = false;
+        controller.library_tasks.replace_loading(receiver, false);
         controller.poll(&ui);
-        assert!(controller.library_ready);
-        assert!(controller.loading.is_none());
+        assert!(controller.library_tasks.ready());
+        assert!(!controller.library_tasks.loading_active());
         assert!(controller.state.notice.contains("cached tracks"));
         assert!(!ui.get_playlist_library_loading());
         assert_eq!(controller.state.tracks[0].title, "Newer imported title");
