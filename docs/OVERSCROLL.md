@@ -32,14 +32,18 @@ Nested horizontal/vertical swipe recognizers block live pointer feedback in
 this architecture. The live-input regression requires a single recognizer on
 each scrolling viewport.
 
-Wheel callbacks expose deltas but no gesture phase or momentum flag. Each delta
-is applied directly, including OS-supplied momentum. The edge spring runs from
-the next frame without an inactivity timer; subsequent deltas do not stop or
-restart it. This prevents a long momentum tail from holding the content outside
-its bounds. Each wheel event clears velocity, so no synthetic wheel fling is
-added. This behavior needs physical trackpad evaluation. Lyric programmatic
-following keeps its 180ms easing and is interruptible from the currently rendered
-position.
+TouchArea wheel callbacks expose deltas without gesture phases. The existing
+macOS Winit observer forwards native Started/Ended/Cancelled phases through the
+`WheelGesture` global. Input owns the visual position for the entire native
+gesture, including a held pause and OS momentum. A 32ms guard at the end covers
+the finger-to-momentum handoff before starting the spring.
+Focus loss or cursor exit releases the native gesture as well. For mouse wheels
+and other backends, a 32ms quiet timer detects the end of a burst. Native phases
+are enabled only on macOS because other backends may omit matching end events.
+The spring never pulls against incoming wheel input. Each wheel event clears
+velocity, so no synthetic fling is added. Physical trackpad evaluation is still
+required. Lyric programmatic following keeps its 180ms easing and is interruptible
+from the currently rendered position.
 
 The spring timer runs at 16ms only during motion and uses elapsed animation time,
 capped at 32ms per integration step to keep delayed frames stable. No timer runs
@@ -124,16 +128,19 @@ Changed files: `ui/overscroll.slint`, `ui/app.slint`, `ui/home.slint`,
   tests check its existing geometry, while overscroll stays in the list overlays.
 
 Synthetic macOS-hosted events and software frames are not evidence of native
-trackpad behavior. No installed app bundle is replaced by this change.
+trackpad behavior. The original overscroll verification did not replace an
+installed app bundle.
 
 ## Integration with the current player
 
 The current version uses a 40ms Back quiet interval and 70ms screen animation
 with 80ms completion. The spring frequency is 240/s. A paused 160px pull settles
-within 128ms after release in the frame-stepped regression. Wheel return starts
-on the next 16ms frame, with no additional quiet interval. A decaying 160ms
-momentum tail leaves less than one pixel of overshoot, rather than postponing
-return until its last event. Held pointer drags, resistance, and Back burst
+within 128ms after pointer release in the frame-stepped regression. Wheel motion
+settles within 160ms after native gesture end or the last phase-less input.
+Tests cover monotone outward input, full-range stretching, 500ms held pauses,
+inward reversals, terminal zero/nonzero events, momentum handoff, resumed Home
+gestures with zero deltas, and wheel cadences from 8ms to 32ms without interleaved
+spring motion. Held pointer drags, resistance, and Back burst
 ownership are unchanged. The settings hierarchy, list
 icons, video thumbnail geometry, and original-plus-secondary lyric layout are
 preserved. Translation takes priority over romaji in

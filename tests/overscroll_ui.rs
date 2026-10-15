@@ -1,5 +1,5 @@
 //! Synthetic Slint events and software frames; these do not certify a native trackpad.
-use nano_music_player::ui::{AppWindow, I18n, LibraryRow};
+use nano_music_player::ui::{AppWindow, I18n, LibraryRow, WheelGesture};
 use slint::{
     ComponentHandle, ModelRc, VecModel,
     platform::{PointerEventButton, WindowEvent},
@@ -240,6 +240,28 @@ fn lists_and_home_follow_live_input_and_cancel_without_stale_motion() {
             );
             frame(&ui, &format!("overscroll-home-{page}-{smooth}"));
             tick(2000);
+            assert_eq!(ui.get_home_overshoot(), 0.0);
+
+            // Home rejects zero horizontal deltas, so the native phase alone
+            // must hold a stretch and interrupt an already-running return.
+            ui.global::<WheelGesture>().set_active(true);
+            wheel(&ui, sign * 80.0, 0.0);
+            let held = ui.get_home_overshoot();
+            tick(500);
+            assert_eq!(ui.get_home_overshoot(), held);
+            ui.global::<WheelGesture>().set_active(false);
+            wheel(&ui, 0.0, 0.0);
+            tick(32);
+            let returning = ui.get_home_overshoot();
+            assert!(returning.abs() > 0.0 && returning.abs() < held.abs());
+            ui.global::<WheelGesture>().set_active(true);
+            wheel(&ui, 0.0, 0.0);
+            tick(64);
+            assert_eq!(ui.get_home_overshoot(), returning);
+            assert_eq!(ui.get_home_page(), page);
+            ui.global::<WheelGesture>().set_active(false);
+            wheel(&ui, 0.0, 0.0);
+            tick(160);
             assert_eq!(ui.get_home_overshoot(), 0.0);
         }
         if smooth {

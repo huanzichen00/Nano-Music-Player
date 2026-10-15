@@ -27,7 +27,7 @@ use crate::{
     library::{playlists, scanner},
     ui::{
         AppWindow, BackScroll, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow,
-        SubtitleChoice,
+        SubtitleChoice, WheelGesture,
     },
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
@@ -3524,22 +3524,43 @@ impl Drop for Controller {
 pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     use slint::winit_030::{
         EventResult, WinitWindowAccessor,
-        winit::event::{MouseScrollDelta, WindowEvent},
+        winit::event::{MouseScrollDelta, TouchPhase, WindowEvent},
     };
     // Native wheel activity must survive temporarily disabled/translating views.
     // Observe only: ordinary scrolling and Slint event dispatch remain unchanged.
     let scroll_activity_ui = ui.as_weak();
     ui.window().on_winit_window_event(move |_, event| {
-        if let WindowEvent::MouseWheel { delta, .. } = event {
+        let Some(ui) = scroll_activity_ui.upgrade() else {
+            return EventResult::Propagate;
+        };
+        if let WindowEvent::MouseWheel { delta, phase, .. } = event {
+            // TouchArea omits phases. Hold elastic motion through finger input
+            // and OS momentum, then release with a short handoff guard.
+            // Other backends may send Started without a matching Ended for a
+            // mouse wheel, so retain their quiet-timer fallback.
+            if cfg!(target_os = "macos") {
+                match phase {
+                    TouchPhase::Started => ui.global::<WheelGesture>().set_active(true),
+                    TouchPhase::Ended | TouchPhase::Cancelled => {
+                        ui.global::<WheelGesture>().set_active(false);
+                    }
+                    TouchPhase::Moved => {}
+                }
+            }
             let (x, y) = match delta {
                 MouseScrollDelta::LineDelta(x, y) => (f64::from(*x), f64::from(*y)),
                 MouseScrollDelta::PixelDelta(p) => (p.x, p.y),
             };
-            if x.abs() > 1.5 * y.abs()
-                && let Some(ui) = scroll_activity_ui.upgrade()
-            {
+            if x.abs() > 1.5 * y.abs() {
                 ui.global::<BackScroll>().invoke_activity();
             }
+        } else if cfg!(target_os = "macos")
+            && matches!(
+                event,
+                WindowEvent::Focused(false) | WindowEvent::CursorLeft { .. }
+            )
+        {
+            ui.global::<WheelGesture>().set_active(false);
         }
         EventResult::Propagate
     });

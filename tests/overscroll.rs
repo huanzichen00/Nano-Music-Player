@@ -2,7 +2,7 @@ use slint::ComponentHandle;
 use std::time::Duration;
 
 slint::slint! {
-    import { ElasticAxis, ElasticFlickable } from "../ui/overscroll.slint";
+    import { ElasticAxis, ElasticFlickable, WheelGesture } from "../ui/overscroll.slint";
     export component ElasticHarness inherits Window {
         width: 240px; height: 300px;
         in property <length> minimum: -500px;
@@ -15,6 +15,7 @@ slint::slint! {
         public function drag(delta: length) { axis.drag(delta); }
         public function release() { axis.release(); }
         public function wheel(delta: length) { axis.wheel(delta); }
+        public function native-wheel-active(active: bool) { WheelGesture.active = active; }
         public function reset(value: length) { axis.reset(value); }
         axis := ElasticAxis { minimum: root.minimum; extent: root.extent; enabled: root.enabled; }
     }
@@ -115,10 +116,10 @@ fn spring_return_settles_promptly_at_both_edges() {
         // Process the wheel callback's timer bindings before measuring its deadline.
         i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
         let stretched = (ui.get_position() - boundary).abs();
-        tick(16);
+        tick(48);
         assert!(
             (ui.get_position() - boundary).abs() < stretched,
-            "wheel return starts on the next frame without a quiet interval"
+            "phase-less wheel return starts within 48ms of the last delta"
         );
         tick(112);
         assert_eq!(ui.get_position(), boundary);
@@ -127,31 +128,156 @@ fn spring_return_settles_promptly_at_both_edges() {
 }
 
 #[test]
-fn trailing_wheel_deltas_do_not_postpone_the_spring_return() {
+fn continuous_wheel_input_does_not_fight_the_spring() {
     i_slint_backend_testing::init_no_event_loop();
     let ui = ElasticHarness::new().unwrap();
     ui.show().unwrap();
     tick(16);
+    for cadence in [8, 16, 24, 32] {
+        for (boundary, direction) in [(0.0, 1.0), (-500.0, -1.0)] {
+            ui.invoke_reset(boundary);
+            for _ in 0..30 {
+                ui.invoke_wheel(30.0 * direction);
+                i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+                let stretched = ui.get_position();
+                for _ in 0..cadence / 8 {
+                    i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(8));
+                    assert_eq!(
+                        ui.get_position(),
+                        stretched,
+                        "spring must not pull against live wheel input at {cadence}ms spacing"
+                    );
+                }
+                assert_eq!(ui.get_bounded(), boundary);
+            }
+            assert!(
+                (ui.get_position() - boundary).abs() > 70.0,
+                "a sustained pull can reach the full elastic range"
+            );
+            tick(160);
+            assert_eq!(ui.get_position(), boundary);
+            assert!(!ui.get_active());
+        }
+    }
+}
+
+#[test]
+fn native_wheel_gesture_holds_until_end_and_then_returns_quickly() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    // The native observer runs before Slint forwards that same terminal wheel
+    // event to TouchArea, including its zero or final nonzero delta.
+    for terminal_delta in [0.0, 4.0] {
+        ui.invoke_reset(0.0);
+        ui.invoke_native_wheel_active(true);
+        ui.invoke_wheel(160.0);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        ui.invoke_wheel(terminal_delta);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let released = ui.get_position();
+        tick(48);
+        assert!(
+            ui.get_position() < released,
+            "terminal wheel callback preserves the short release guard: delta={terminal_delta}"
+        );
+        tick(112);
+        assert_eq!(ui.get_position(), 0.0);
+        assert!(!ui.get_active());
+    }
     for (boundary, direction) in [(0.0, 1.0), (-500.0, -1.0)] {
         ui.invoke_reset(boundary);
-        ui.invoke_wheel(160.0 * direction);
-        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
-        let stretched = (ui.get_position() - boundary).abs();
-        for delta in [8.0, 6.0, 4.0, 3.0, 2.0, 1.0, 0.8, 0.6, 0.4, 0.2] {
-            tick(16);
+        ui.invoke_native_wheel_active(true);
+        let mut previous = 0.0;
+        for delta in [160.0, 8.0, 6.0, 4.0, 3.0, 2.0, 1.0, 0.8, 0.6, 0.4, 0.2] {
             ui.invoke_wheel(delta * direction);
             i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+            let stretched = (ui.get_position() - boundary).abs();
+            assert!(stretched >= previous, "outward input remains monotone");
+            tick(64);
+            assert_eq!((ui.get_position() - boundary).abs(), stretched);
             assert_eq!(ui.get_bounded(), boundary);
+            previous = stretched;
         }
-        assert!(
-            (ui.get_position() - boundary).abs() < 1.0,
-            "momentum tail must not hold the stretch: initial={stretched}, remaining={}",
-            (ui.get_position() - boundary).abs()
+        tick(500);
+        assert_eq!(
+            (ui.get_position() - boundary).abs(),
+            previous,
+            "a held trackpad stays stretched"
         );
-        tick(128);
+        ui.invoke_wheel(-20.0 * direction);
+        assert!(
+            (ui.get_position() - boundary).abs() < previous,
+            "inward reversal follows input immediately"
+        );
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let released = (ui.get_position() - boundary).abs();
+        tick(48);
+        assert!(
+            (ui.get_position() - boundary).abs() < released,
+            "native gesture end starts the return after the short handoff guard"
+        );
+        tick(112);
+        assert_eq!(ui.get_position(), boundary);
+        assert!(!ui.get_active());
+
+        // A new gesture interrupts a return from its current rendered position.
+        ui.invoke_native_wheel_active(true);
+        ui.invoke_wheel(160.0 * direction);
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        tick(32);
+        ui.invoke_native_wheel_active(true);
+        ui.invoke_wheel(10.0 * direction);
+        let resumed = ui.get_position();
+        tick(500);
+        assert_eq!(ui.get_position(), resumed);
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        tick(160);
+        assert_eq!(ui.get_position(), boundary);
+        assert!(!ui.get_active());
+
+        // Native finger-end is followed by momentum-start, often at zero delta.
+        ui.invoke_native_wheel_active(true);
+        ui.invoke_wheel(160.0 * direction);
+        let before_handoff = ui.get_position();
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        ui.invoke_wheel(0.0);
+        tick(16);
+        ui.invoke_native_wheel_active(true);
+        ui.invoke_wheel(0.0);
+        tick(64);
+        assert_eq!(
+            ui.get_position(),
+            before_handoff,
+            "native momentum handoff cannot twitch the stretch"
+        );
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        tick(160);
         assert_eq!(ui.get_position(), boundary);
         assert!(!ui.get_active());
     }
+
+    // Disabling a viewport cancels a held native gesture without a later replay.
+    ui.invoke_reset(0.0);
+    ui.invoke_native_wheel_active(true);
+    ui.invoke_wheel(160.0);
+    ui.set_enabled(false);
+    tick(16);
+    assert_eq!(ui.get_position(), 0.0);
+    assert!(!ui.get_active());
+    ui.invoke_native_wheel_active(false);
+    ui.set_enabled(true);
+    tick(128);
+    assert_eq!(ui.get_position(), 0.0);
+    assert!(!ui.get_active());
 }
 
 #[test]

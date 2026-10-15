@@ -1,5 +1,10 @@
 import { BackScroll } from "back-scroll.slint";
 
+// Slint TouchArea drops native wheel phases; the window event observer supplies them.
+export global WheelGesture {
+    in-out property <bool> active: false;
+}
+
 // Shared, allocation-free one-axis elastic motion in logical pixels.
 // Only the visual position may leave the bounds; consumers persist bounded-position.
 export component ElasticAxis inherits Rectangle {
@@ -10,8 +15,10 @@ export component ElasticAxis inherits Rectangle {
     out property <length> position: 0px;
     out property <length> bounded-position: clamp(root.position, root.minimum, root.maximum);
     out property <length> overshoot: root.position - root.bounded-position;
-    out property <bool> active: root.held || clock.running;
+    out property <bool> active: root.held || root.wheeling || clock.running;
     private property <bool> held;
+    private property <bool> wheeling;
+    private property <bool> native-wheel-active: WheelGesture.active;
     private property <float> velocity;
     private property <duration> last-time;
     private property <duration> frame-time;
@@ -26,11 +33,11 @@ export component ElasticAxis inherits Rectangle {
         return distance / (0.55 * max(0.000001, 1 - abs(distance) / root.limit));
     }
     public function reset(value: length) {
-        clock.stop(); root.held = false; root.velocity = 0;
+        clock.stop(); wheel-end.stop(); root.held = false; root.wheeling = false; root.velocity = 0;
         root.position = clamp(value, root.minimum, root.maximum);
     }
     public function begin() {
-        clock.stop(); root.velocity = 0; root.held = true;
+        clock.stop(); wheel-end.stop(); root.wheeling = false; root.velocity = 0; root.held = true;
         root.last-time = animation-tick();
     }
     function displace(delta: length) {
@@ -57,11 +64,12 @@ export component ElasticAxis inherits Rectangle {
     }
     public function wheel(delta: length) {
         if !root.enabled { return; }
-        root.held = false; root.velocity = 0;
+        clock.stop(); root.held = false; root.wheeling = true; root.velocity = 0;
         root.displace(delta);
-        // Follow each OS delta directly without adding a second fling. Keep the
-        // edge spring running: a momentum tail must not restart its deadline.
-        if !clock.running { root.start-clock(); }
+        // Input owns the visual position until release. Never run the spring
+        // against incoming deltas; use a short fallback for phase-less wheels.
+        if root.native-wheel-active { wheel-end.stop(); }
+        else { wheel-end.start(); wheel-end.restart(); }
     }
     function start-clock() {
         root.frame-time = animation-tick(); clock.start(); clock.restart();
@@ -70,6 +78,22 @@ export component ElasticAxis inherits Rectangle {
     changed minimum => { root.reset(root.bounded-position); }
     changed maximum => { root.reset(root.bounded-position); }
     changed extent => { root.reset(root.bounded-position); }
+    changed native-wheel-active => {
+        if root.wheeling {
+            wheel-end.stop();
+            if root.native-wheel-active { clock.stop(); }
+            else { wheel-end.start(); wheel-end.restart(); }
+        }
+    }
+    wheel-end := Timer {
+        // Cover the native finger-end -> momentum-start handoff as well as
+        // detecting the end of a phase-less wheel burst.
+        interval: 32ms; running: false;
+        triggered => {
+            self.stop();
+            if !root.native-wheel-active { root.start-clock(); }
+        }
+    }
     clock := Timer {
         interval: 16ms; running: false;
         triggered => {
@@ -90,7 +114,7 @@ export component ElasticAxis inherits Rectangle {
                 root.displace(root.velocity * dt * 1px);
             }
             if abs(root.overshoot) < 0.1px && abs(root.velocity) < 3 {
-                root.position = root.bounded-position; root.velocity = 0; self.stop();
+                root.position = root.bounded-position; root.velocity = 0; root.wheeling = false; self.stop();
             }
         }
     }
