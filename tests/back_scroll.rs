@@ -110,7 +110,7 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
             "continuous momentum must not trigger another Back"
         );
     }
-    tick(100); // A separate gesture is accepted after only 80ms of silence.
+    tick(70); // A separate gesture is accepted after 60ms of silence.
     scroll(60.0, 0.0);
     assert_eq!(ui.get_screen_title(), "Music");
     // Keyboard Back remains immediate and independent of the scroll latch.
@@ -129,7 +129,7 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
         0,
         "Back momentum must not turn a Home page"
     );
-    tick(100);
+    tick(70);
     scroll(-60.0, 0.0);
     assert_eq!(ui.get_home_page(), 1, "a new Home gesture remains usable");
 
@@ -150,11 +150,34 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
     ui.window().take_snapshot().unwrap();
     scroll(60.0, 0.0);
     assert_eq!(ui.get_screen_title(), "Albums");
-    tick(200);
+    tick(120);
     scroll(60.0, 0.0);
     assert_eq!(
         ui.get_screen_title(),
         "Music",
-        "a single-event Back must release ownership without a momentum tail"
+        "a single-event Back releases ownership and screen input within 120ms"
+    );
+
+    // With slides disabled, only the quiet interval should gate another Back.
+    {
+        let mut c = controller.borrow_mut();
+        c.state.smooth_slides = false;
+        c.state.navigation.open(Screen::Groups(Group::Albums));
+        c.state.navigation.open(Screen::Songs(Filter::Album {
+            name: "Example".into(),
+            artist: Some("Artist".into()),
+        }));
+        c.execute(&ui, Action::FinishSearchEditing);
+    }
+    tick(0);
+    tick(70);
+    scroll(60.0, 0.0);
+    assert_eq!(ui.get_screen_title(), "Albums");
+    tick(70);
+    scroll(60.0, 0.0);
+    assert_eq!(
+        ui.get_screen_title(),
+        "Music",
+        "slides disabled: a fresh Back works after 70ms"
     );
 }

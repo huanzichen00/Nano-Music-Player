@@ -66,7 +66,7 @@ export component AppWindow inherits Window {
     private property <length> current-screen-x: 0px;
     private property <length> previous-screen-x: 0px;
     transition-completion := Timer {
-        interval: 150ms; running: false;
+        interval: 110ms; running: false;
         triggered => {
             self.stop();
             // A navigation event can publish new rows before its change handler
@@ -83,8 +83,8 @@ export component AppWindow inherits Window {
     out property <length> home-outgoing-transition-offset: home.page-outgoing-offset;
     out property <length> home-overshoot: home.overshoot;
     out property <length> list-overshoot: library.overshoot;
-    animate current-screen-x { duration: root.transition-animating ? 140ms : 0ms; easing: ease-in-out; }
-    animate previous-screen-x { duration: root.transition-animating ? 140ms : 0ms; easing: ease-in-out; }
+    animate current-screen-x { duration: root.transition-animating ? 100ms : 0ms; easing: ease-in-out; }
+    animate previous-screen-x { duration: root.transition-animating ? 100ms : 0ms; easing: ease-in-out; }
     changed screen-transition-generation => {
         root.reset-screen-motion();
         root.active-transition-generation = root.screen-transition-generation;

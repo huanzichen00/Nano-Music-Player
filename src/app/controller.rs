@@ -3553,7 +3553,7 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
             let weak = ui.as_weak();
             scroll_timeout.start(
                 slint::TimerMode::SingleShot,
-                std::time::Duration::from_millis(80),
+                std::time::Duration::from_millis(60),
                 move || {
                     if let Some(ui) = weak.upgrade() {
                         ui.global::<BackScroll>().set_consumed(false);

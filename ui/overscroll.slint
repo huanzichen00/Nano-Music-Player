@@ -81,9 +81,9 @@ export component ElasticAxis inherits Rectangle {
             root.frame-time = animation-tick();
             let offset = root.overshoot / 1px;
             if abs(offset) > 0.001 {
-                // Implicit critically damped spring (omega=22/s). Stable even
+                // Implicit critically damped spring (omega=28/s). Stable even
                 // after a delayed frame; preserve incoming velocity at the edge.
-                root.velocity = (root.velocity - 484 * offset * dt) / (1 + 44 * dt + 484 * dt * dt);
+                root.velocity = (root.velocity - 784 * offset * dt) / (1 + 56 * dt + 784 * dt * dt);
                 let next = root.position + root.velocity * dt * 1px;
                 // Settle at the boundary without oscillating into the list.
                 if (next - root.bounded-position) * offset <= 0px {

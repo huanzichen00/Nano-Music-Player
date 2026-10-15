@@ -15,7 +15,7 @@ to the origin.
   `0.55*d / (1 + 0.55*abs(d)/L)`, where `L` is 32% of the viewport extent. The
   inverse mapping preserves resistance across successive events and reversals.
   A held drag has no return timer. Release starts decaying pointer inertia or an
-  implicit critically damped spring (22/s), preserving velocity on boundary
+  implicit critically damped spring (28/s), preserving velocity on boundary
   entry. The spring settles exactly, without repeated oscillation.
 - `ElasticFlickable` retains Slint's `Flickable` viewport, content dimensions,
   clipping and programmatic scroll coordinates. A single `SwipeGestureHandler`
@@ -126,9 +126,13 @@ trackpad behavior. No installed app bundle is replaced by this change.
 
 ## Integration with the current player
 
-The integrated version retains the current 80ms Back quiet interval, 140ms screen
-animation, settings hierarchy, list icons, video thumbnail geometry, and the
-original-plus-secondary lyric layout. Translation takes priority over romaji in
+The current version uses a 60ms Back quiet interval and 100ms screen animation
+with 110ms completion. The spring frequency increased from 22/s to 28/s to
+shorten the elastic return; a paused 160px pull settles within 400ms after release
+in the frame-stepped regression. Held drags, resistance, the 90ms wheel inactivity
+deadline, and momentum ownership are unchanged. The settings hierarchy, list
+icons, video thumbnail geometry, and original-plus-secondary lyric layout are
+preserved. Translation takes priority over romaji in
 that secondary line. The elastic viewport replaces only the scrolling container.
 
 Elastic list and lyric viewports share the existing `BackScroll` burst owner

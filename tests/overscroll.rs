@@ -88,6 +88,37 @@ fn tick(ms: u64) {
 }
 
 #[test]
+fn spring_return_settles_promptly_at_both_edges() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    for (boundary, delta) in [(0.0, 160.0), (-500.0, -160.0)] {
+        ui.invoke_reset(boundary);
+        ui.invoke_begin();
+        ui.invoke_drag(delta);
+        let held = ui.get_position();
+        tick(128);
+        assert_eq!(ui.get_position(), held, "a paused drag stays held");
+        ui.invoke_release();
+        tick(64);
+        assert!(
+            (ui.get_position() - boundary).abs() < (held - boundary).abs(),
+            "return progresses smoothly"
+        );
+        assert!(ui.get_active(), "return is still animated after 64ms");
+        tick(336);
+        assert_eq!(ui.get_position(), boundary, "return settles within 400ms");
+        assert!(!ui.get_active(), "settled motion releases its timer");
+
+        ui.invoke_wheel(delta);
+        tick(496); // Existing 90ms wheel inactivity deadline plus the return.
+        assert_eq!(ui.get_position(), boundary);
+        assert!(!ui.get_active());
+    }
+}
+
+#[test]
 fn elastic_axis_boundaries_resistance_momentum_and_interruptions() {
     i_slint_backend_testing::init_no_event_loop();
     let ui = ElasticHarness::new().unwrap();
