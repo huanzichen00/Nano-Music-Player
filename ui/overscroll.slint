@@ -71,7 +71,7 @@ export component ElasticAxis inherits Rectangle {
     changed maximum => { root.reset(root.bounded-position); }
     changed extent => { root.reset(root.bounded-position); }
     wheel-end := Timer {
-        interval: 90ms; running: false;
+        interval: 32ms; running: false;
         triggered => { self.stop(); root.start-clock(); }
     }
     clock := Timer {
@@ -81,9 +81,9 @@ export component ElasticAxis inherits Rectangle {
             root.frame-time = animation-tick();
             let offset = root.overshoot / 1px;
             if abs(offset) > 0.001 {
-                // Implicit critically damped spring (omega=28/s). Stable even
+                // Implicit critically damped spring (omega=60/s). Stable even
                 // after a delayed frame; preserve incoming velocity at the edge.
-                root.velocity = (root.velocity - 784 * offset * dt) / (1 + 56 * dt + 784 * dt * dt);
+                root.velocity = (root.velocity - 3600 * offset * dt) / (1 + 120 * dt + 3600 * dt * dt);
                 let next = root.position + root.velocity * dt * 1px;
                 // Settle at the boundary without oscillating into the list.
                 if (next - root.bounded-position) * offset <= 0px {

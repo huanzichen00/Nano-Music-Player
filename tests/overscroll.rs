@@ -107,12 +107,20 @@ fn spring_return_settles_promptly_at_both_edges() {
             "return progresses smoothly"
         );
         assert!(ui.get_active(), "return is still animated after 64ms");
-        tick(336);
-        assert_eq!(ui.get_position(), boundary, "return settles within 400ms");
+        tick(160);
+        assert_eq!(ui.get_position(), boundary, "return settles within 224ms");
         assert!(!ui.get_active(), "settled motion releases its timer");
 
         ui.invoke_wheel(delta);
-        tick(496); // Existing 90ms wheel inactivity deadline plus the return.
+        // Process the wheel callback's timer bindings before measuring its deadline.
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let stretched = (ui.get_position() - boundary).abs();
+        tick(48);
+        assert!(
+            (ui.get_position() - boundary).abs() < stretched,
+            "wheel return starts within 48ms of the last delta"
+        );
+        tick(208); // 32ms wheel inactivity deadline plus the return.
         assert_eq!(ui.get_position(), boundary);
         assert!(!ui.get_active());
     }

@@ -113,7 +113,7 @@ fn slide(
         initial * direction > 0.0,
         "{name}: starts from the requested side"
     );
-    tick(70);
+    tick(35);
     let offset = ui.get_transition_offset();
     assert!(
         offset * direction > 0.0 && offset.abs() < initial.abs(),
@@ -215,7 +215,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
         key(&ui, "j");
     }
     key(&ui, "l");
-    tick(90);
+    tick(60);
     // The old deadline can fire before the next frame processes Back's change handler.
     raw_key(&ui, "h");
     tick(30);
@@ -225,7 +225,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
         ui.get_previous_rows().row_count() > 0,
         "an old completion cannot release the latest transition's outgoing rows"
     );
-    tick(50);
+    tick(25);
     assert!(
         ui.get_transition_offset() < 0.0,
         "Back keeps moving past the old deadline"
@@ -233,7 +233,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     save(&frame(&ui), "screen-interrupted-back-middle");
     settled(&ui);
     key(&ui, "l");
-    tick(90);
+    tick(60);
     // Also cover commands which publish a generation without dispatching another input frame.
     controller.borrow_mut().execute(&ui, Action::Back);
     tick(30);
@@ -258,7 +258,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
         0.0,
         "returning Home must position its icons immediately, without replaying hidden page motion"
     );
-    tick(70);
+    tick(35);
     save(&frame(&ui), "screen-return-home-middle");
     wheel(&ui, -80.0);
     assert_eq!(
@@ -293,7 +293,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
 
     // Turning motion off mid-flight must finish both hosts and release controls.
     key(&ui, Key::Return);
-    tick(60);
+    tick(35);
     assert!(ui.get_transition_offset() > 0.0);
     key(&ui, Key::Return); // Display is the first Settings level.
     let toggle = ui

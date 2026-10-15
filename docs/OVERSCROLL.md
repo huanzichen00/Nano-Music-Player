@@ -15,7 +15,7 @@ to the origin.
   `0.55*d / (1 + 0.55*abs(d)/L)`, where `L` is 32% of the viewport extent. The
   inverse mapping preserves resistance across successive events and reversals.
   A held drag has no return timer. Release starts decaying pointer inertia or an
-  implicit critically damped spring (28/s), preserving velocity on boundary
+  implicit critically damped spring (60/s), preserving velocity on boundary
   entry. The spring settles exactly, without repeated oscillation.
 - `ElasticFlickable` retains Slint's `Flickable` viewport, content dimensions,
   clipping and programmatic scroll coordinates. A single `SwipeGestureHandler`
@@ -33,7 +33,7 @@ this architecture. The live-input regression requires a single recognizer on
 each scrolling viewport.
 
 Wheel callbacks expose deltas but no gesture phase or momentum flag. Each delta
-is applied directly, including OS-supplied momentum; a 90ms inactivity deadline
+is applied directly, including OS-supplied momentum; a 32ms inactivity deadline
 starts spring-back. No synthetic wheel fling is added. This phase approximation
 needs physical trackpad evaluation. It intentionally changes the old fixed
 180ms per-wheel interpolation to direct following. Lyric programmatic following
@@ -126,11 +126,12 @@ trackpad behavior. No installed app bundle is replaced by this change.
 
 ## Integration with the current player
 
-The current version uses a 60ms Back quiet interval and 100ms screen animation
-with 110ms completion. The spring frequency increased from 22/s to 28/s to
-shorten the elastic return; a paused 160px pull settles within 400ms after release
-in the frame-stepped regression. Held drags, resistance, the 90ms wheel inactivity
-deadline, and momentum ownership are unchanged. The settings hierarchy, list
+The current version uses a 40ms Back quiet interval and 70ms screen animation
+with 80ms completion. The spring frequency is 60/s, up from the initial timing
+adjustment's 28/s. A paused 160px pull settles within 224ms after release in the
+frame-stepped regression. Wheel return starts within 48ms after the final delta,
+using a 32ms inactivity deadline instead of 90ms. Held drags, resistance, and
+momentum ownership are unchanged. The settings hierarchy, list
 icons, video thumbnail geometry, and original-plus-secondary lyric layout are
 preserved. Translation takes priority over romaji in
 that secondary line. The elastic viewport replaces only the scrolling container.

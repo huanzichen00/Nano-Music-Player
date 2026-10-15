@@ -26,13 +26,13 @@ current view. Plain S retains its existing toggle. The keymap migration adds the
 new binding only if its chord is free, and preserves custom bindings and an
 explicitly unassigned current-format map.
 
-The Back gesture quiet interval is 60 ms, down from 80 ms, and library slide
-animation is 100 ms with 110 ms completion, down from 140/150 ms. A native Winit
+The Back gesture quiet interval is 40 ms, down from 60 ms, and library slide
+animation is 70 ms with 80 ms completion, down from 100/110 ms. A native Winit
 wheel observer keeps burst ownership alive while outgoing/incoming views are
 disabled. A regression sends continuous 20 ms wheel activity across transitions
-and checks one Back, then checks that a new gesture is accepted after 70 ms of
+and checks one Back, then checks that a new gesture is accepted after 50 ms of
 silence once the slide settles. Single-event gestures also cover input returning
-within 120 ms with slides, and after 70 ms without slides. This is simulated
+within 90 ms with slides, and after 50 ms without slides. This is simulated
 wheel coverage, not a physical trackpad measurement.
 
 macOS defaults to Skia after native comparisons reproduced broken small-text
