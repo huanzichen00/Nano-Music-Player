@@ -1,0 +1,161 @@
+// Shared, allocation-free one-axis elastic motion in logical pixels.
+// Only the visual position may leave the bounds; consumers persist bounded-position.
+export component ElasticAxis inherits Rectangle {
+    in property <length> minimum: 0px;
+    in property <length> maximum: 0px;
+    in property <length> extent: 240px;
+    in property <bool> enabled: true;
+    out property <length> position: 0px;
+    out property <length> bounded-position: clamp(root.position, root.minimum, root.maximum);
+    out property <length> overshoot: root.position - root.bounded-position;
+    out property <bool> active: root.held || clock.running || wheel-end.running;
+    private property <bool> held;
+    private property <float> velocity;
+    private property <duration> last-time;
+    private property <duration> frame-time;
+    private property <length> limit: max(1px, root.extent * 0.32);
+    width: 0px; height: 0px;
+
+    // d*0.55/(1 + d*0.55/L): slope falls continuously towards zero.
+    pure function rubber(distance: length) -> length {
+        return distance * 0.55 / (1 + abs(distance) * 0.55 / root.limit);
+    }
+    pure function uncompress(distance: length) -> length {
+        return distance / (0.55 * max(0.01, 1 - abs(distance) / root.limit));
+    }
+    public function reset(value: length) {
+        clock.stop(); wheel-end.stop(); root.held = false; root.velocity = 0;
+        root.position = clamp(value, root.minimum, root.maximum);
+    }
+    public function begin() {
+        clock.stop(); wheel-end.stop(); root.velocity = 0; root.held = true;
+        root.last-time = animation-tick();
+    }
+    function displace(delta: length) {
+        let boundary = root.bounded-position;
+        let raw = boundary + root.uncompress(root.position - boundary) + delta;
+        let bound = clamp(raw, root.minimum, root.maximum);
+        root.position = bound + root.rubber(raw - bound);
+    }
+    public function drag(delta: length) {
+        if !root.enabled { return; }
+        if !root.held { root.begin(); }
+        let before = root.position;
+        root.displace(delta);
+        let elapsed = (animation-tick() - root.last-time) / 1s;
+        if elapsed > 0 && elapsed < 0.1 {
+            root.velocity = 0.35 * root.velocity + 0.65 * ((root.position - before) / 1px) / max(0.008, elapsed);
+        }
+        root.last-time = animation-tick();
+    }
+    public function release() {
+        root.held = false;
+        if animation-tick() - root.last-time > 100ms { root.velocity = 0; }
+        root.start-clock();
+    }
+    public function wheel(delta: length) {
+        if !root.enabled { return; }
+        clock.stop(); root.held = false; root.velocity = 0;
+        root.displace(delta);
+        // Slint scroll callbacks have no phase/momentum flag. Follow every OS
+        // delta directly and settle after inactivity; never add a second fling.
+        wheel-end.start(); wheel-end.restart();
+    }
+    function start-clock() {
+        root.frame-time = animation-tick(); clock.start(); clock.restart();
+    }
+    changed enabled => { if !root.enabled { root.reset(root.bounded-position); } }
+    changed minimum => { root.reset(root.bounded-position); }
+    changed maximum => { root.reset(root.bounded-position); }
+    changed extent => { root.reset(root.bounded-position); }
+    wheel-end := Timer {
+        interval: 90ms; running: false;
+        triggered => { self.stop(); root.start-clock(); }
+    }
+    clock := Timer {
+        interval: 16ms; running: false;
+        triggered => {
+            let dt = clamp((animation-tick() - root.frame-time) / 1s, 0.001, 0.032);
+            root.frame-time = animation-tick();
+            let offset = root.overshoot / 1px;
+            if abs(offset) > 0.001 {
+                // Implicit critically damped spring (omega=22/s). Stable even
+                // after a delayed frame; preserve incoming velocity at the edge.
+                root.velocity = (root.velocity - 484 * offset * dt) / (1 + 44 * dt + 484 * dt * dt);
+                let next = root.position + root.velocity * dt * 1px;
+                // Settle at the boundary without oscillating into the list.
+                if (next - root.bounded-position) * offset <= 0px {
+                    root.position = root.bounded-position; root.velocity = 0;
+                } else { root.position = next; }
+            } else {
+                root.velocity = root.velocity / (1 + 5 * dt);
+                root.displace(root.velocity * dt * 1px);
+            }
+            if abs(root.overshoot) < 0.1px && abs(root.velocity) < 3 {
+                root.position = root.bounded-position; root.velocity = 0; self.stop();
+            }
+        }
+    }
+}
+
+// Keep Flickable's viewport, clipping and public content coordinates. Slint
+// 1.18 clamps native pan/fling before exposing it, so a directional recognizer
+// supplies deltas to ElasticAxis while taps still reach the existing children.
+export component ElasticFlickable inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> enabled: true;
+    in property <length> content-height;
+    in-out property <length> content-y;
+    in property <duration> follow-duration: 0ms;
+    out property <length> overshoot: motion.overshoot;
+    out property <bool> user-interacting: motion.active;
+    clip: true;
+    motion := ElasticAxis {
+        minimum: min(0px, root.height - root.content-height);
+        extent: root.height; enabled: root.enabled;
+        changed bounded-position => { root.content-y = self.bounded-position; }
+    }
+    changed content-y => {
+        if abs(root.content-y - motion.bounded-position) > 0.01px {
+            motion.reset(root.content-y);
+            root.content-y = motion.bounded-position;
+        }
+    }
+    changed height => { motion.reset(root.content-y); root.content-y = motion.bounded-position; }
+    changed width => { motion.reset(root.content-y); }
+    changed content-height => { motion.reset(root.content-y); root.content-y = motion.bounded-position; }
+    changed enabled => { if !root.enabled { pan.cancel(); motion.reset(root.content-y); } }
+    pan := SwipeGestureHandler {
+        enabled: root.enabled;
+        handle-swipe-up: true; handle-swipe-down: true;
+        private property <length> previous-y;
+        changed pressed-position => { self.previous-y = self.pressed-position.y; }
+        moved => {
+            motion.drag(self.current-position.y - self.previous-y);
+            self.previous-y = self.current-position.y;
+        }
+        swiped => { motion.release(); }
+        cancelled => { motion.release(); }
+        viewport := Flickable {
+            interactive: false;
+            content-width: root.width;
+            content-height: max(self.height, root.content-height);
+            content-y: clamp(root.content-y, min(0px, root.height - root.content-height), 0px);
+            animate content-y { duration: motion.active ? 0ms : root.follow-duration; easing: ease-out; }
+            TouchArea {
+                x: 0px; y: -viewport.content-y;
+                width: root.width; height: root.height;
+                scroll-event(event) => {
+                    if abs(event.delta-x) > 1.5 * abs(event.delta-y) { return reject; }
+                    if root.enabled { motion.wheel(event.delta-y); }
+                    accept
+                }
+                Rectangle {
+                    x: 0px; y: viewport.content-y + motion.overshoot;
+                    width: root.width; height: max(root.height, root.content-height);
+                    @children
+                }
+            }
+        }
+    }
+}
