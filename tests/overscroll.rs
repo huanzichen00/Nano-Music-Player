@@ -18,6 +18,65 @@ slint::slint! {
         public function reset(value: length) { axis.reset(value); }
         axis := ElasticAxis { minimum: root.minimum; extent: root.extent; enabled: root.enabled; }
     }
+    export component FlickHarness inherits Window {
+        width: 240px; height: 300px;
+        out property <length> overshoot: list.overshoot;
+        out property <length> visual-position: list.visual-position;
+        in-out property <length> scroll-y;
+        in property <duration> follow-duration;
+        list := ElasticFlickable {
+            width: 240px; height: 300px; content-height: 600px;
+            content-y <=> root.scroll-y; follow-duration: root.follow-duration;
+            Rectangle { width: 240px; height: 600px; background: #fff; TouchArea {} }
+        }
+    }
+}
+
+#[test]
+fn flickable_receives_live_drag() {
+    use slint::platform::{PointerEventButton, WindowEvent};
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = FlickHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    ui.window().dispatch_event(WindowEvent::PointerPressed {
+        position: slint::LogicalPosition::new(100.0, 100.0),
+        button: PointerEventButton::Left,
+    });
+    for y in [110.0, 120.0, 130.0, 140.0] {
+        tick(16);
+        ui.window().dispatch_event(WindowEvent::PointerMoved {
+            position: slint::LogicalPosition::new(100.0, y),
+        });
+    }
+    assert!(
+        ui.get_overshoot() > 0.0,
+        "live offset {}",
+        ui.get_overshoot()
+    );
+    ui.window().dispatch_event(WindowEvent::PointerReleased {
+        position: slint::LogicalPosition::new(100.0, 140.0),
+        button: PointerEventButton::Left,
+    });
+    tick(2000);
+    ui.set_follow_duration(180);
+    ui.set_scroll_y(-200.0);
+    tick(16);
+    tick(64);
+    let before = ui.get_visual_position();
+    assert!(before < 0.0 && before > -200.0);
+    ui.window().dispatch_event(WindowEvent::PointerScrolled {
+        position: slint::LogicalPosition::new(100.0, 100.0),
+        delta_x: 0.0,
+        delta_y: -10.0,
+    });
+    tick(16);
+    assert!(
+        (ui.get_visual_position() - before + 10.0).abs() < 0.1,
+        "input interrupts lyric follow at its rendered position: before={before}, after={}, canonical={}",
+        ui.get_visual_position(),
+        ui.get_scroll_y()
+    );
 }
 
 fn tick(ms: u64) {
