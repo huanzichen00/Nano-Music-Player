@@ -133,3 +133,38 @@ Three ignored CoreAudio playback/transport/statistics tests and the ignored nati
 video playback/rotation/music-handoff test were explicitly run and pass. The
 optimized release build passes. Audible Gapless continuity, clipping and physical
 trackpad/Shift+S behavior remain unverified; audio-core source was not changed.
+
+## Installed T shortcut update, 2026-10-15
+
+Installed code commit `fc935e9` after the Mac was unlocked. The replaced bundle
+was retained as a backup, and the installed executable matches the verified
+release SHA-256:
+`290f844497666cb62d121076a0c79562b06158690ea98c2edb046632213b23c4`.
+The bundle signature passed strict verification and the app relaunched with its
+existing library and preferences.
+
+The installed native interface showed Japanese originals with Chinese translations
+on separate lines underneath. Pressing plain T hid translation and restored the
+saved romaji annotations; a second T immediately restored cached translation and
+reported "Translation ready". No new live translation request was made. Missing
+translation generation, inherited-enabled preference handling, failed requests,
+T-off and continuing real audio are covered by the targeted regression/native
+tests. The final all-target suite passes 298 tests with 25 opt-in tests ignored;
+four native audio tests, checks, Clippy and the release build passed before this
+installation.
+
+The post-install real-song check remained at 0:00. A process sample found the
+audio worker waiting in `File::open`; a separate command-line read of that same
+regular audio file succeeded in 20 ms. macOS TCC logs explicitly reported a
+failed match against this app's previous Downloads-folder code requirement and
+an outstanding Downloads permission prompt after the rebuilt app launched.
+The Mac locked again before that prompt could be inspected. Renewed permission
+and subsequent installed-app playback remain pending at this snapshot. No audio
+engine change, privacy database edit or permission bypass was attempted.
+
+Separately, two fresh generated-fixture transport tests timed out at their
+existing three-second initial-load limit while the sampled worker was inside
+CoreAudio default-device initialization. System audio enumeration reported the
+built-in speakers as the default 48 kHz output; a later identical test passed
+without a code or timeout change. This does not establish the cause of those
+initialization delays or verify the still-blocked installed song playback.

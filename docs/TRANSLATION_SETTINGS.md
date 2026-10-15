@@ -97,8 +97,9 @@ final verification below.
 - A rendered regression checks that original and translated glyphs occupy separate
   vertical regions, wrapped text contributes its full height, missing translations
   preserve originals, and T restores both enabled and disabled romaji preferences.
-  The installed app's lyric panel was disabled during the final native check;
-  that native visual comparison remains unverified. See
+  On 2026-10-15 the installed app also displayed paired Japanese originals and
+  Chinese translations. T-off restored saved romaji; T-on restored the cached
+  translation with "Translation ready". See
   [installed verification](UI_REFERENCE_VERIFICATION.md) for the actual GUI results.
 
 The T follow-up also checks both initially disabled and inherited-enabled display
