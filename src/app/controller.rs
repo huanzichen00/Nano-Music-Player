@@ -1,5 +1,6 @@
 mod lyrics;
 mod statistics;
+mod video;
 use lyrics::{LookupEvent, LyricsService, RomajiEvent};
 
 use super::{
@@ -56,10 +57,8 @@ pub struct Controller {
     pub dispatcher: Dispatcher,
     engine: Engine,
     video_engine: crate::video::engine::Engine,
-    video_loading: Option<Receiver<Result<Vec<crate::video::library::Video>, String>>>,
+    video_tasks: video::VideoTasks,
     video_thumbnails: super::video_thumbnails::VideoThumbnails,
-    video_import: Option<Receiver<crate::video::import::Event>>,
-    subtitle_import: Option<Receiver<(u64, PathBuf, Option<PathBuf>)>>,
     subtitle_tracks: Vec<crate::video::engine::SubtitleTrack>,
     subtitle_cursor: usize,
     pending_media: Option<PendingMedia>,
@@ -166,7 +165,7 @@ impl Controller {
             }
         });
         let loading = Some(library_receiver);
-        let video_loading = Some(crate::video::import::load(directory.join("videos.json")));
+        let video_tasks = video::VideoTasks::new(directory.clone());
         match crate::video::subtitles::SubtitleAssociations::load(
             &directory.join("video-subtitles.json"),
         ) {
@@ -179,10 +178,8 @@ impl Controller {
             dispatcher: Dispatcher::new(keymap),
             engine: Engine::default(),
             video_engine: crate::video::engine::Engine::default(),
-            video_loading,
+            video_tasks,
             video_thumbnails: super::video_thumbnails::VideoThumbnails::default(),
-            video_import: None,
-            subtitle_import: None,
             subtitle_tracks: Vec::new(),
             subtitle_cursor: 0,
             pending_media: None,
@@ -633,11 +630,8 @@ impl Controller {
                 Effect::Video(command) => self.send_video(command),
                 Effect::ImportVideos => {
                     self.dialog_open = true;
-                    self.video_import = Some(crate::video::import::start(
-                        self.directory.join("videos.json"),
-                        translate(self.state.language, "Import Videos…"),
-                        None,
-                    ));
+                    self.video_tasks
+                        .start_import(translate(self.state.language, "Import Videos…"), None);
                 }
                 Effect::Import => {
                     self.dialog_open = true;
@@ -1064,11 +1058,7 @@ impl Controller {
             return;
         }
         self.state.video_importing = true;
-        self.video_import = Some(crate::video::import::start(
-            self.directory.join("videos.json"),
-            String::new(),
-            Some(paths),
-        ));
+        self.video_tasks.start_import(String::new(), Some(paths));
     }
 
     /// Persist the user's explicit subtitle choice for the active video and
@@ -1198,7 +1188,7 @@ impl Controller {
     }
 
     fn begin_subtitle_import(&mut self) {
-        if self.subtitle_import.is_some() || self.dialog_open {
+        if self.video_tasks.subtitle_pending() || self.dialog_open {
             return;
         }
         let Some((generation, video_path)) = self
@@ -1215,37 +1205,32 @@ impl Controller {
             return;
         };
         let title = self.text("Import / Replace…").to_string();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let selected = rfd::FileDialog::new()
-                .set_title(&title)
-                .add_filter("ASS / SSA Subtitles", &["ass", "ssa"])
-                .pick_file();
-            let _ = sender.send((generation, video_path, selected));
-        });
+        self.video_tasks
+            .start_subtitle_import(generation, video_path, title);
         self.dialog_open = true;
-        self.subtitle_import = Some(receiver);
     }
 
     fn subtitle_import_matches(&self, generation: u64, video_path: &std::path::Path) -> bool {
-        self.state.video_active
-            && self.state.video_generation == generation
-            && self
-                .state
+        video::subtitle_import_matches(
+            generation,
+            video_path,
+            self.state.video_active,
+            self.state.video_generation,
+            self.state
                 .video_current
                 .and_then(|id| self.state.videos.get(id))
-                .is_some_and(|video| video.path == video_path)
+                .map(|video| video.path.as_path()),
+        )
     }
 
     fn poll_videos(&mut self, ui: &AppWindow) {
-        if let Some(result) = self
-            .subtitle_import
-            .as_ref()
-            .and_then(|receiver| receiver.try_recv().ok())
-        {
-            self.subtitle_import = None;
+        if let Some(result) = self.video_tasks.poll_subtitle() {
             self.dialog_open = false;
-            if let (generation, video_path, Some(path)) = result
+            if let video::SubtitleSelection {
+                generation,
+                video_path,
+                selected: Some(path),
+            } = result
                 && self.subtitle_import_matches(generation, &video_path)
             {
                 self.set_video_subtitle(crate::video::subtitles::SubtitlePreference::External(
@@ -1254,12 +1239,7 @@ impl Controller {
                 ui.set_subtitle_choices(ModelRc::new(VecModel::from(self.subtitle_choices())));
             }
         }
-        if let Some(result) = self
-            .video_loading
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.video_loading = None;
+        if let Some(result) = self.video_tasks.poll_loading() {
             match result {
                 Ok(videos) => {
                     self.video_thumbnails.clear();
@@ -1269,16 +1249,10 @@ impl Controller {
             }
             self.rows_dirty = true;
         }
-        let imports: Vec<_> = self
-            .video_import
-            .as_ref()
-            .map(|rx| rx.try_iter().collect())
-            .unwrap_or_default();
-        for event in imports {
+        while let Some(event) = self.video_tasks.poll_import() {
             match event {
                 crate::video::import::Event::SelectionClosed => self.dialog_open = false,
                 crate::video::import::Event::Completed(result) => {
-                    self.video_import = None;
                     self.state.video_importing = false;
                     match result {
                         Ok(Some(result)) => {

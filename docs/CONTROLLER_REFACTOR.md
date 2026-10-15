@@ -135,3 +135,14 @@ cached at refresh, and draft updates clone Slint strings as before. Existing
 lossy path selection, draft recovery, failed saves, ID/order, missing originals
 and statistics-before-playlist shutdown are retained. Actual diff approved.
 Logs: `/tmp/nano-controller-playlists-{check,focused,regression,all}.log`.
+
+### Video task milestone
+
+Worker `f6073ac` cherry-picked as `0998d95`. VideoTasks owns 3 receiver fields;
+engine/transport, handoffs, frame cadence, subtitle application and landscape stay
+with Controller. Formatting/check: PASS. Library units: **207 passed, 8 ignored**
+(7 new video-task tests); video/UI/metrics/modal checks: **10 passed, 1 ignored**.
+Native generated-video import/frames/rotation/music handoff: **1 passed**.
+Full suite: **336 passed, 0 failed, 25 ignored**. Actual diff approved by reviewer.
+No engine, UI component or media-format support changes. Logs:
+`/tmp/nano-controller-video-{check,focused,regression,native,all}.log`.
