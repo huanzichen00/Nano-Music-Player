@@ -102,13 +102,27 @@ export component ElasticAxis inherits Rectangle {
 // 1.18 clamps native pan/fling before exposing it, so a directional recognizer
 // supplies deltas to ElasticAxis while taps still reach the existing children.
 export component ElasticFlickable inherits Rectangle {
+    in property <bool> back-enabled: false;
+    in property <int> navigation-generation;
     in property <float> s: 1;
     in property <bool> enabled: true;
     in property <length> content-height;
     in-out property <length> content-y;
     in property <duration> follow-duration: 0ms;
+    callback back;
     out property <length> overshoot: motion.overshoot;
+    out property <length> visual-position: viewport.content-y + motion.overshoot;
     out property <bool> user-interacting: motion.active;
+    private property <length> accumulated-x;
+    public function cancel-motion() { pan.cancel(); motion.reset(root.content-y); root.accumulated-x = 0px; back-timeout.stop(); }
+    function interrupt-follow() {
+        // A lyric highlight may still be animating towards its canonical row.
+        // Start new input at the rendered position, rather than that target.
+        if abs(viewport.content-y - motion.bounded-position) > 0.1px {
+            motion.reset(viewport.content-y);
+        }
+    }
+    back-timeout := Timer { interval: 500ms; running: false; triggered => { root.accumulated-x = 0px; self.stop(); } }
     clip: true;
     motion := ElasticAxis {
         minimum: min(0px, root.height - root.content-height);
@@ -124,19 +138,40 @@ export component ElasticFlickable inherits Rectangle {
     changed height => { motion.reset(root.content-y); root.content-y = motion.bounded-position; }
     changed width => { motion.reset(root.content-y); }
     changed content-height => { motion.reset(root.content-y); root.content-y = motion.bounded-position; }
-    changed enabled => { if !root.enabled { pan.cancel(); motion.reset(root.content-y); } }
+    changed enabled => { if !root.enabled { root.cancel-motion(); } }
+    changed navigation-generation => { root.cancel-motion(); }
     pan := SwipeGestureHandler {
+        x: 0px; y: 0px; width: root.width; height: root.height;
         enabled: root.enabled;
         handle-swipe-up: true; handle-swipe-down: true;
+        handle-swipe-right: root.back-enabled;
         private property <length> previous-y;
-        changed pressed-position => { self.previous-y = self.pressed-position.y; }
+        private property <bool> tracking;
+        private property <bool> horizontal;
         moved => {
+            let dx = self.current-position.x - self.pressed-position.x;
+            let dy = self.current-position.y - self.pressed-position.y;
+            if self.horizontal { return; }
+            if !self.tracking {
+                // Lock the axis once, rather than switching during a reversal.
+                if abs(dx) > abs(dy) { self.horizontal = true; return; }
+                root.interrupt-follow();
+                self.previous-y = self.pressed-position.y;
+                self.tracking = true; motion.begin();
+                root.accumulated-x = 0px; back-timeout.stop();
+            }
             motion.drag(self.current-position.y - self.previous-y);
             self.previous-y = self.current-position.y;
         }
-        swiped => { motion.release(); }
-        cancelled => { motion.release(); }
+        swiped => {
+            let dx = self.current-position.x - self.pressed-position.x;
+            let dy = self.current-position.y - self.pressed-position.y;
+            if self.horizontal && root.back-enabled && dx > 24px * root.s && dx > 1.5 * abs(dy) { root.back(); }
+            self.tracking = false; self.horizontal = false; motion.release();
+        }
+        cancelled => { self.tracking = false; self.horizontal = false; motion.release(); }
         viewport := Flickable {
+            x: 0px; y: 0px; width: root.width; height: root.height;
             interactive: false;
             content-width: root.width;
             content-height: max(self.height, root.content-height);
@@ -146,8 +181,19 @@ export component ElasticFlickable inherits Rectangle {
                 x: 0px; y: -viewport.content-y;
                 width: root.width; height: root.height;
                 scroll-event(event) => {
-                    if abs(event.delta-x) > 1.5 * abs(event.delta-y) { return reject; }
-                    if root.enabled { motion.wheel(event.delta-y); }
+                    if abs(event.delta-x) > 1.5 * abs(event.delta-y) {
+                        if !root.back-enabled { return reject; }
+                        if root.enabled {
+                            root.accumulated-x = max(0px, root.accumulated-x + event.delta-x);
+                            back-timeout.start(); back-timeout.restart();
+                            if root.accumulated-x > 32px * root.s {
+                                root.accumulated-x = 0px; back-timeout.stop(); root.back();
+                            }
+                        }
+                        return accept;
+                    }
+                    root.accumulated-x = 0px; back-timeout.stop();
+                    if root.enabled { root.interrupt-follow(); motion.wheel(event.delta-y); }
                     accept
                 }
                 Rectangle {
