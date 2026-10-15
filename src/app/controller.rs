@@ -1,3 +1,5 @@
+mod statistics;
+
 use super::{
     action::{Action, Category},
     artwork::ArtworkLoader,
@@ -20,12 +22,13 @@ use crate::{
     },
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use statistics::{Event as StatisticsEvent, StatisticsService};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     path::PathBuf,
     rc::Rc,
-    sync::mpsc::{Receiver, Sender},
+    sync::mpsc::Receiver,
 };
 
 // Closing a preview drops its receiver, but a blocking provider call may still be alive.
@@ -41,127 +44,6 @@ enum PendingMedia {
         handoff: u64,
         command: crate::video::engine::Command,
     },
-}
-
-enum StatisticsCommand {
-    Library(Vec<PathBuf>),
-    Rate {
-        path: PathBuf,
-        stars: u8,
-        request: u64,
-    },
-    Shutdown,
-    Renamed {
-        from: PathBuf,
-        to: PathBuf,
-    },
-    Played {
-        path: PathBuf,
-        played_at: i64,
-        listened_seconds: u32,
-    },
-}
-
-enum StatisticsEvent {
-    RatingsLoaded(HashMap<PathBuf, u8>),
-    RatingSaved {
-        path: PathBuf,
-        stars: u8,
-        request: u64,
-        result: Result<(), String>,
-    },
-    SmartPlaylists(HashMap<crate::library::statistics::SmartPlaylist, Vec<PathBuf>>),
-    Error(String),
-}
-
-fn statistics_worker(
-    database: PathBuf,
-) -> (
-    Sender<StatisticsCommand>,
-    Receiver<StatisticsEvent>,
-    std::thread::JoinHandle<()>,
-) {
-    let (commands, receiver) = std::sync::mpsc::channel();
-    let (events, event_receiver) = std::sync::mpsc::channel();
-    let worker = std::thread::spawn(move || {
-        let store = match crate::library::statistics::StatisticsStore::open(&database) {
-            Ok(store) => store,
-            Err(error) => {
-                let _ = events.send(StatisticsEvent::Error(error));
-                return;
-            }
-        };
-        match store.ratings() {
-            Ok(ratings) => {
-                let _ = events.send(StatisticsEvent::RatingsLoaded(ratings));
-            }
-            Err(error) => {
-                let _ = events.send(StatisticsEvent::Error(error));
-            }
-        }
-        let mut current_paths = Vec::new();
-        while let Ok(command) = receiver.recv() {
-            let result = match command {
-                StatisticsCommand::Shutdown => break,
-                StatisticsCommand::Rate {
-                    path,
-                    stars,
-                    request,
-                } => {
-                    let result = store.set_rating(&path, stars);
-                    let _ = events.send(StatisticsEvent::RatingSaved {
-                        path,
-                        stars,
-                        request,
-                        result,
-                    });
-                    continue;
-                }
-                StatisticsCommand::Library(paths) => {
-                    current_paths = paths;
-                    store.register_library_paths(&current_paths, chrono::Utc::now().timestamp())
-                }
-                StatisticsCommand::Renamed { from, to } => {
-                    store.rename_path(&from, &to).and_then(|_| {
-                        let ratings = store.ratings()?;
-                        let _ = events.send(StatisticsEvent::RatingsLoaded(ratings));
-                        Ok(())
-                    })
-                }
-                StatisticsCommand::Played {
-                    path,
-                    played_at,
-                    listened_seconds,
-                } => store.record_play(&path, played_at, listened_seconds),
-            };
-            if let Err(error) = result {
-                let _ = events.send(StatisticsEvent::Error(error));
-                continue;
-            }
-            let snapshots = crate::library::statistics::SmartPlaylist::ALL
-                .into_iter()
-                .map(|kind| {
-                    store
-                        .smart_playlist(kind, &current_paths)
-                        .map(|paths| (kind, paths))
-                })
-                .collect::<Result<HashMap<_, _>, _>>();
-            match snapshots {
-                Ok(playlists) => {
-                    if events
-                        .send(StatisticsEvent::SmartPlaylists(playlists))
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
-                Err(error) => {
-                    let _ = events.send(StatisticsEvent::Error(error));
-                }
-            }
-        }
-    });
-    (commands, event_receiver, worker)
 }
 
 pub struct Controller {
@@ -185,11 +67,7 @@ pub struct Controller {
     settings: Settings,
     media_bridge: crate::platform::macos_media::MediaBridge,
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
-    statistics_commands: Sender<StatisticsCommand>,
-    statistics_events: Receiver<StatisticsEvent>,
-    statistics_writer: Option<std::thread::JoinHandle<()>>,
-    pending_ratings: HashMap<PathBuf, (u64, u8)>,
-    rating_request: u64,
+    statistics: StatisticsService,
     library_monitor: Option<crate::library::library_monitor::Monitor>,
     library_scan_generation: u64,
     root_generations: HashMap<PathBuf, u64>,
@@ -308,8 +186,7 @@ impl Controller {
                 Keymap::default()
             });
         let database = directory.join("library.sqlite3");
-        let (statistics_commands, statistics_events, statistics_writer) =
-            statistics_worker(database.clone());
+        let statistics = StatisticsService::new(database.clone());
         let (sender, receiver) = std::sync::mpsc::channel();
         let (library_sender, library_receiver) = std::sync::mpsc::sync_channel(2);
         std::thread::spawn(move || {
@@ -357,11 +234,7 @@ impl Controller {
             settings,
             media_bridge: crate::platform::macos_media::MediaBridge::default(),
             media_marker: None,
-            statistics_commands,
-            statistics_events,
-            statistics_writer: Some(statistics_writer),
-            pending_ratings: HashMap::new(),
-            rating_request: 0,
+            statistics,
             library_monitor: None,
             library_scan_generation: 0,
             root_generations: HashMap::new(),
@@ -1107,11 +980,7 @@ impl Controller {
 
     fn record_qualified_play(&self, play: Option<crate::library::statistics::QualifiedPlay>) {
         if let Some(play) = play {
-            let _ = self.statistics_commands.send(StatisticsCommand::Played {
-                path: play.path,
-                played_at: chrono::Utc::now().timestamp(),
-                listened_seconds: play.listened.as_secs().min(u32::MAX as u64) as u32,
-            });
+            self.statistics.record_play(play);
         }
     }
 
@@ -2094,9 +1963,7 @@ impl Controller {
             .filter(|track| self.state.track_available(track))
             .map(|track| track.path.clone())
             .collect();
-        let _ = self
-            .statistics_commands
-            .send(StatisticsCommand::Library(paths));
+        self.statistics.set_library(paths);
     }
 
     pub fn set_rating(&mut self, ui: &AppWindow, path: &std::path::Path, stars: u8) {
@@ -2119,27 +1986,9 @@ impl Controller {
         if old == stars {
             return;
         }
-        self.rating_request = self.rating_request.wrapping_add(1);
-        // Preserve the last confirmed value across a burst of drag updates.
-        let previous = self
-            .pending_ratings
-            .get(path)
-            .map_or(old, |(_, previous)| *previous);
-        let request = self.rating_request;
-        self.pending_ratings
-            .insert(path.to_path_buf(), (request, previous));
         self.state.ratings.insert(path.to_path_buf(), stars);
         self.rows_dirty = true;
-        if self
-            .statistics_commands
-            .send(StatisticsCommand::Rate {
-                path: path.to_path_buf(),
-                stars,
-                request,
-            })
-            .is_err()
-        {
-            self.pending_ratings.remove(path);
+        if let Err(previous) = self.statistics.rate(path, stars, old) {
             self.state.ratings.insert(path.to_path_buf(), previous);
             self.state.notice = "Could not save rating".into();
         }
@@ -2147,38 +1996,17 @@ impl Controller {
     }
 
     fn poll_statistics(&mut self) {
-        while let Ok(event) = self.statistics_events.try_recv() {
+        while let Some(event) = self.statistics.poll(&self.state.ratings) {
             match event {
-                StatisticsEvent::RatingsLoaded(mut ratings) => {
-                    for path in self.pending_ratings.keys() {
-                        if let Some(stars) = self.state.ratings.get(path) {
-                            ratings.insert(path.clone(), *stars);
-                        }
-                    }
+                StatisticsEvent::RatingsLoaded(ratings) => {
                     self.state.ratings = ratings;
                     self.state.ratings_ready = true;
                     self.rows_dirty = true;
                 }
-                StatisticsEvent::RatingSaved {
-                    path,
-                    stars,
-                    request,
-                    result,
-                } => {
-                    if let Some((expected, previous)) = self.pending_ratings.get(&path).copied() {
-                        if request == expected {
-                            self.pending_ratings.remove(&path);
-                            if result.is_err() {
-                                self.state.ratings.insert(path, previous);
-                                self.rows_dirty = true;
-                                self.state.notice = "Could not save rating".into();
-                            }
-                        } else if request < expected && result.is_ok() {
-                            if let Some(pending) = self.pending_ratings.get_mut(&path) {
-                                pending.1 = stars;
-                            }
-                        }
-                    }
+                StatisticsEvent::RatingReverted { path, stars } => {
+                    self.state.ratings.insert(path, stars);
+                    self.rows_dirty = true;
+                    self.state.notice = "Could not save rating".into();
                 }
                 StatisticsEvent::SmartPlaylists(playlists) => {
                     if self.state.smart_playlists != playlists {
@@ -2190,7 +2018,7 @@ impl Controller {
                         );
                     }
                 }
-                StatisticsEvent::Error(error) => {
+                StatisticsEvent::Unavailable(error) => {
                     self.state.notice = format!("Playback statistics unavailable: {error}");
                 }
             }
@@ -2220,10 +2048,7 @@ impl Controller {
                     if self.state.album_rating_path.as_ref() == Some(&from) {
                         self.state.album_rating_path = Some(to.clone());
                     }
-                    let _ = self.statistics_commands.send(StatisticsCommand::Renamed {
-                        from: from.clone(),
-                        to: to.clone(),
-                    });
+                    self.statistics.rename(from.clone(), to.clone());
                     self.mark_library_missing(&from);
                     if let Some(worker) = self.deletion_worker.as_mut() {
                         worker.evict(from);
@@ -4273,10 +4098,7 @@ impl Drop for Controller {
     fn drop(&mut self) {
         self.cancel_online_lyrics();
         // Drain queued user ratings/statistics before process exit.
-        let _ = self.statistics_commands.send(StatisticsCommand::Shutdown);
-        if let Some(worker) = self.statistics_writer.take() {
-            let _ = worker.join();
-        }
+        self.statistics.shutdown();
         // Finish an explicit Create before shutdown, so a successful write survives restart.
         if let Some(worker) = self.playlist_writer.take() {
             let _ = worker.join();

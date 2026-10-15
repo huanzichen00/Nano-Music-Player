@@ -84,3 +84,14 @@ No source/dependency/test changes were needed for this build-resource adjustment
 Logs: `/tmp/nano-controller-baseline{,-check}.log`.
 The existing isolated native manifest has 53 existing media paths and its
 isolated SQLite snapshot has 53 tracks; native comparison tests copy it again.
+
+### Statistics milestone
+
+Worker commit `65057bf` cherry-picked as `ed2ef1c`. Service owns 5 former
+Controller fields; listening-session/clock hooks remain unchanged. `cargo check`
+and formatting pass. Focused service tests: **7 passed**; ratings, rating UI,
+feature library, Back scroll and both overscroll suites: **12 passed**.
+Full `cargo test --all-targets`: **308 passed, 0 failed, 25 ignored**.
+Independent reviewer approved both module and actual integration, with no required
+fixes. Explicit statistics shutdown remains before playlist-writer join.
+Logs: `/tmp/nano-controller-statistics-{focused,regression,all}.log`.
