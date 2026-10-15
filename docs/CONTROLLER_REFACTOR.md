@@ -95,3 +95,16 @@ Full `cargo test --all-targets`: **308 passed, 0 failed, 25 ignored**.
 Independent reviewer approved both module and actual integration, with no required
 fixes. Explicit statistics shutdown remains before playlist-writer join.
 Logs: `/tmp/nano-controller-statistics-{focused,regression,all}.log`.
+
+### Lyrics milestone
+
+Worker `764856f` cherry-picked as `2e9ca60`; Controller integrates a service owning
+14 previous fields. Interface correction: unavailable tracks borrow the existing
+BTreeSet without copying. Formatting and `cargo check`: PASS. Controller/service
+unit checks: **37 passed, 1 ignored**, including all **13 new** lyric tests.
+Lyric UI/storage/runtime suites: **11 passed, 1 ignored**. An initially mistyped
+integration test target was corrected to `online_lyrics_runtime`; no test changed.
+Full `cargo test --all-targets`: **321 passed, 0 failed, 25 ignored**.
+Independent reviewer approved the actual diff. Existing T/cache/stale/edit/source
+assertions remain; fixture access uses test-only helpers. Logs:
+`/tmp/nano-controller-lyrics-{check,focused,regression,all}.log`.

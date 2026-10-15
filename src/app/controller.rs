@@ -1,4 +1,6 @@
+mod lyrics;
 mod statistics;
+use lyrics::{LookupEvent, LyricsService, RomajiEvent};
 
 use super::{
     action::{Action, Category},
@@ -15,7 +17,7 @@ use crate::{
         engine::{AudioCommand, AudioEvent, Engine},
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
-    library::{Track, playlists, romaji, scanner},
+    library::{Track, playlists, scanner},
     ui::{
         AppWindow, BackScroll, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow,
         SubtitleChoice,
@@ -93,32 +95,7 @@ pub struct Controller {
     deletion_track_ids: HashMap<PathBuf, usize>,
     deletion_generations: HashMap<PathBuf, u64>,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
-    romaji_request: Option<romaji::Request>,
-    romaji_store: romaji::Store,
-    romaji_touched: HashSet<PathBuf>,
-    translation_cache: crate::translation::Cache,
-    translation_request: Option<
-        Receiver<(
-            crate::translation::Request,
-            Result<crate::translation::Translation, crate::translation::Error>,
-        )>,
-    >,
-    translation_request_id: u64,
-    translation_active_request: Option<crate::translation::Request>,
-    translation_visible: bool,
-    // The display preference can be inherited by another song. Remember which
-    // song T enabled so its next press still hides an incomplete/failed result.
-    translation_shortcut_track: Option<PathBuf>,
-    translation_cancel: Option<crate::translation::Cancellation>,
-    online_lyrics_request: Option<
-        Receiver<(
-            crate::library::online_lyrics::Request,
-            Result<crate::library::online_lyrics::Found, String>,
-        )>,
-    >,
-    online_lyrics_cancel: Option<crate::translation::Cancellation>,
-    translation_after_lookup: Option<PathBuf>,
-    online_lyrics_path: Option<PathBuf>,
+    lyrics: LyricsService,
     genius_seed: Option<PathBuf>,
     genius_request: Option<
         Receiver<(
@@ -201,10 +178,6 @@ impl Controller {
             }
         });
         let loading = Some(library_receiver);
-        let romaji_store = romaji::Store::new(directory.join("library.sqlite3"));
-        let translation_cache =
-            crate::translation::Cache::load(&directory.join("translations.json"))
-                .unwrap_or_default();
         let video_loading = Some(crate::video::import::load(directory.join("videos.json")));
         match crate::video::subtitles::SubtitleAssociations::load(
             &directory.join("video-subtitles.json"),
@@ -212,7 +185,7 @@ impl Controller {
             Ok(associations) => state.video_subtitles = associations,
             Err(error) => state.notice = format!("Subtitle preferences error: {error}"),
         }
-        let translation_visible = settings.translation_visible;
+        let lyrics = LyricsService::new(directory.clone(), settings.translation_visible);
         Self {
             state,
             dispatcher: Dispatcher::new(keymap),
@@ -260,20 +233,7 @@ impl Controller {
             deletion_track_ids: HashMap::new(),
             deletion_generations: HashMap::new(),
             lyrics_edit: None,
-            romaji_request: None,
-            romaji_store,
-            romaji_touched: HashSet::new(),
-            translation_cache,
-            translation_request: None,
-            translation_request_id: 0,
-            translation_active_request: None,
-            translation_visible,
-            translation_shortcut_track: None,
-            translation_cancel: None,
-            online_lyrics_request: None,
-            online_lyrics_cancel: None,
-            translation_after_lookup: None,
-            online_lyrics_path: None,
+            lyrics,
             genius_seed: None,
             genius_request: None,
             genius_rows: Vec::new(),
@@ -666,21 +626,12 @@ impl Controller {
             self.failed_prefetch = None;
         }
         if action == Action::ToggleTranslation {
-            let track = self
-                .state
-                .current
-                .and_then(|id| self.state.tracks.get(id))
-                .map(|track| track.path.clone());
-            let inherited_missing_translation = track.is_some()
-                && self.translation_shortcut_track != track
-                && self.translation_request.is_none()
-                && self.online_lyrics_request.is_none()
-                && self.translation_after_lookup.is_none()
-                && !self.current_translation_cached();
-            if !self.translation_visible || inherited_missing_translation {
-                // Reuse the existing worker/cache path, including lyric lookup.
-                // Settings remains a display-only toggle.
-                self.translation_shortcut_track = track;
+            let current = self.state.current.and_then(|id| self.state.tracks.get(id));
+            if self
+                .lyrics
+                .shortcut_should_translate(current, self.settings.translation_target)
+            {
+                self.lyrics.mark_shortcut(current);
                 self.translation_command(ui, crate::translation::Command::Translate);
                 return;
             }
@@ -757,7 +708,7 @@ impl Controller {
                 Effect::EditPlaylist { id } => self.open_playlist_draft(ui, Some(id)),
                 Effect::GenerateRomaji { id } => self.start_romaji(ui, id),
                 Effect::CancelRomaji => {
-                    if self.romaji_request.take().is_some() {
+                    if self.lyrics.cancel_romaji() {
                         self.state.romaji_generating = None;
                         self.state.notice = "Romaji generation cancelled".into();
                     }
@@ -766,17 +717,12 @@ impl Controller {
                 Effect::RemoveRomaji { id } => {
                     if let Some(track) = self.state.tracks.get(id) {
                         let path = track.path.clone();
-                        if self
-                            .romaji_request
-                            .as_ref()
-                            .is_some_and(|request| request.path == path)
-                        {
-                            self.romaji_request = None;
+                        let removal = self.lyrics.remove_romaji(path.clone());
+                        if removal.cancelled {
                             self.state.romaji_generating = None;
                         }
-                        self.romaji_touched.insert(path.clone());
                         self.state.romaji.remove(&path);
-                        self.state.notice = match self.romaji_store.remove(path) {
+                        self.state.notice = match removal.result {
                             Ok(()) => "Romaji removed".into(),
                             Err(error) => format!("Romaji storage failed: {error}"),
                         };
@@ -1503,7 +1449,7 @@ impl Controller {
             smooth_slides: self.state.smooth_slides,
             romaji_visible: self.state.romaji_visible,
             translation_target: self.settings.translation_target,
-            translation_visible: self.translation_visible,
+            translation_visible: self.lyrics.visible(),
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
             monitor_deleted_files: self.settings.monitor_deleted_files,
@@ -1632,15 +1578,10 @@ impl Controller {
             .and_then(|receiver| receiver.try_recv().ok())
         {
             self.lyrics_edit = None;
-            let online_path = if self.online_lyrics_request.is_none() {
-                self.online_lyrics_path.take()
-            } else {
-                None
-            };
+            let (online_path, translate_after) = self.lyrics.take_storage_context();
             if online_path.is_none() {
                 self.dialog_open = false;
             }
-            let translate_after = self.translation_after_lookup.take();
             let mut translated_path = None;
             match result {
                 Ok(Some(update)) => {
@@ -2305,10 +2246,10 @@ impl Controller {
 
     fn sync(&mut self, ui: &AppWindow) {
         if self.state.translation_target != self.settings.translation_target
-            || self.state.translation_visible != self.translation_visible
+            || self.state.translation_visible != self.lyrics.visible()
         {
             self.state.translation_target = self.settings.translation_target;
-            self.state.translation_visible = self.translation_visible;
+            self.state.translation_visible = self.lyrics.visible();
             self.rows_dirty = true;
         }
         ui.global::<I18n>()
@@ -2459,7 +2400,7 @@ impl Controller {
         ui.set_reference_open(self.state.reference_open);
         ui.set_lyrics_visible(self.state.lyrics_visible);
         ui.set_romaji_visible(self.state.romaji_visible);
-        ui.set_translation_visible(self.translation_visible);
+        ui.set_translation_visible(self.lyrics.visible());
         ui.set_overlay_visible(self.state.overlay_visible);
         ui.set_track_count(if self.state.queue.order.is_empty() {
             "".into()
@@ -2706,14 +2647,8 @@ impl Controller {
             )));
             ui.set_timed_lyrics(track.is_some_and(|t| !t.lyrics.timed.is_empty()));
             let translated = track.and_then(|track| {
-                let request = crate::translation::Request {
-                    request_id: 0,
-                    track_id: track.path.clone(),
-                    target: self.settings.translation_target,
-                    provider_version: self.translation_provider_version(),
-                    source: Self::translation_source(track),
-                };
-                self.translation_cache.get(&request.cache_key())
+                self.lyrics
+                    .cached_translation(track, self.settings.translation_target)
             });
             ui.set_translated_lines(ModelRc::new(VecModel::from(translated.map_or_else(
                 Vec::new,
@@ -3169,27 +3104,9 @@ impl Controller {
     }
 
     fn start_romaji(&mut self, ui: &AppWindow, id: usize) {
-        if self.romaji_request.is_some() {
-            self.state.notice = "Romaji generation is already running".into();
-            self.sync(ui);
-            return;
-        }
-        let result = (|| {
-            let track = self.state.tracks.get(id).ok_or("Choose a song first")?;
-            let settings =
-                crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"))?;
-            romaji::Request::start(
-                track.path.clone(),
-                track.lyrics.clone(),
-                track.title.clone(),
-                track.artist.clone(),
-                settings,
-            )
-        })();
-        match result {
-            Ok(request) => {
-                self.state.romaji_generating = Some(request.path.clone());
-                self.romaji_request = Some(request);
+        match self.lyrics.start_romaji(self.state.tracks.get(id)) {
+            Ok(path) => {
+                self.state.romaji_generating = Some(path);
                 self.state.notice = "Generating romaji…".into();
             }
             Err(error) => self.state.notice = error,
@@ -3198,131 +3115,79 @@ impl Controller {
     }
 
     fn poll_romaji(&mut self, ui: &AppWindow) {
-        while let Ok(event) = self.romaji_store.events.try_recv() {
+        for event in self.lyrics.poll_romaji(&self.state.tracks) {
             match event {
-                romaji::StoreEvent::Loaded(Ok(cache)) => {
+                RomajiEvent::Loaded(cache) => {
                     for (path, romaji) in cache {
-                        if !self.romaji_touched.contains(&path) {
-                            self.state.romaji.entry(path).or_insert(romaji);
-                        }
+                        self.state.romaji.entry(path).or_insert(romaji);
                     }
                     self.lyrics_dirty = true;
                 }
-                romaji::StoreEvent::Loaded(Err(error))
-                | romaji::StoreEvent::Written(Err(error)) => {
+                RomajiEvent::StorageFailed(error) => {
                     self.state.notice = format!("Romaji storage failed: {error}");
                 }
-                romaji::StoreEvent::Written(Ok(())) => {}
-            }
-        }
-        while let Some(event) = self
-            .romaji_request
-            .as_ref()
-            .and_then(|request| request.events.try_recv().ok())
-        {
-            match event {
-                romaji::Event::Progress { done, total } => {
+                RomajiEvent::Progress { done, total } => {
                     self.state.notice = format!("Generating romaji… {done}/{total}");
                 }
-                romaji::Event::Completed(result) => {
-                    let Some(request) = self.romaji_request.take() else {
-                        break;
-                    };
+                RomajiEvent::Generated {
+                    path,
+                    romaji,
+                    storage,
+                } => {
                     self.state.romaji_generating = None;
-                    let still_current =
-                        self.state.tracks.iter().any(|track| {
-                            track.path == request.path && track.lyrics == request.source
-                        });
-                    if !still_current {
-                        self.state.notice = "Lyrics changed; romaji result discarded".into();
-                        continue;
-                    }
-                    match result {
-                        Ok(romaji) => {
-                            self.romaji_touched.insert(request.path.clone());
-                            let saved =
-                                self.romaji_store.save(request.path.clone(), romaji.clone());
-                            self.state.romaji.insert(request.path.clone(), romaji);
-                            self.state.romaji_visible = true;
-                            self.lyrics_dirty = true;
-                            self.rows_dirty = true;
-                            self.state.notice = match saved {
-                                Ok(()) => "Romaji generated".into(),
-                                Err(error) => format!("Romaji storage failed: {error}"),
-                            };
-                            self.save_settings(ui);
-                        }
-                        Err(error) => {
-                            self.state.notice = format!("Romaji generation failed: {error}")
-                        }
-                    }
+                    self.state.romaji.insert(path, romaji);
+                    self.state.romaji_visible = true;
+                    self.lyrics_dirty = true;
+                    self.rows_dirty = true;
+                    self.state.notice = match storage {
+                        Ok(()) => "Romaji generated".into(),
+                        Err(error) => format!("Romaji storage failed: {error}"),
+                    };
+                    self.save_settings(ui);
+                }
+                RomajiEvent::Finished { notice } => {
+                    self.state.romaji_generating = None;
+                    self.state.notice = notice;
                 }
             }
         }
     }
 
+    #[cfg(test)]
     fn translation_source(track: &Track) -> Vec<crate::translation::SourceLine> {
-        if track.lyrics.timed.is_empty() {
-            track
-                .lyrics
-                .plain
-                .iter()
-                .map(|text| crate::translation::SourceLine {
-                    at_ms: None,
-                    text: text.clone(),
-                })
-                .collect()
-        } else {
-            track
-                .lyrics
-                .timed
-                .iter()
-                .map(|line| crate::translation::SourceLine {
-                    at_ms: Some(line.at_ms),
-                    text: line.text.clone(),
-                })
-                .collect()
-        }
+        LyricsService::source(track)
     }
 
     fn cancel_online_lyrics(&mut self) {
-        if let Some(token) = self.online_lyrics_cancel.as_ref() {
-            token.cancel();
-        }
-        self.translation_after_lookup = None;
-        if let Some(path) = self.online_lyrics_path.as_ref() {
+        if let Some(path) = self.lyrics.cancel_lookup() {
             self.state
                 .lyrics_lookup_status
-                .insert(path.clone(), "Online lyric search cancelled".into());
+                .insert(path, "Online lyric search cancelled".into());
             self.rows_dirty = true;
         }
     }
 
     fn start_online_lyrics(&mut self, ui: &AppWindow, id: usize, translate_after: bool) {
-        if self.online_lyrics_request.is_some()
+        if self.lyrics.lookup_busy()
             || self.lyrics_edit.is_some()
-            || self.translation_request.is_some()
+            || self.lyrics.translation_busy()
             || self.importing.is_some()
         {
             self.state.notice = "A lyric request is already running".into();
             self.sync(ui);
             return;
         }
-        let result = (|| -> Result<_, String> {
-            let track = self.state.tracks.get(id).ok_or("Choose a song first")?;
-            if !track.lyrics.is_empty() {
-                return Err("Lyrics are already available".into());
+        match self
+            .lyrics
+            .start_lookup(self.state.tracks.get(id), translate_after)
+        {
+            Ok(path) => {
+                self.state
+                    .lyrics_lookup_status
+                    .insert(path, "Searching online lyrics…".into());
+                self.rows_dirty = true;
+                self.state.notice = "Searching online lyrics…".into();
             }
-            let request = crate::library::online_lyrics::Request::new(track);
-            let settings =
-                crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"))?;
-            if !settings.has_key() {
-                return Err("Configure a DeepSeek API key first".into());
-            }
-            Ok((request, settings))
-        })();
-        let (request, settings) = match result {
-            Ok(value) => value,
             Err(message) => {
                 if let Some(track) = self.state.tracks.get(id) {
                     self.state
@@ -3331,98 +3196,53 @@ impl Controller {
                     self.rows_dirty = true;
                 }
                 self.state.notice = message;
-                self.sync(ui);
-                return;
             }
-        };
-        self.translation_after_lookup = translate_after.then(|| request.path.clone());
-        self.online_lyrics_path = Some(request.path.clone());
-        self.state
-            .lyrics_lookup_status
-            .insert(request.path.clone(), "Searching online lyrics…".into());
-        self.rows_dirty = true;
-        let cancellation = crate::translation::Cancellation::default();
-        let worker_cancellation = cancellation.clone();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result = crate::ai::DeepSeek::new(&settings).and_then(|provider| {
-                crate::library::online_lyrics::lookup(&request, &provider, &worker_cancellation)
-            });
-            let _ = sender.send((request, result));
-        });
-        self.online_lyrics_request = Some(receiver);
-        self.online_lyrics_cancel = Some(cancellation);
-        self.state.notice = "Searching online lyrics…".into();
+        }
         self.sync(ui);
     }
 
+    #[cfg(test)]
     fn accepts_online_lyrics(&self, request: &crate::library::online_lyrics::Request) -> bool {
-        self.lyrics_edit.is_none()
-            && !self.state.unavailable_tracks.contains(&request.path)
-            && !self
-                .online_lyrics_cancel
-                .as_ref()
-                .is_some_and(|token| token.is_cancelled())
-            && self.state.tracks.iter().any(|track| request.matches(track))
-            && (self.translation_after_lookup.is_none()
-                || self
-                    .state
-                    .current
-                    .and_then(|id| self.state.tracks.get(id))
-                    .is_some_and(|track| track.path == request.path))
+        self.lyrics.accepts_lookup(
+            request,
+            &self.state.tracks,
+            &self.state.unavailable_tracks,
+            self.lyrics_edit.is_some(),
+            self.state.current.and_then(|id| self.state.tracks.get(id)),
+        )
     }
 
     fn poll_online_lyrics(&mut self, ui: &AppWindow) {
-        use std::sync::mpsc::TryRecvError;
-        let Some(receiver) = self.online_lyrics_request.as_ref() else {
+        let Some(event) = self.lyrics.poll_lookup(
+            &self.state.tracks,
+            &self.state.unavailable_tracks,
+            self.lyrics_edit.is_some(),
+            self.state.current.and_then(|id| self.state.tracks.get(id)),
+        ) else {
             return;
         };
-        let result = match receiver.try_recv() {
-            Ok(value) => value,
-            Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Disconnected) => {
-                self.online_lyrics_request = None;
-                self.online_lyrics_cancel = None;
-                self.translation_after_lookup = None;
-                self.state.notice = "Online lyric search failed".into();
-                if let Some(path) = self.online_lyrics_path.take() {
-                    self.state
-                        .lyrics_lookup_status
-                        .insert(path, self.state.notice.clone());
-                }
-                self.rows_dirty = true;
-                self.sync(ui);
-                return;
-            }
-        };
-        self.online_lyrics_request = None;
-        let accepted = self.accepts_online_lyrics(&result.0);
-        self.online_lyrics_cancel = None;
-        match result {
-            (request, Ok(found)) if accepted => {
+        match event {
+            LookupEvent::Found { request, found } => {
                 self.lyrics_edit = Some(scanner::store_online_lyrics(
                     self.directory.join("library.sqlite3"),
                     request.path,
                     found,
                 ));
                 self.state.notice = "Saving online lyrics…".into();
+                if let Some(path) = self.lyrics.lookup_path() {
+                    self.state
+                        .lyrics_lookup_status
+                        .insert(path.to_owned(), self.state.notice.clone());
+                }
             }
-            (_, Ok(_)) => {
-                self.translation_after_lookup = None;
-                self.state.notice = "Song or lyrics changed; online result discarded".into();
+            LookupEvent::Failed { path, notice } => {
+                self.state.notice = notice;
+                if let Some(path) = path {
+                    self.state
+                        .lyrics_lookup_status
+                        .insert(path, self.state.notice.clone());
+                }
             }
-            (_, Err(error)) => {
-                self.translation_after_lookup = None;
-                self.state.notice = error;
-            }
-        }
-        if let Some(path) = self.online_lyrics_path.as_ref() {
-            self.state
-                .lyrics_lookup_status
-                .insert(path.clone(), self.state.notice.clone());
-        }
-        if self.lyrics_edit.is_none() {
-            self.online_lyrics_path = None;
         }
         self.rows_dirty = true;
         self.sync(ui);
@@ -3433,14 +3253,9 @@ impl Controller {
             .current
             .and_then(|id| self.state.tracks.get(id))
             .is_some_and(|track| {
-                let request = crate::translation::Request {
-                    request_id: 0,
-                    track_id: track.path.clone(),
-                    target: self.settings.translation_target,
-                    provider_version: self.translation_provider_version(),
-                    source: Self::translation_source(track),
-                };
-                self.translation_cache.get(&request.cache_key()).is_some()
+                self.lyrics
+                    .cached_translation(track, self.settings.translation_target)
+                    .is_some()
             })
     }
 
@@ -3448,12 +3263,10 @@ impl Controller {
         use crate::translation::Command;
         match command {
             Command::Translate => {
-                self.translation_visible = true;
+                self.lyrics.set_visible(true);
                 self.lyrics_dirty = true;
                 self.save_settings(ui);
                 if self.current_translation_cached() {
-                    self.translation_visible = true;
-                    self.lyrics_dirty = true;
                     self.state.notice = "Translation ready".into();
                     self.sync(ui);
                 } else {
@@ -3461,18 +3274,15 @@ impl Controller {
                 }
             }
             Command::Regenerate => {
-                self.translation_visible = true;
+                self.lyrics.set_visible(true);
                 self.lyrics_dirty = true;
                 self.save_settings(ui);
                 self.start_translation(ui);
             }
             Command::Cancel => {
-                let finding = self.online_lyrics_path.is_some();
+                let finding = self.lyrics.lookup_path().is_some();
                 self.cancel_online_lyrics();
-                if let Some(token) = self.translation_cancel.as_ref() {
-                    token.cancel();
-                }
-                self.translation_request_id = self.translation_request_id.wrapping_add(1);
+                self.lyrics.cancel_translation();
                 self.state.notice = if finding {
                     "Online lyric search cancelled"
                 } else {
@@ -3482,10 +3292,7 @@ impl Controller {
                 self.sync(ui);
             }
             Command::Toggle => {
-                self.translation_visible = !self.translation_visible;
-                if !self.translation_visible {
-                    self.translation_shortcut_track = None;
-                }
+                self.lyrics.toggle_visible();
                 self.save_settings(ui);
                 self.lyrics_dirty = true;
                 self.sync(ui);
@@ -3514,7 +3321,7 @@ impl Controller {
     }
 
     fn start_translation(&mut self, ui: &AppWindow) {
-        if self.translation_request.is_some() {
+        if self.lyrics.translation_busy() {
             self.state.notice = "Translation is already running".into();
             self.sync(ui);
             return;
@@ -3528,94 +3335,39 @@ impl Controller {
             self.start_online_lyrics(ui, self.state.current.unwrap(), true);
             return;
         }
-        let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
-        let model = settings
-            .as_ref()
-            .map(|settings| settings.model.as_str())
-            .unwrap_or(crate::ai::DEFAULT_MODEL);
-        self.translation_request_id = self.translation_request_id.wrapping_add(1);
-        let request = crate::translation::Request {
-            request_id: self.translation_request_id,
-            track_id: track.path.clone(),
-            target: self.settings.translation_target,
-            provider_version: format!("{}:{model}", crate::translation::PROMPT_VERSION),
-            source: Self::translation_source(track),
+        self.state.notice = match self
+            .lyrics
+            .start_translation(Some(track), self.settings.translation_target)
+        {
+            Ok(()) => "Generating translation…".into(),
+            Err(error) => error,
         };
-        let (sender, receiver) = std::sync::mpsc::channel();
-        let active_request = request.clone();
-        let cancellation = crate::translation::Cancellation::default();
-        let worker_cancellation = cancellation.clone();
-        std::thread::spawn(move || {
-            let result = settings
-                .map_err(|_| crate::translation::Error::Provider)
-                .and_then(|settings| {
-                    crate::ai::DeepSeek::new(&settings)
-                        .map_err(|_| crate::translation::Error::Provider)
-                })
-                .and_then(|provider| {
-                    crate::translation::generate(&request, &provider, &worker_cancellation)
-                });
-            let _ = sender.send((request, result));
-        });
-        self.translation_request = Some(receiver);
-        self.translation_active_request = Some(active_request);
-        self.translation_cancel = Some(cancellation);
-        self.state.notice = "Generating translation…".into();
         self.sync(ui);
     }
 
     fn poll_translation(&mut self, ui: &AppWindow) {
-        let Some(receiver) = self.translation_request.as_ref() else {
-            return;
-        };
-        let Ok((request, result)) = receiver.try_recv() else {
-            return;
-        };
-        self.translation_request = None;
-        self.translation_active_request = None;
-        self.translation_cancel = None;
-        self.state.notice = self.apply_translation_result(request, result).into();
-        self.lyrics_dirty = true;
-        self.sync(ui);
+        if let Some(notice) = self.lyrics.poll_translation(
+            self.state.current.and_then(|id| self.state.tracks.get(id)),
+            self.settings.translation_target,
+        ) {
+            self.state.notice = notice.into();
+            self.lyrics_dirty = true;
+            self.sync(ui);
+        }
     }
 
+    #[cfg(test)]
     fn apply_translation_result(
         &mut self,
         request: crate::translation::Request,
         result: Result<crate::translation::Translation, crate::translation::Error>,
     ) -> &'static str {
-        let current = self.state.current.and_then(|id| self.state.tracks.get(id));
-        let current_source = current.map(Self::translation_source).unwrap_or_default();
-        match result {
-            Ok(translation)
-                if current.is_some_and(|track| {
-                    request.accepts(
-                        &translation,
-                        self.translation_request_id,
-                        &track.path,
-                        self.settings.translation_target,
-                        &current_source,
-                        &self.translation_provider_version(),
-                    )
-                }) =>
-            {
-                let previous = self.translation_cache.clone();
-                self.translation_cache.insert(translation);
-                match self
-                    .translation_cache
-                    .save(&self.directory.join("translations.json"))
-                {
-                    Ok(()) => "Translation ready",
-                    Err(_) => {
-                        self.translation_cache = previous;
-                        "Could not save translation cache"
-                    }
-                }
-            }
-            Ok(_) => "Lyrics or target changed; translation discarded",
-            Err(crate::translation::Error::Cancelled) => "Translation cancelled",
-            Err(_) => "Translation failed; try again",
-        }
+        self.lyrics.apply_translation_result(
+            request,
+            result,
+            self.state.current.and_then(|id| self.state.tracks.get(id)),
+            self.settings.translation_target,
+        )
     }
 
     fn set_translation_target(
@@ -3623,60 +3375,26 @@ impl Controller {
         ui: &AppWindow,
         target: crate::translation::TargetLanguage,
     ) {
-        self.cancel_online_lyrics();
-        if self.settings.translation_target != target {
-            self.translation_shortcut_track = None;
+        if let Some(path) = self
+            .lyrics
+            .change_target(self.settings.translation_target, target)
+        {
+            self.state
+                .lyrics_lookup_status
+                .insert(path, "Online lyric search cancelled".into());
+            self.rows_dirty = true;
         }
         self.settings.translation_target = target;
-        if let Some(token) = self.translation_cancel.take() {
-            token.cancel();
-        }
         self.lyrics_dirty = true;
         self.save_settings(ui);
         self.sync(ui);
     }
 
-    fn translation_provider_version(&self) -> String {
-        let model = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"))
-            .map(|settings| settings.model)
-            .unwrap_or_else(|_| crate::ai::DEFAULT_MODEL.into());
-        format!("{}:{model}", crate::translation::PROMPT_VERSION)
-    }
-
     fn remove_translation_for_current(&mut self) -> Result<(), String> {
-        let track = self
-            .state
-            .current
-            .and_then(|id| self.state.tracks.get(id))
-            .ok_or_else(|| "Choose a song first".to_owned())?;
-        let request = crate::translation::Request {
-            request_id: 0,
-            track_id: track.path.clone(),
-            target: self.settings.translation_target,
-            provider_version: self.translation_provider_version(),
-            source: Self::translation_source(track),
-        };
-        if self
-            .translation_active_request
-            .as_ref()
-            .is_some_and(|active| active.cache_key() == request.cache_key())
-        {
-            if let Some(token) = self.translation_cancel.as_ref() {
-                token.cancel();
-            }
-            self.translation_request_id = self.translation_request_id.wrapping_add(1);
-            self.translation_active_request = None;
-        }
-        let previous = self.translation_cache.clone();
-        self.translation_cache.remove(&request.cache_key());
-        if let Err(error) = self
-            .translation_cache
-            .save(&self.directory.join("translations.json"))
-        {
-            self.translation_cache = previous;
-            return Err(format!("Could not remove translation: {error:?}"));
-        }
-        self.translation_visible = false;
+        self.lyrics.remove_translation(
+            self.state.current.and_then(|id| self.state.tracks.get(id)),
+            self.settings.translation_target,
+        )?;
         self.settings.translation_visible = false;
         self.lyrics_dirty = true;
         Ok(())
@@ -4516,17 +4234,19 @@ mod ai_controller_tests {
             Lyrics::plain_text("hello"),
         );
         let request = translation_request(&track, 1, TargetLanguage::English);
-        controller.translation_cache.insert(fixture_translation(
-            &request,
-            serde_json::json!({"translations":["hello translated"]}),
-        ));
+        controller
+            .lyrics
+            .insert_cached_for_test(fixture_translation(
+                &request,
+                serde_json::json!({"translations":["hello translated"]}),
+            ));
         controller.state.tracks = vec![track];
         controller.state.current = Some(0);
         let ui = AppWindow::new().unwrap();
         controller.translation_command(&ui, crate::translation::Command::Translate);
-        assert!(controller.translation_visible);
-        assert!(controller.translation_request.is_none());
-        assert!(controller.online_lyrics_request.is_none());
+        assert!(controller.lyrics.visible());
+        assert!(!controller.lyrics.translation_busy());
+        assert!(!controller.lyrics.lookup_busy());
         assert_eq!(
             ui.get_translated_lines().row_data(0).unwrap(),
             "hello translated"
@@ -4552,10 +4272,10 @@ mod ai_controller_tests {
         controller.state.romaji_visible = false;
         controller.execute(&ui, Action::ToggleTranslation);
         assert!(
-            controller.translation_request.is_none(),
+            !controller.lyrics.translation_busy(),
             "T must reuse the cache offline"
         );
-        assert!(controller.online_lyrics_request.is_none());
+        assert!(!controller.lyrics.lookup_busy());
         controller.execute(&ui, Action::ToggleTranslation);
         assert!(
             !ui.get_romaji_displayed(),
@@ -4582,13 +4302,17 @@ mod ai_controller_tests {
             );
             controller.state.tracks = vec![track];
             controller.state.current = Some(0);
-            controller.translation_visible = initially_enabled;
+            controller.lyrics.set_visible(initially_enabled);
             let ui = AppWindow::new().unwrap();
             controller.execute(&ui, Action::ToggleTranslation);
             assert!(ui.get_translation_visible());
-            assert!(controller.translation_request.is_some());
-            assert!(controller.online_lyrics_request.is_none());
-            let request = controller.translation_active_request.clone().unwrap();
+            assert!(controller.lyrics.translation_busy());
+            assert!(!controller.lyrics.lookup_busy());
+            let request = controller
+                .lyrics
+                .active_translation_for_test()
+                .cloned()
+                .unwrap();
             assert_eq!(request.source[0].text, "hello");
             assert!(ui.get_notice().contains("Generating translation"));
             assert!(!ui.get_romaji_displayed());
@@ -4597,8 +4321,11 @@ mod ai_controller_tests {
             controller.execute(&ui, Action::ToggleTranslation);
             assert!(!ui.get_translation_visible());
             assert!(ui.get_romaji_displayed());
-            assert_eq!(controller.translation_request_id, request.request_id);
-            assert!(controller.translation_request.is_some());
+            assert_eq!(
+                controller.lyrics.translation_generation_for_test(),
+                request.request_id
+            );
+            assert!(controller.lyrics.translation_busy());
             let translation =
                 fixture_translation(&request, serde_json::json!({"translations":["translated"]}));
             assert_eq!(
@@ -4634,9 +4361,9 @@ mod ai_controller_tests {
         controller.execute(&ui, Action::ToggleTranslation);
         assert!(ui.get_translation_visible());
         assert!(controller.state.lyrics_lookup_status.contains_key(&path));
-        assert!(controller.translation_request.is_none());
+        assert!(!controller.lyrics.translation_busy());
         assert!(
-            controller.online_lyrics_request.is_none(),
+            !controller.lyrics.lookup_busy(),
             "invalid credentials must prevent HTTP"
         );
         controller.execute(&ui, Action::ToggleTranslation);
@@ -4658,15 +4385,15 @@ mod ai_controller_tests {
             fixture_translation(&request, serde_json::json!({"translations":["translated"]}));
         controller.state.tracks = vec![track];
         controller.state.current = Some(0);
-        controller.translation_request_id = 8;
-        controller.translation_visible = true;
+        controller.lyrics.set_translation_generation_for_test(8);
+        controller.lyrics.set_visible(true);
         let ui = AppWindow::new().unwrap();
         controller.translation_command(&ui, crate::translation::Command::Toggle);
         assert_eq!(
             controller.apply_translation_result(request, Ok(translation)),
             "Translation ready"
         );
-        assert!(!controller.translation_visible);
+        assert!(!controller.lyrics.visible());
         assert!(
             !Settings::load(&directory.path().join("settings.json"))
                 .unwrap()
@@ -4687,18 +4414,22 @@ mod ai_controller_tests {
         let mut controller = Controller::new(directory.path().to_owned());
         let track = make_track(directory.path().join("song.wav"), "Song", Lyrics::default());
         let request = Request::new(&track);
-        controller.translation_after_lookup = Some(track.path.clone());
+        controller
+            .lyrics
+            .set_lookup_continuation_for_test(Some(track.path.clone()));
         controller.state.tracks = vec![track.clone()];
         controller.state.current = Some(0);
         assert!(controller.accepts_online_lyrics(&request));
         controller.state.current = None;
         assert!(!controller.accepts_online_lyrics(&request));
-        controller.translation_after_lookup = None;
+        controller.lyrics.set_lookup_continuation_for_test(None);
         assert!(
             controller.accepts_online_lyrics(&request),
             "explicit Find can target a song that is not playing"
         );
-        controller.translation_after_lookup = Some(request.path.clone());
+        controller
+            .lyrics
+            .set_lookup_continuation_for_test(Some(request.path.clone()));
         controller.state.current = Some(0);
         controller.state.tracks[0].title = "different recording".into();
         assert!(!controller.accepts_online_lyrics(&request));
@@ -4708,18 +4439,14 @@ mod ai_controller_tests {
         controller.state.tracks[0] = track;
         let cancellation = crate::translation::Cancellation::default();
         cancellation.cancel();
-        controller.online_lyrics_cancel = Some(cancellation);
-        let (sender, receiver) = std::sync::mpsc::channel();
-        sender
-            .send((
-                request.clone(),
-                Ok(Found {
-                    lyrics: Lyrics::plain_text("found online"),
-                    source_url: "https://lrclib.net/api/get/1".into(),
-                }),
-            ))
-            .unwrap();
-        controller.online_lyrics_request = Some(receiver);
+        controller.lyrics.install_lookup_completion(
+            request.clone(),
+            Ok(Found {
+                lyrics: Lyrics::plain_text("found online"),
+                source_url: "https://lrclib.net/api/get/1".into(),
+            }),
+            cancellation,
+        );
         let ui = AppWindow::new().unwrap();
         controller.poll_online_lyrics(&ui);
         assert!(controller.lyrics_edit.is_none());
@@ -4745,17 +4472,14 @@ mod ai_controller_tests {
         controller.state.tracks = vec![track.clone()];
         controller.state.current = Some(0);
         let lyrics = Lyrics::parse("[00:01]original first\n[00:02]original second");
-        let (sender, receiver) = std::sync::mpsc::channel();
-        sender
-            .send((
-                request,
-                Ok(Found {
-                    lyrics: lyrics.clone(),
-                    source_url: "https://lrclib.net/api/get/1".into(),
-                }),
-            ))
-            .unwrap();
-        controller.online_lyrics_request = Some(receiver);
+        controller.lyrics.install_lookup_completion(
+            request,
+            Ok(Found {
+                lyrics: lyrics.clone(),
+                source_url: "https://lrclib.net/api/get/1".into(),
+            }),
+            crate::translation::Cancellation::default(),
+        );
         let ui = AppWindow::new().unwrap();
         controller.poll_online_lyrics(&ui);
         assert!(
@@ -4775,7 +4499,7 @@ mod ai_controller_tests {
         assert_eq!(controller.state.tracks[0].lyrics, lyrics);
         assert_eq!(ui.get_lyric_lines().row_count(), 2);
         assert!(
-            controller.translation_request.is_none(),
+            !controller.lyrics.translation_busy(),
             "Find alone does not translate"
         );
         let mut reloaded = track;
@@ -4888,32 +4612,20 @@ mod ai_controller_tests {
             &request,
             serde_json::json!({"translations":["hola","mundo"]}),
         );
-        controller.translation_cache.insert(translation.clone());
         controller
-            .translation_cache
-            .save(&dir.path().join("translations.json"))
-            .unwrap();
-        let token = crate::translation::Cancellation::default();
-        controller.translation_cancel = Some(token.clone());
-        controller.translation_active_request = Some(request.clone());
-        controller.translation_request_id = request.request_id;
-        let (tx, rx) = std::sync::mpsc::channel();
-        tx.send((request.clone(), Ok(translation.clone()))).unwrap();
-        controller.translation_request = Some(rx);
+            .lyrics
+            .insert_cached_for_test(translation.clone());
+        controller.lyrics.save_cache_for_test().unwrap();
+        let token = controller
+            .lyrics
+            .install_translation_completion(request.clone(), Ok(translation.clone()));
 
         controller.remove_translation_for_current().unwrap();
         assert!(token.is_cancelled());
-        assert!(
-            !controller
-                .translation_cache
-                .get(&request.cache_key())
-                .is_some()
-        );
+        assert!(!controller.lyrics.cached_for_test(&request).is_some());
         let _ = controller
-            .translation_request
-            .take()
-            .unwrap()
-            .try_recv()
+            .lyrics
+            .take_translation_completion_for_test()
             .unwrap();
         let notice = controller.apply_translation_result(request.clone(), Ok(translation));
         assert_eq!(notice, "Lyrics or target changed; translation discarded");
@@ -4933,7 +4645,7 @@ mod ai_controller_tests {
         let request = translation_request(&track, 9, TargetLanguage::English);
         let translated =
             fixture_translation(&request, serde_json::json!({"translations":["hola"]}));
-        controller.translation_request_id = 9;
+        controller.lyrics.set_translation_generation_for_test(9);
         controller.settings.translation_target = TargetLanguage::Japanese;
         assert_eq!(
             controller.apply_translation_result(request.clone(), Ok(translated.clone())),
@@ -4945,7 +4657,7 @@ mod ai_controller_tests {
             controller.apply_translation_result(request, Ok(translated)),
             "Lyrics or target changed; translation discarded"
         );
-        assert!(controller.translation_cache.is_empty());
+        assert!(controller.lyrics.cache_is_empty_for_test());
     }
 
     #[test]
@@ -4966,19 +4678,18 @@ mod ai_controller_tests {
             fixture_translation(&request, serde_json::json!({"translations":["new"]}));
         controller.state.tracks = vec![track];
         controller.state.current = Some(0);
-        controller.translation_request_id = request.request_id;
-        controller.translation_visible = true;
-        controller.translation_cache.insert(previous.clone());
+        controller
+            .lyrics
+            .set_translation_generation_for_test(request.request_id);
+        controller.lyrics.set_visible(true);
+        controller.lyrics.insert_cached_for_test(previous.clone());
         std::fs::create_dir(dir.path().join("translations.json")).unwrap();
         assert_eq!(
             controller.apply_translation_result(request.clone(), Ok(replacement)),
             "Could not save translation cache"
         );
-        assert_eq!(
-            controller.translation_cache.get(&request.cache_key()),
-            Some(&previous)
-        );
-        assert!(controller.translation_visible);
+        assert_eq!(controller.lyrics.cached_for_test(&request), Some(&previous));
+        assert!(controller.lyrics.visible());
     }
 
     #[test]
@@ -4991,15 +4702,10 @@ mod ai_controller_tests {
         controller.state.current = Some(0);
         let request = translation_request(&track, 2, TargetLanguage::English);
         let value = fixture_translation(&request, serde_json::json!({"translations":["hola"]}));
-        controller.translation_cache.insert(value);
+        controller.lyrics.insert_cached_for_test(value);
         std::fs::create_dir(dir.path().join("translations.json")).unwrap();
         assert!(controller.remove_translation_for_current().is_err());
-        assert!(
-            controller
-                .translation_cache
-                .get(&request.cache_key())
-                .is_some()
-        );
+        assert!(controller.lyrics.cached_for_test(&request).is_some());
     }
 
     #[test]
