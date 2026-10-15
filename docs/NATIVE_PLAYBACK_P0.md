@@ -20,10 +20,11 @@ unexplained; it was not reproduced in this investigation.
 - Investigation base: `2a40c1e28d4da372d414d01fec4b0675d223fbd4`, matching
   the documented installed release's source history. New branch:
   `codex/native-playback-p0`, in its own managed worktree.
-- The original dirty plan and two untracked tests are preserved. The separate
-  `feat/rubber-band-overscroll` worktree has an untracked `ui/overscroll.slint`;
-  no investigation edits are made there. Another feature worktree's dirty plan
-  is also outside this investigation.
+- At investigation start, the original checkout had a dirty plan and two
+  untracked tests, and `feat/rubber-band-overscroll` had an untracked
+  `ui/overscroll.slint`. This investigation preserves that work and makes no
+  edits in those worktrees. Another feature worktree's dirty plan is also
+  outside this investigation.
 - The installed app was copied with `ditto` before any replacement or relaunch.
   Its executable and backup both have SHA-256
   `290f844497666cb62d121076a0c79562b06158690ea98c2edb046632213b23c4`.
@@ -246,9 +247,15 @@ installed executable are preserved, and no branch is merged automatically.
 The user's explicit folder grant is the only privacy permission change involved
 in this verification.
 
-Verified milestones are recorded in two documentation-only commits: the initial
-blocked evidence snapshot `45f8a4d` and the post-authorization acceptance update
-on `codex/native-playback-p0`. No production fix commit is claimed.
+Documentation milestones on `codex/native-playback-p0`:
+
+- `45f8a4d`: initial evidence while authorization was pending.
+- `a775afa`: installed playback acceptance after explicit authorization.
+- `1ebb319`: classify the case as required macOS authorization and close the
+  original P0 concern.
+
+Subsequent documentation cleanup does not change those verification results.
+There is no production fix commit, and the branch is not merged into main.
 
 Private evidence (bundle backup, raw process samples, TCC logs, command results
 and copied media) is retained under
