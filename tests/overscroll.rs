@@ -119,6 +119,14 @@ fn elastic_axis_boundaries_resistance_momentum_and_interruptions() {
     assert_eq!(ui.get_position(), 0.0);
     assert!(!ui.get_active());
 
+    // Large accumulated input near the resistance asymptote remains monotone.
+    ui.invoke_begin();
+    ui.invoke_drag(100_000.0);
+    let large = ui.get_position();
+    ui.invoke_drag(100.0);
+    assert!(ui.get_position() >= large);
+    ui.invoke_reset(0.0);
+
     ui.invoke_reset(-490.0);
     ui.invoke_begin();
     tick(16);

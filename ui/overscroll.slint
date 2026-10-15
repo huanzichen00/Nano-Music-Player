@@ -21,7 +21,7 @@ export component ElasticAxis inherits Rectangle {
         return distance * 0.55 / (1 + abs(distance) * 0.55 / root.limit);
     }
     pure function uncompress(distance: length) -> length {
-        return distance / (0.55 * max(0.01, 1 - abs(distance) / root.limit));
+        return distance / (0.55 * max(0.000001, 1 - abs(distance) / root.limit));
     }
     public function reset(value: length) {
         clock.stop(); wheel-end.stop(); root.held = false; root.velocity = 0;

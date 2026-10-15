@@ -242,6 +242,25 @@ fn lists_and_home_follow_live_input_and_cancel_without_stale_motion() {
             tick(2000);
             assert_eq!(ui.get_home_overshoot(), 0.0);
         }
+        if smooth {
+            ui.set_home_page(0);
+            tick(300);
+            wheel(&ui, 200.0, 0.0);
+            let before = ui.get_home_overshoot();
+            ui.window().dispatch_event(WindowEvent::PointerScrolled {
+                position: point(&ui, 100.0, 190.0),
+                delta_x: -18.0 * ui.get_display_scale(),
+                delta_y: 0.0,
+            });
+            i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+            assert_eq!(ui.get_home_page(), 1);
+            let outgoing = ui.get_home_outgoing_transition_offset();
+            assert!(
+                outgoing > 0.0 && before - outgoing < 18.0 * ui.get_display_scale(),
+                "page navigation must inherit the visible rebound offset"
+            );
+            tick(300);
+        }
         wheel(&ui, -50.0, 0.0);
         ui.window().set_size(slint::LogicalSize::new(260.0, 452.0));
         tick(16);

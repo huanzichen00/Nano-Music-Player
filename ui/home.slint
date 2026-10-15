@@ -50,7 +50,18 @@ export component HomeView inherits Rectangle {
     public function cancel-page-transition() { edge.reset(0px); gesture.cancel(); root.animating = false; root.place-pages(); }
     // Screen navigation and modal changes place the icons at their destination;
     // only page changes on an interactive Home screen animate.
-    changed page => { edge.reset(0px); root.animating = root.smooth-slides && root.navigation-enabled; root.place-pages(); }
+    changed page => {
+        // Transfer a boundary rebound into the page-slide coordinates before
+        // clearing it, so an inward wheel reversal starts at the visible icons.
+        let offset = edge.position;
+        root.animating = false;
+        if root.smooth-slides && root.navigation-enabled && abs(offset) > 0px {
+            first-page.x += offset; second-page.x += offset;
+        }
+        edge.reset(0px);
+        root.animating = root.smooth-slides && root.navigation-enabled;
+        root.place-pages();
+    }
     changed width => { root.cancel-page-transition(); }
     changed navigation-enabled => { root.cancel-page-transition(); }
     changed smooth-slides => { if !root.smooth-slides { root.cancel-page-transition(); } }
