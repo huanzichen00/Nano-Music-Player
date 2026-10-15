@@ -9,6 +9,12 @@ This document records the recovery milestone. The later UI changes, shorter Back
 interval, expanded test totals and final installed-app checks are recorded in
 `docs/UI_REFERENCE_VERIFICATION.md`; production audio-core source remains unchanged.
 
+The later installed-app file-open stall is investigated separately in
+[NATIVE_PLAYBACK_P0.md](NATIVE_PLAYBACK_P0.md). Explicit Downloads authorization
+released that same process, after which native installed playback and relaunch
+passed. This is distinct from the descriptor-exhaustion recovery below; neither
+case required another audio-engine rewrite.
+
 ## Acceptance and plan
 
 1. Compare the exact historical engine with the current engine on real CoreAudio,

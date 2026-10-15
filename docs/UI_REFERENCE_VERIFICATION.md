@@ -168,3 +168,13 @@ CoreAudio default-device initialization. System audio enumeration reported the
 built-in speakers as the default 48 kHz output; a later identical test passed
 without a code or timeout change. This does not establish the cause of those
 initialization delays or verify the still-blocked installed song playback.
+
+## Post-authorization playback investigation, 2026-10-15
+
+The user subsequently unlocked the Mac and explicitly allowed Downloads access.
+The same stalled installed process resumed real-song playback, and the user
+confirmed hearing its music. Original-file transport, consecutive tracks, normal
+shutdown/relaunch, and temporary fixture/real-file playback in the exact same
+installed bundle then passed. No production code, bundle identity or signature
+was changed. See [NATIVE_PLAYBACK_P0.md](NATIVE_PLAYBACK_P0.md) for the TCC grant
+results, test matrix, Git isolation and remaining future-build signing limitation.

@@ -1,7 +1,10 @@
 # Native playback P0 investigation
 
-Investigation date: 2026-10-15. This is an evidence record, not a declaration that
-installed playback is fixed. No production code has been changed.
+Investigation date: 2026-10-15 (Asia/Shanghai). The installed playback stall was
+reproduced and released by the user's explicit Downloads authorization. Real
+installed playback, transport, consecutive tracks, relaunch and shutdown were
+then verified. No production code has been changed. Future rebuilt ad-hoc-signed
+bundles remain a separate authorization/packaging limitation.
 
 ## Isolation and plan
 
@@ -29,6 +32,10 @@ process before and after legitimate authorization/relaunch; repair only a
 demonstrated code defect. Do not merge this branch into main automatically.
 
 ## Evidence captured before native UI access
+
+This section records the 10:46–10:53 snapshot, before the user unlocked the Mac
+and granted permission. The post-authorization results below supersede its
+pending verification state.
 
 **VERIFIED:** the installed process, PID 83075, launched at 10:01:07, remains
 alive. A fresh one-second sample at 10:46 finds its audio worker in
@@ -80,24 +87,30 @@ speakers at 48 kHz as default output. This does not measure initial Rodio stream
 setup or speaker output and does not explain the previously intermittent
 CoreAudio initialization delays.
 
-## Reproduction and remaining matrix
+## Reproduction and resolution
 
 The observed installed failure began after replacing the ad-hoc-signed release,
 launching the normal installed bundle, selecting a real Downloads-library song,
-and requesting Play. The earlier native UI check stayed at 0:00; the current
-process still waits in file open. Do not deliberately reset privacy authorization
-to reproduce it.
+and requesting Play. The earlier native UI check stayed at 0:00; samples of that
+process at 10:46 and 10:53 still find the file-open wait. Do not deliberately
+reset privacy authorization to reproduce it.
 
-Native UI access is currently blocked by the locked Mac. Inspect the real OS
-permission dialog after unlock. Renewing Downloads access exposes that folder
-to the app and requires the user's explicit approval. A new signing identity,
-bundle identifier or permissive custom requirement is not an approved workaround.
+At approximately 12:02 the user confirmed "Unlocked and allowed". TCC records
+`authValue=2, authReason=2` at 12:02:44.113 for the original pending request
+`81288.21`, followed by successful replies to the other outstanding Downloads
+requests. The app's worker, sampled again after that grant, is waiting normally
+for commands in `recv_timeout`; it is no longer in file open. No executable,
+engine code, signing identity or bundle identifier changed between the blocked
+and playing observations.
 
-Pending installed-app cases: generated temporary fixture; temporary real-song
-copies; original Downloads files after legitimate authorization; current process
-versus relaunch with the exact same bundle; transport controls, two consecutive
-tracks and clean shutdown. No fresh installation or bundle replacement has been
-performed during this investigation.
+The same PID 83075 now shows advancing playback on the original Downloads file,
+from 1:01 to 1:14. The user explicitly confirms "Yes, I hear the music". Thus the
+authorization change releases the same stalled process, rather than merely
+coinciding with a successful different test executable.
+
+No new installation or bundle replacement was needed. Do not deliberately reset
+privacy authorization to reproduce this failure. A new signing identity, bundle
+identifier or permissive custom requirement is not an approved workaround.
 
 ## Verification results
 
@@ -114,6 +127,7 @@ build directory; no application bundle was rebuilt or replaced.
 | `cargo test --test playback_comparison -- --ignored --test-threads=1 --nocapture` | PASS: 8 passed on native CoreAudio; 51.91 s test time |
 | `cargo clippy --all-targets` | PASS with existing warnings described below |
 | `cargo test --test video_ui actual_video_import_frames_rotation_and_music_handoff -- --ignored --test-threads=1 --nocapture` | PASS: 1 passed, 4 filtered out |
+| `cargo test --test playback_comparison native_local_library -- --ignored --test-threads=1 --nocapture` with the two controlled copies | PASS: 2 passed, 6 filtered out |
 
 Clippy reports existing `collapsible_if` warnings in `src/ai.rs` and
 `src/app/controller.rs`, `needless_borrow` in `src/library/scanner.rs`, and
@@ -133,43 +147,99 @@ initialization timeout, an engine-specific decoder/worker deadlock, or present
 descriptor exhaustion. Passing tests are bounded observations, not proof that
 these failures can never happen.
 
-**NOT TESTED:** current installed UI clock/state, authorized temporary-media
-playback in the installed app, releasing the Downloads wait after explicit user
-approval, same-bundle relaunch, installed transport/two-track/shutdown acceptance,
-and physical speaker output. The Mac remained locked on both native UI attempts.
-No new installation, privacy grant or signing change was attempted. The
-currently stalled process was left intact for inspection of its pending prompt.
+## Installed acceptance after authorization
 
-Device-backed sample consumption in the native tests is distinct from installed
-playback acceptance. No one listened to or measured physical output in this
-investigation. Audible correctness, gapless continuity and clipping/artifacts
-remain unverified.
+These checks operate the actual installed bundle with the normal configuration
+and original library. No direct database edits or test connections target the
+production library. Normal playback can record its ordinary listening statistics.
+The saved settings are preserved: Gapless Off, ReplayGain Off, clipping prevention
+On and monitoring Off. The saved +3 dB preamp is inactive with ReplayGain Off.
 
-## Assessment and next necessary action
+| Case | Observed result |
+| --- | --- |
+| Previously stalled process | PID 83075 advances from 1:01 to 1:14 after the grant; worker no longer blocks in open |
+| Native audible output | User confirms hearing the actual music |
+| Pause | Position remains 1:37 across observations; Play control displayed |
+| Paused seek / resume | Seek changes 1:37 to 0:54 while paused; resume advances through 0:55 to 1:15 |
+| Two consecutive original tracks | Two-song album queue: seek first track near 2:51 / 2:53, then natural transition to track 2 and advancing 0:15 / 3:55 |
+| Previous / Next | Previous restarts a track after 3 s as designed; from paused zero it selects track 1; Next selects track 2 |
+| End of queue | Last track reaches 3:55 and changes to the Play control without hanging |
+| First shutdown | Normal Quit removes PID 83075; no new app crash report is found |
+| Same installed bundle, fresh launch | PID 2172 starts normally, loads the existing library, opens the same original file and advances from 0:00 through 0:11 to 1:50, without another folder prompt |
+| Quit during active playback | Normal Quit removes PID 2172 without a hang |
+| Temporary fixture in the installed bundle | The four-second WAV starts and naturally advances to the next copied real song |
+| Temporary real files in the installed bundle | Both copies advance, observed at 0:29 / 5:28 and 0:14 / 4:38 |
+| Isolated-session shutdown | Normal Quit removes PID 2960 while it is playing, without a hang |
+| Final normal-library restoration | Fresh PID 3359 uses the normal configuration and production database; the original song list loads, with 129 tracks in the read-only database count |
 
-The installed worker stall is reproduced. A code-requirement mismatch and an
-unanswered Downloads authorization request are directly recorded for that
-process, while separately authorized test executables can play the original
-files. This strongly supports a process-specific privacy authorization problem;
-an unlock/explicit grant followed by advancing installed playback is still
-required to close the causal test. A controller synchronization defect has not
-been demonstrated; its copied-library native regression passes, but the current
-installed interface cannot be inspected while locked.
+The UI has no separate music Stop action. Explicit Stop acknowledgements are
+verified by the native API/transport tests; the installed UI checks cover natural
+queue completion and quitting during playback. No Stop control is added for QA.
 
-No production fix or new regression test is justified by the evidence so far.
-Rewriting the engine, relaxing its timeouts, or silently changing its designated
-requirement would not resolve the outstanding authorization in a verified way.
-The only repository change is this investigation record. Main, overscroll work,
-the installed executable, bundle identity, signing requirements and privacy
-configuration are preserved.
+The controlled-copy manifest contains two actual temporary copies selected from
+the existing 53-file manifest. Their bytes are recorded in the private receipt;
+both current and historical engines play them through native output. A separate
+three-track configuration is derived from the established SQLite snapshot and
+contains only these copies and the existing four-second WAV fixture. It has no
+production roots or credentials. Native computer use blocks Terminal, so the
+user ran the exact existing-bundle `open -n ... --args --config-dir ...` command
+and confirmed "Launched". PID 2960's arguments confirm the isolated configuration.
+Its open descriptors identify the copied audio and test database, with no
+production database handle. All three temporary-media cases then play in this
+same installed executable. No alternate signing identity or launcher bundle was
+substituted.
 
-To continue: unlock the Mac and inspect the actual Downloads prompt; obtain the
-user's explicit approval before allowing folder access. Then test the existing
-process, a clean relaunch of the exact same installed bundle, the temporary
-fixture/real-file copies and original library files. Confirm two consecutive
-tracks and all transport/shutdown controls, and arrange actual listening or an
-appropriate output measurement. Keep this branch separate from main until the
-user reviews the result. Do not mark the installed playback P0 resolved yet.
+The temporary-media installed cases ran after the user's grant. A controlled
+installed protected-versus-unprotected comparison before that grant was not
+possible while the Mac was locked, and authorization was not reset afterward.
+The before/after evidence instead follows the same blocked process and its
+original outstanding TCC requests through their successful release.
+
+After restoring the normal application, all saved settings values match the
+pre-investigation snapshot and the shortcuts file is byte-for-byte unchanged.
+The installed executable still matches its starting SHA-256 and passes strict
+signature verification. No new Nano crash report is found since the permission
+grant. The normal app is left open at its production Songs list without active
+playback.
+
+**NOT TESTED:** installation of another changed executable, a persistent fix for
+future ad-hoc requirement changes, a dedicated development GUI executable,
+installed Gapless/ReplayGain On in this baseline pass, physical output loss,
+full-length playback of every song, or objective output gap/clipping measurements.
+The user heard ordinary music playback; that does not establish audible Gapless
+continuity or absence of artifacts across every format/device.
+
+## Assessment
+
+This instance's root cause is confirmed as a pending macOS Downloads authorization
+after the rebuilt bundle failed the previous code requirement. The OS blocked
+file opening before decoding/output setup. Explicit user authorization released
+the outstanding requests and restored playback in the same process; the exact
+same installed bundle also works after a normal quit/relaunch. Descriptor
+exhaustion, a decoder deadlock and a controller synchronization defect are not
+supported as the cause of this instance. CoreAudio's earlier intermittent startup
+delay was not reproduced and is not asserted fixed.
+
+No production patch or new regression test is justified by these observations.
+Rewriting the engine or relaxing its timeouts would not repair the demonstrated
+privacy authorization problem. The existing tests provide the relevant code
+regressions; macOS's code-requirement/prompt behavior needs native acceptance.
+
+Ad-hoc signatures designate this executable by code hash. A future rebuild can
+change that requirement and require renewed authorization again, as this release
+demonstrates. This investigation does not claim durable authorization across
+changed builds. Choosing a stable signing identity requires an appropriate
+certificate and separate explicit user approval; no identity, permissive signing
+requirement, application ID or system-wide permission changes are made here.
+
+Repository changes remain documentation only. Main, overscroll work and the
+installed executable are preserved, and no branch is merged automatically.
+The user's explicit folder grant is the only privacy permission change involved
+in recovery.
+
+Verified milestones are recorded in two documentation-only commits: the initial
+blocked evidence snapshot `45f8a4d` and the post-authorization acceptance update
+on `codex/native-playback-p0`. No production fix commit is claimed.
 
 Private evidence (bundle backup, raw process samples, TCC logs, command results
 and copied media) is retained under
