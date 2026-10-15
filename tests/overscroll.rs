@@ -107,20 +107,48 @@ fn spring_return_settles_promptly_at_both_edges() {
             "return progresses smoothly"
         );
         assert!(ui.get_active(), "return is still animated after 64ms");
-        tick(160);
-        assert_eq!(ui.get_position(), boundary, "return settles within 224ms");
+        tick(64);
+        assert_eq!(ui.get_position(), boundary, "return settles within 128ms");
         assert!(!ui.get_active(), "settled motion releases its timer");
 
         ui.invoke_wheel(delta);
         // Process the wheel callback's timer bindings before measuring its deadline.
         i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
         let stretched = (ui.get_position() - boundary).abs();
-        tick(48);
+        tick(16);
         assert!(
             (ui.get_position() - boundary).abs() < stretched,
-            "wheel return starts within 48ms of the last delta"
+            "wheel return starts on the next frame without a quiet interval"
         );
-        tick(208); // 32ms wheel inactivity deadline plus the return.
+        tick(112);
+        assert_eq!(ui.get_position(), boundary);
+        assert!(!ui.get_active());
+    }
+}
+
+#[test]
+fn trailing_wheel_deltas_do_not_postpone_the_spring_return() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    for (boundary, direction) in [(0.0, 1.0), (-500.0, -1.0)] {
+        ui.invoke_reset(boundary);
+        ui.invoke_wheel(160.0 * direction);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let stretched = (ui.get_position() - boundary).abs();
+        for delta in [8.0, 6.0, 4.0, 3.0, 2.0, 1.0, 0.8, 0.6, 0.4, 0.2] {
+            tick(16);
+            ui.invoke_wheel(delta * direction);
+            i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+            assert_eq!(ui.get_bounded(), boundary);
+        }
+        assert!(
+            (ui.get_position() - boundary).abs() < 1.0,
+            "momentum tail must not hold the stretch: initial={stretched}, remaining={}",
+            (ui.get_position() - boundary).abs()
+        );
+        tick(128);
         assert_eq!(ui.get_position(), boundary);
         assert!(!ui.get_active());
     }
@@ -151,8 +179,9 @@ fn elastic_axis_boundaries_resistance_momentum_and_interruptions() {
     ui.invoke_begin();
     assert_eq!(ui.get_position(), rebound);
     tick(16);
-    ui.invoke_drag(-10.0);
-    assert!(ui.get_position() < rebound);
+    // Stay outside the edge while interrupting the much shorter rebound.
+    ui.invoke_drag(-rebound * 0.5);
+    assert!(ui.get_position() > 0.0 && ui.get_position() < rebound);
     ui.invoke_release();
     tick(2000);
     assert_eq!(ui.get_position(), 0.0);

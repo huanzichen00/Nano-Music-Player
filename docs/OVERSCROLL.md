@@ -15,7 +15,7 @@ to the origin.
   `0.55*d / (1 + 0.55*abs(d)/L)`, where `L` is 32% of the viewport extent. The
   inverse mapping preserves resistance across successive events and reversals.
   A held drag has no return timer. Release starts decaying pointer inertia or an
-  implicit critically damped spring (60/s), preserving velocity on boundary
+  implicit critically damped spring (240/s), preserving velocity on boundary
   entry. The spring settles exactly, without repeated oscillation.
 - `ElasticFlickable` retains Slint's `Flickable` viewport, content dimensions,
   clipping and programmatic scroll coordinates. A single `SwipeGestureHandler`
@@ -33,11 +33,13 @@ this architecture. The live-input regression requires a single recognizer on
 each scrolling viewport.
 
 Wheel callbacks expose deltas but no gesture phase or momentum flag. Each delta
-is applied directly, including OS-supplied momentum; a 32ms inactivity deadline
-starts spring-back. No synthetic wheel fling is added. This phase approximation
-needs physical trackpad evaluation. It intentionally changes the old fixed
-180ms per-wheel interpolation to direct following. Lyric programmatic following
-keeps its 180ms easing and is interruptible from the currently rendered position.
+is applied directly, including OS-supplied momentum. The edge spring runs from
+the next frame without an inactivity timer; subsequent deltas do not stop or
+restart it. This prevents a long momentum tail from holding the content outside
+its bounds. Each wheel event clears velocity, so no synthetic wheel fling is
+added. This behavior needs physical trackpad evaluation. Lyric programmatic
+following keeps its 180ms easing and is interruptible from the currently rendered
+position.
 
 The spring timer runs at 16ms only during motion and uses elapsed animation time,
 capped at 32ms per integration step to keep delayed frames stable. No timer runs
@@ -127,11 +129,12 @@ trackpad behavior. No installed app bundle is replaced by this change.
 ## Integration with the current player
 
 The current version uses a 40ms Back quiet interval and 70ms screen animation
-with 80ms completion. The spring frequency is 60/s, up from the initial timing
-adjustment's 28/s. A paused 160px pull settles within 224ms after release in the
-frame-stepped regression. Wheel return starts within 48ms after the final delta,
-using a 32ms inactivity deadline instead of 90ms. Held drags, resistance, and
-momentum ownership are unchanged. The settings hierarchy, list
+with 80ms completion. The spring frequency is 240/s. A paused 160px pull settles
+within 128ms after release in the frame-stepped regression. Wheel return starts
+on the next 16ms frame, with no additional quiet interval. A decaying 160ms
+momentum tail leaves less than one pixel of overshoot, rather than postponing
+return until its last event. Held pointer drags, resistance, and Back burst
+ownership are unchanged. The settings hierarchy, list
 icons, video thumbnail geometry, and original-plus-secondary lyric layout are
 preserved. Translation takes priority over romaji in
 that secondary line. The elastic viewport replaces only the scrolling container.
