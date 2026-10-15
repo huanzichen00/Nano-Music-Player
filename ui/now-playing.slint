@@ -1,3 +1,4 @@
+import { ElasticFlickable } from "overscroll.slint";
 import { BackScroll } from "back-scroll.slint";
 import { IconButton, NanoSlider } from "components.slint";
 import { I18n } from "i18n.slint";
@@ -40,6 +41,7 @@ component PlaybackBackArea inherits SwipeGestureHandler {
 }
 
 export component NowPlayingView inherits Rectangle {
+    in property <int> navigation-generation;
     in property <float> s;
     in property <bool> navigation-enabled: true;
     in property <int> selected;
@@ -130,51 +132,49 @@ export component NowPlayingView inherits Rectangle {
                 }
                 if root.repeat-mode == "One": Text { x: 15px * root.s; y: 12px * root.s; width: 10px * root.s; height: 12px * root.s; text: "1"; color: #94eeff; font-size: 8px * root.s; font-weight: 700; horizontal-alignment: center; }
             }
-            if root.lyrics-visible: PlaybackBackArea {
+            if root.lyrics-visible: lyrics-scroll := ElasticFlickable {
                 y: 102px * root.s; height: parent.height - self.y;
-                s: root.s; enabled: root.navigation-enabled;
-                back => { root.back(); }
-                lyrics-scroll := Flickable {
-                    content-height: max(self.height, words.preferred-height);
-                    content-y <=> root.lyric-scroll-y;
-                    // Taps dismiss the overlay; vertical gestures scroll and rightward gestures return Back.
-                    TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); clicked => { root.toggle-overlay(); } }
-                    words := VerticalLayout {
-                        x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
-                        changed preferred-height => { root.lyric-content-height = self.preferred-height; }
-                        for line[index] in root.lyric-lines: Rectangle {
-                            // Translation and romaji share the line below the original.
-                            // Missing entries keep their original row without adding blank space.
-                            property <string> secondary-line: root.translation-visible
-                                ? (index < root.translated-lines.length ? root.translated-lines[index] : "")
-                                : (root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "");
-                            min-height: max(32px * root.s, lyric-text.preferred-height + (self.secondary-line != "" ? secondary-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
-                            property <bool> active: root.active-lyric == index;
-                            property <length> active-scroll-y: max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y));
-                            changed active => { if self.active { root.lyric-scroll-y = self.active-scroll-y; } }
-                            changed active-scroll-y => { if self.active { root.lyric-scroll-y = self.active-scroll-y; } }
-                            background: self.active ? #ffffff18 : transparent;
-                            lyric-text := Text {
-                                x: 10px * root.s; y: 5px * root.s; width: parent.width - 20px * root.s;
-                                text: line; color: parent.active ? white : #eef0f5;
-                                font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
-                                horizontal-alignment: left;
-                            }
-                            secondary-text := Text {
-                                visible: parent.secondary-line != "";
-                                x: 10px * root.s; y: lyric-text.y + lyric-text.preferred-height + 3px * root.s;
-                                width: parent.width - 20px * root.s;
-                                text: parent.secondary-line;
-                                color: root.translation-visible ? (parent.active ? #ffe4ad : #f0d5a4) : (parent.active ? #c9ecff : #d0d8e7);
-                                font-weight: parent.active ? 600 : 400; font-size: (root.translation-visible ? 11px : 10px) * root.s; wrap: word-wrap;
-                                horizontal-alignment: left;
-                            }
-                            TouchArea { clicked => { root.toggle-overlay(); } }
+                s: root.s; enabled: root.navigation-enabled; follow-duration: 180ms;
+                navigation-generation: root.navigation-generation;
+                back-enabled: true; back => { root.back(); }
+                content-height: max(self.height, words.preferred-height);
+                content-y <=> root.lyric-scroll-y;
+                // Taps dismiss the overlay; vertical gestures scroll and rightward gestures return Back.
+                TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); clicked => { root.toggle-overlay(); } }
+                words := VerticalLayout {
+                    x: 0px; y: 0px; width: art.width; height: self.preferred-height; spacing: 0px; padding: 0px;
+                    changed preferred-height => { root.lyric-content-height = self.preferred-height; }
+                    for line[index] in root.lyric-lines: Rectangle {
+                        // Translation and romaji share the line below the original.
+                        // Missing entries keep their original row without adding blank space.
+                        property <string> secondary-line: root.translation-visible
+                            ? (index < root.translated-lines.length ? root.translated-lines[index] : "")
+                            : (root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "");
+                        min-height: max(32px * root.s, lyric-text.preferred-height + (self.secondary-line != "" ? secondary-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
+                        property <bool> active: root.active-lyric == index;
+                        property <length> active-scroll-y: max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y));
+                        changed active => { if self.active { root.lyric-scroll-y = self.active-scroll-y; } }
+                        changed active-scroll-y => { if self.active { root.lyric-scroll-y = self.active-scroll-y; } }
+                        background: self.active ? #ffffff18 : transparent;
+                        lyric-text := Text {
+                            x: 10px * root.s; y: 5px * root.s; width: parent.width - 20px * root.s;
+                            text: line; color: parent.active ? white : #eef0f5;
+                            font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
+                            horizontal-alignment: left;
                         }
+                        secondary-text := Text {
+                            visible: parent.secondary-line != "";
+                            x: 10px * root.s; y: lyric-text.y + lyric-text.preferred-height + 3px * root.s;
+                            width: parent.width - 20px * root.s;
+                            text: parent.secondary-line;
+                            color: root.translation-visible ? (parent.active ? #ffe4ad : #f0d5a4) : (parent.active ? #c9ecff : #d0d8e7);
+                            font-weight: parent.active ? 600 : 400; font-size: (root.translation-visible ? 11px : 10px) * root.s; wrap: word-wrap;
+                            horizontal-alignment: left;
+                        }
+                        TouchArea { clicked => { root.toggle-overlay(); } }
                     }
-                    if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: I18n.tr("No lyrics available"); font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
-                    animate content-y { duration: 180ms; easing: ease-out; }
                 }
+                if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: I18n.tr("No lyrics available"); font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
     }

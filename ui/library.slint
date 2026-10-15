@@ -1,4 +1,5 @@
 import { BackScroll } from "back-scroll.slint";
+import { ElasticFlickable } from "overscroll.slint";
 import { I18n } from "i18n.slint";
 import { RatingControl } from "rating.slint";
 export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwork: image, show-artwork: bool, icon: int, font-family: string }
@@ -54,6 +55,7 @@ component LibraryBackArea inherits SwipeGestureHandler {
 }
 
 export component LibraryView inherits Rectangle {
+    in property <int> navigation-generation;
     in property <float> s;
     in property <string> text-font-family;
     in property <int> selected;
@@ -79,6 +81,7 @@ export component LibraryView inherits Rectangle {
     in property <[LibraryRow]> rows;
     in-out property <string> search-text;
     in-out property <length> scroll-y;
+    out property <length> overshoot: list-scroll.overshoot;
     out property <bool> search-focused: input.has-focus;
     // Videos starts with an Import action, then artwork rows. Its action must
     // not force the thumbnails and two-line titles into 48-pixel text rows.
@@ -95,11 +98,11 @@ export component LibraryView inherits Rectangle {
         changed(value) => { root.rating-changed(value); }
     }
     LibraryBackArea {
-        x: 0px; y: root.rating-header-height; width: root.width; height: root.height - self.y;
+        x: 0px; y: root.rating-header-height; width: root.width; height: root.header-height - root.rating-header-height;
         s: root.s; enabled: root.enabled && !(root.search && input.has-focus);
         back => { root.back(); }
-        // Existing list controls are children of the gesture area. Its recognizer
-        // defers taps and consumes swipes, so rows/toolbars never activate on Back.
+        // Header controls keep Back recognition. The list below arbitrates
+        // horizontal Back and vertical scrolling in its own single recognizer.
     if root.playlist-list: Rectangle {
         x: 0px; y: 0px; width: root.width; height: 38px * root.s;
         background: @linear-gradient(180deg, #dce4eb, #91a7bb);
@@ -143,9 +146,14 @@ export component LibraryView inherits Rectangle {
             edited => { root.edited(self.text); }
         }
     }
-    Flickable {
-        y: root.header-height - root.rating-header-height;
-        height: root.height - root.rating-header-height - self.y; width: root.width;
+    }
+    list-scroll := ElasticFlickable {
+        s: root.s; enabled: root.enabled;
+        navigation-generation: root.navigation-generation;
+        back-enabled: !(root.search && input.has-focus);
+        back => { root.back(); }
+        y: root.header-height;
+        height: root.height - self.y; width: root.width;
         content-height: max(self.height, (root.rows.length - root.prefix-count) * root.row-height);
         content-y <=> root.scroll-y;
         for row[index] in root.rows: Rectangle {
@@ -207,6 +215,5 @@ export component LibraryView inherits Rectangle {
             text: root.search ? I18n.tr("No matching songs") : root.playlist-content ? I18n.tr("Empty playlist") : I18n.tr("No music yet\nFile → Import Music Folder");
             font-size: 13px * root.s; color: #888; horizontal-alignment: center; vertical-alignment: center;
         }
-    }
     }
 }

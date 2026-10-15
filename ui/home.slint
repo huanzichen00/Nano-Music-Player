@@ -1,6 +1,7 @@
 import { BackScroll } from "back-scroll.slint";
 import { AppIcon } from "components.slint";
 import { I18n } from "i18n.slint";
+import { ElasticAxis } from "overscroll.slint";
 
 component HomeIconPage inherits Rectangle {
     in property <float> s;
@@ -37,6 +38,8 @@ export component HomeView inherits Rectangle {
     in property <bool> smooth-slides: true;
     in property <bool> navigation-enabled: true;
     private property <bool> animating: false;
+    out property <length> overshoot: edge.position;
+    edge := ElasticAxis { extent: root.width; enabled: root.navigation-enabled; }
     out property <length> page-slide-offset: !root.smooth-slides ? 0px : root.page == 1 ? second-page.x : first-page.x;
     out property <length> page-outgoing-offset: !root.smooth-slides ? 0px : root.page == 1 ? first-page.x : second-page.x;
     callback activated(int);
@@ -45,10 +48,21 @@ export component HomeView inherits Rectangle {
         first-page.x = root.page == 0 ? 0px : -root.width;
         second-page.x = root.page == 1 ? 0px : root.width;
     }
-    public function cancel-page-transition() { root.animating = false; root.place-pages(); }
+    public function cancel-page-transition() { edge.reset(0px); gesture.cancel(); root.animating = false; root.place-pages(); }
     // Screen navigation and modal changes place the icons at their destination;
     // only page changes on an interactive Home screen animate.
-    changed page => { root.animating = root.smooth-slides && root.navigation-enabled; root.place-pages(); }
+    changed page => {
+        // Transfer a boundary rebound into the page-slide coordinates before
+        // clearing it, so an inward wheel reversal starts at the visible icons.
+        let offset = edge.position;
+        root.animating = false;
+        if root.smooth-slides && root.navigation-enabled && abs(offset) > 0px {
+            first-page.x += offset; second-page.x += offset;
+        }
+        edge.reset(0px);
+        root.animating = root.smooth-slides && root.navigation-enabled;
+        root.place-pages();
+    }
     changed width => { root.cancel-page-transition(); }
     changed navigation-enabled => { root.cancel-page-transition(); }
     changed smooth-slides => { if !root.smooth-slides { root.cancel-page-transition(); } }
@@ -64,7 +78,23 @@ export component HomeView inherits Rectangle {
     gesture := SwipeGestureHandler {
         enabled: root.navigation-enabled;
         handle-swipe-right: true; handle-swipe-left: true;
+        private property <bool> tracking;
+        private property <length> previous-x;
+        moved => {
+            if !self.tracking {
+                self.previous-x = self.pressed-position.x;
+                self.tracking = true; edge.begin();
+            }
+            let delta = self.current-position.x - self.previous-x;
+            if (root.page == 0 && delta > 0px) || (root.page == 1 && delta < 0px) || abs(edge.position) > 0px {
+                edge.drag(delta);
+                if (root.page == 0 && edge.position < 0px) || (root.page == 1 && edge.position > 0px) { edge.reset(0px); }
+            }
+            self.previous-x = self.current-position.x;
+        }
+        cancelled => { self.tracking = false; edge.release(); }
         swiped => {
+            self.tracking = false; edge.release();
             let dx = self.current-position.x - self.pressed-position.x;
             let dy = self.current-position.y - self.pressed-position.y;
             if abs(dx) > 24px * root.s && abs(dx) > 1.5 * abs(dy) {
@@ -86,7 +116,12 @@ export component HomeView inherits Rectangle {
                     // Stop repeated momentum events at a page boundary from
                     // resubmitting the same navigation and resetting selection.
                     if (event.delta-x < 0px && root.page == 1) || (event.delta-x > 0px && root.page == 0) {
+                        edge.wheel(event.delta-x);
                         gesture.accumulated-x = 0px; wheel-timeout.stop(); return accept;
+                    }
+                    if abs(edge.position) > 0px {
+                        edge.wheel(event.delta-x);
+                        if (root.page == 0 && edge.position < 0px) || (root.page == 1 && edge.position > 0px) { edge.reset(0px); }
                     }
                     gesture.accumulated-x += event.delta-x;
                     wheel-timeout.start(); wheel-timeout.restart();
@@ -96,6 +131,9 @@ export component HomeView inherits Rectangle {
                     accept
                 } else { gesture.accumulated-x = 0px; wheel-timeout.stop(); reject }
             }
+            // Elastic boundary motion is independent of the existing page slide.
+            Rectangle {
+                x: edge.position; y: 0px; width: parent.width; height: parent.height;
             // Translate native rectangle containers, keeping reusable page roots local.
             first-page := Rectangle {
                 x: 0px; y: 0px;
@@ -114,6 +152,7 @@ export component HomeView inherits Rectangle {
                     page: 1; selected: root.selected; active: root.navigation-enabled && root.page == 1;
                     activated(index) => { root.activated(index); }
                 }
+            }
             }
         }
     }

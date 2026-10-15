@@ -73,3 +73,16 @@ Acceptance: no bitmap snapshots, no duplicate navigation observed during the tes
 The album/list transition leak and hidden Home page motion were reproduced and repaired in a separate project chat, integrated as `462dfc9`. Completion now checks the active navigation generation, and an interrupted slide explicitly restarts its timer deadline. Settling clears both screen offsets and releases outgoing rows. Screen transitions reset both Home page hosts; outgoing Home stays static and current Home gestures wait until the screen settles.
 
 `tests/screen_motion.rs` covers repeated album/list navigation, near-deadline interruptions, pointer row activation after settling, restoring Home after page-two navigation, horizontal-wheel accumulation, Smooth Slides toggling, and Device/Screen modes. Its snapshots render different source/intermediate/destination frames and the settled Home matches its original frame. An intermediate album composition and settled Home were visually inspected. This supersedes the earlier limitation about production intermediate frames above; native animation timing and OS reduced-motion integration remain unverified.
+
+## Elastic scrolling integration — 2026-10-15
+
+[Rubber-band overscroll](OVERSCROLL.md) uses a separate visual offset from the
+screen and Home page slides. Only bounded list/lyric coordinates are retained in
+navigation state. A navigation generation cancels pending elastic motion even
+when navigation reuses a library presentation with Smooth Slides disabled. Home
+page boundary input never wraps or repeats navigation. Its elastic feedback works
+with either Smooth Slides setting. Library and lyric viewports arbitrate vertical
+dragging and horizontal Back in one recognizer; seek/volume controls remain outside
+it. Existing motion regressions and the new live-input overscroll tests exercise
+these interactions. Native trackpad feel and frame pacing still require manual
+verification.

@@ -1,3 +1,4 @@
+import { ElasticFlickable } from "overscroll.slint";
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
 
@@ -97,7 +98,8 @@ export component PlaylistEditor inherits Rectangle {
         Text { x: 10px * root.s; y: 8px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s; text: root.name; color: #263441; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
         Text { x: 10px * root.s; y: 35px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: root.draft.length + I18n.tr(" songs"); color: #49637c; font-size: 10px * root.s; vertical-alignment: center; }
     }
-    candidate-scroll := Flickable {
+    candidate-scroll := ElasticFlickable {
+        s: root.s; enabled: root.open && !root.review && !root.saving;
         visible: !root.review; x: 0px; y: 133px * root.s; width: root.width; height: root.height - self.y - 70px * root.s;
         content-height: max(self.height, root.candidates.length * 48px * root.s);
         for song[index] in root.candidates: Rectangle {
@@ -111,8 +113,8 @@ export component PlaylistEditor inherits Rectangle {
         }
         if root.candidates.length == 0: Text { x: 16px * root.s; width: root.width - 32px * root.s; height: 170px * root.s; text: I18n.tr(root.library-loading ? "Loading music library…" : "Import music to choose songs."); color: #788390; font-size: 12px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
     }
-    draft-scroll := Flickable {
-        interactive: root.drag-id == "";
+    draft-scroll := ElasticFlickable {
+        s: root.s; enabled: root.open && root.review && root.drag-id == "" && !root.saving;
         visible: root.review; x: 0px; y: (root.editing ? 64px : 97px) * root.s; width: root.width; height: root.height - self.y - (root.editing ? 64px : 112px) * root.s;
         content-height: max(self.height, root.draft.length * 48px * root.s);
         for song[index] in root.draft: Rectangle {

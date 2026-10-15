@@ -1,3 +1,4 @@
+import { ElasticFlickable } from "overscroll.slint";
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
 import { GeniusRow } from "library.slint";
@@ -37,7 +38,8 @@ export component GeniusPreview inherits Rectangle {
         text: root.seed-available ? I18n.tr("Create a playlist based on this song.") : I18n.tr("Choose a song from Music");
         color: #6c7885; font-size: 12px * root.s; wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
     }
-    if root.stage > 0: Flickable {
+    if root.stage > 0: ElasticFlickable {
+        s: root.s; enabled: root.visible;
         x: 0px; width: root.width; y: 133px * root.s; height: root.height - self.y - 82px * root.s;
         content-height: root.songs.length * 36px * root.s;
         for song[index] in root.songs: Rectangle {

@@ -1,5 +1,6 @@
 import { BackScroll } from "back-scroll.slint";
 export { BackScroll }
+import { ElasticFlickable } from "overscroll.slint";
 import { HomeView } from "home.slint";
 import "fonts/maple-mono/MapleMono-Regular.ttf";
 import "fonts/maple-mono/MapleMono-SemiBold.ttf";
@@ -80,6 +81,8 @@ export component AppWindow inherits Window {
     out property <length> previous-transition-offset: root.transition-active ? root.previous-screen-x : 0px;
     out property <length> home-transition-offset: home.page-slide-offset;
     out property <length> home-outgoing-transition-offset: home.page-outgoing-offset;
+    out property <length> home-overshoot: home.overshoot;
+    out property <length> list-overshoot: library.overshoot;
     animate current-screen-x { duration: root.transition-animating ? 140ms : 0ms; easing: ease-in-out; }
     animate previous-screen-x { duration: root.transition-animating ? 140ms : 0ms; easing: ease-in-out; }
     changed screen-transition-generation => {
@@ -510,6 +513,7 @@ export component AppWindow inherits Window {
                 }
             }
             library := LibraryView {
+                navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
@@ -527,6 +531,7 @@ export component AppWindow inherits Window {
             }
             if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
             now-playing := NowPlayingView {
+                navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 2; y: 26px * root.s; height: 406px * root.s; s: root.s;
                 navigation-enabled: root.screen == 2 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 selected: root.selected; selection-visible: root.keyboard-navigation; playing: root.playing; has-track: root.has-track;
@@ -582,7 +587,7 @@ export component AppWindow inherits Window {
                 height: min(parent.height - 36px * root.s, 260px * root.s);
                 background: #22252b; border-width: 1px * root.s; border-color: #69717e; border-radius: 8px * root.s;
                 Text { x: 12px * root.s; y: 8px * root.s; width: parent.width - 24px * root.s; height: 24px * root.s; text: I18n.tr("Subtitles"); color: white; font-size: 15px * root.s; font-weight: 700; }
-                Flickable {
+                ElasticFlickable {
                     x: 8px * root.s; y: 36px * root.s;
                     width: parent.width - 16px * root.s;
                     height: max(26px * root.s, parent.height - 142px * root.s);
@@ -652,7 +657,7 @@ export component AppWindow inherits Window {
                 Text { x: 16px; y: 10px; height: 24px; text: I18n.tr("Keyboard Shortcuts"); font-size: 18px; font-weight: 700; color: #222; }
                 Text { x: parent.width - 38px; y: 10px; width: 26px; height: 24px; text: "×"; font-size: 22px; color: #555; horizontal-alignment: center; TouchArea { clicked => { root.command("close_shortcuts"); } } }
                 Text { x: 16px; y: 40px; width: parent.width - 32px; height: 64px; text: I18n.tr("Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nDefaults: H/J/K/L = back/down/up/open.\nY: lyrics. Shift + H: Home."); font-size: 11px; color: #666; }
-                Flickable {
+                ElasticFlickable {
                     x: 12px; y: 112px; width: parent.width - 24px; height: parent.height - 126px;
                     content-height: root.shortcuts.length * 46px;
                     for shortcut[index] in root.shortcuts: Rectangle {
