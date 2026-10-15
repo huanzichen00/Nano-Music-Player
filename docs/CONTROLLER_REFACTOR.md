@@ -108,3 +108,17 @@ Full `cargo test --all-targets`: **321 passed, 0 failed, 25 ignored**.
 Independent reviewer approved the actual diff. Existing T/cache/stale/edit/source
 assertions remain; fixture access uses test-only helpers. Logs:
 `/tmp/nano-controller-lyrics-{check,focused,regression,all}.log`.
+
+### Genius milestone
+
+Worker `8091977` cherry-picked as `90250f7`. Service owns 5 previous fields and
+plain preview entries; queue installation and persistence handoff remain with
+Controller. Formatting and `cargo check`: PASS. All library unit tests:
+**196 passed, 8 ignored** (4 new Genius cases). Focused Genius/playlist/shuffle UI
+checks: **8 passed**. Full suite: **325 passed, 0 failed, 25 ignored**.
+Independent reviewer approved the actual diff. A new Unix fixture initially tried
+writing an invalid-UTF8 filename, rejected by APFS; corrected to keep invalid paths
+in memory and write their valid Unicode projection, retaining the matching
+assertions. Existing lossy UI path identity remains unchanged. A test-only Track
+reference was qualified to eliminate an unused production import. Logs:
+`/tmp/nano-controller-genius-{check,focused,regression,all}.log`.

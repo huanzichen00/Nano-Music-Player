@@ -17,7 +17,7 @@ use crate::{
         engine::{AudioCommand, AudioEvent, Engine},
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
-    library::{Track, playlists, scanner},
+    library::{playlists, scanner},
     ui::{
         AppWindow, BackScroll, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow,
         SubtitleChoice,
@@ -33,9 +33,8 @@ use std::{
     sync::mpsc::Receiver,
 };
 
-// Closing a preview drops its receiver, but a blocking provider call may still be alive.
-// Reserve capacity before spawning and retain it until that worker actually exits.
-static GENIUS_WORKERS: crate::genius::RequestGate = crate::genius::RequestGate::new(1);
+mod genius;
+use genius::GeniusService;
 
 enum PendingMedia {
     Music {
@@ -96,16 +95,7 @@ pub struct Controller {
     deletion_generations: HashMap<PathBuf, u64>,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
     lyrics: LyricsService,
-    genius_seed: Option<PathBuf>,
-    genius_request: Option<
-        Receiver<(
-            crate::genius::Request,
-            Result<crate::genius::ResultSet, crate::genius::Error>,
-        )>,
-    >,
-    genius_rows: Vec<crate::ui::GeniusRow>,
-    genius_variation: u64,
-    genius_cancel: Option<crate::genius::Cancellation>,
+    genius: GeniusService,
     lyrics_dirty: bool,
     dialog_open: bool,
     last_screen: Option<Screen>,
@@ -234,11 +224,7 @@ impl Controller {
             deletion_generations: HashMap::new(),
             lyrics_edit: None,
             lyrics,
-            genius_seed: None,
-            genius_request: None,
-            genius_rows: Vec::new(),
-            genius_variation: 0,
-            genius_cancel: None,
+            genius: GeniusService::default(),
             lyrics_dirty: true,
             dialog_open: false,
             last_screen: None,
@@ -3154,7 +3140,7 @@ impl Controller {
     }
 
     #[cfg(test)]
-    fn translation_source(track: &Track) -> Vec<crate::translation::SourceLine> {
+    fn translation_source(track: &crate::library::Track) -> Vec<crate::translation::SourceLine> {
         LyricsService::source(track)
     }
 
@@ -3401,144 +3387,49 @@ impl Controller {
     }
 
     fn start_genius(&mut self, ui: &AppWindow, refresh: bool) {
-        if self.genius_request.is_some() {
-            return;
-        }
-        let Some(seed) = self.prepare_genius_seed(refresh) else {
-            ui.set_genius_message(self.text("Choose a song first"));
-            return;
-        };
-        let revision = self.library_revision();
-        let seed_signature = self
-            .state
-            .tracks
-            .iter()
-            .find(|track| track.path == seed)
-            .map(|track| {
-                format!(
-                    "{}\0{}\0{}",
-                    track.title.trim().to_lowercase(),
-                    track.artist.trim().to_lowercase(),
-                    track.album.trim().to_lowercase()
-                )
-            });
-        let mut seen = HashSet::new();
-        let mut candidates = Vec::new();
-        for (index, track) in self.state.tracks.iter().enumerate() {
-            if !track.path.is_file() {
-                continue;
+        let current = self.state.current.and_then(|id| self.state.tracks.get(id));
+        match self
+            .genius
+            .start(&self.directory, &self.state.tracks, current, refresh)
+        {
+            Ok(true) => {
+                ui.set_genius_busy(true);
+                ui.set_genius_message(self.text("Generating…"));
             }
-            let signature = format!(
-                "{}\0{}\0{}",
-                track.title.trim().to_lowercase(),
-                track.artist.trim().to_lowercase(),
-                track.album.trim().to_lowercase()
-            );
-            if track.path != seed
-                && (Some(&signature) == seed_signature.as_ref() || !seen.insert(signature.clone()))
-            {
-                continue;
-            }
-            seen.insert(signature);
-            candidates.push(crate::genius::Candidate {
-                id: format!("candidate-{index}"),
-                path: track.path.clone(),
-                title: track.title.chars().take(160).collect(),
-                artist: track.artist.chars().take(160).collect(),
-                album: track.album.chars().take(160).collect(),
-                genre: track.genre.chars().take(80).collect(),
-                duration_seconds: track.duration.max(0.0),
-            });
+            Ok(false) => {}
+            Err(message) => ui.set_genius_message(self.text(message)),
         }
-        let request = crate::genius::Request {
-            request_id: self.genius_variation + 1,
-            seed_path: seed,
-            library_revision: revision,
-            variation: self.genius_variation,
-            limit: 24,
-            candidates,
-        };
-        if request.validate().is_err() {
-            ui.set_genius_message(self.text("Not enough available local songs"));
-            return;
-        }
-        let Ok(permit) = GENIUS_WORKERS.try_acquire() else {
-            ui.set_genius_message(self.text("Genius failed; retry is available"));
-            return;
-        };
-        let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"));
-        let (tx, rx) = std::sync::mpsc::channel();
-        let cancellation = crate::genius::Cancellation::default();
-        let worker_cancellation = cancellation.clone();
-        std::thread::spawn(move || {
-            let _permit = permit;
-            let result = settings
-                .map_err(|_| crate::genius::Error::Provider)
-                .and_then(|settings| {
-                    crate::ai::DeepSeek::new(&settings).map_err(|_| crate::genius::Error::Provider)
-                })
-                .and_then(|provider| {
-                    crate::genius::generate(&request, &provider, &worker_cancellation)
-                });
-            let _ = tx.send((request, result));
-        });
-        self.genius_request = Some(rx);
-        self.genius_cancel = Some(cancellation);
-        ui.set_genius_busy(true);
-        ui.set_genius_message(self.text("Generating…"));
     }
 
+    #[cfg(test)]
     fn prepare_genius_seed(&mut self, refresh: bool) -> Option<PathBuf> {
-        if self.genius_seed.is_none() {
-            self.genius_seed = self
-                .state
-                .current
-                .and_then(|id| self.state.tracks.get(id))
-                .map(|track| track.path.clone());
-        }
-        if refresh {
-            self.genius_variation = self.genius_variation.wrapping_add(1);
-        } else {
-            self.genius_variation = 0;
-            self.genius_rows.clear();
-        }
-        self.genius_seed.clone()
+        let current = self.state.current.and_then(|id| self.state.tracks.get(id));
+        self.genius.prepare_seed(current, refresh)
     }
 
+    #[cfg(test)]
     fn library_revision(&self) -> u64 {
-        Self::library_revision_for(&self.state.tracks)
-    }
-
-    fn library_revision_for(tracks: &[Track]) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        for track in tracks {
-            track.path.hash(&mut h);
-            track.title.hash(&mut h);
-            track.artist.hash(&mut h);
-            track.album.hash(&mut h);
-            track.genre.hash(&mut h);
-            track.duration.to_bits().hash(&mut h);
-            track.path.is_file().hash(&mut h);
-        }
-        h.finish()
+        GeniusService::library_revision_for(&self.state.tracks)
     }
 
     fn poll_genius(&mut self, ui: &AppWindow) {
-        let Some(receiver) = &self.genius_request else {
+        let Some(result) = self.genius.poll(&self.state.tracks) else {
             return;
         };
-        let Ok((request, result)) = receiver.try_recv() else {
-            return;
-        };
-        self.genius_request = None;
-        self.genius_cancel = None;
         ui.set_genius_busy(false);
-        let message = match self.apply_genius_result(&request, result) {
+        let message = match result {
             Ok(sparse) => {
-                ui.set_genius_songs(slint::ModelRc::new(slint::VecModel::from(
-                    self.genius_rows.clone(),
-                )));
+                let rows = self
+                    .genius
+                    .entries()
+                    .iter()
+                    .map(|entry| crate::ui::GeniusRow {
+                        title: entry.title.as_str().into(),
+                        artist: entry.artist.as_str().into(),
+                        path: entry.path.to_string_lossy().into_owned().into(),
+                    })
+                    .collect::<Vec<_>>();
+                ui.set_genius_songs(ModelRc::new(VecModel::from(rows)));
                 if sparse {
                     "Short local playlist"
                 } else {
@@ -3550,83 +3441,38 @@ impl Controller {
         ui.set_genius_message(self.text(message));
     }
 
+    #[cfg(test)]
     fn apply_genius_result(
         &mut self,
         request: &crate::genius::Request,
         result: Result<crate::genius::ResultSet, crate::genius::Error>,
     ) -> Result<bool, &'static str> {
-        if !self.genius_context_matches(request) {
-            return Err("Library or seed changed; result discarded");
-        }
-        let result = result.map_err(|_| "Genius failed; retry is available")?;
-        self.genius_rows.clear();
-        if let Some(seed) = self
-            .state
-            .tracks
-            .iter()
-            .find(|track| track.path == request.seed_path)
-        {
-            self.genius_rows.push(crate::ui::GeniusRow {
-                title: seed.title.clone().into(),
-                artist: seed.artist.clone().into(),
-                path: seed.path.to_string_lossy().into_owned().into(),
-            });
-        }
-        for path in result.ordered_paths {
-            if let Some(track) = self
-                .state
-                .tracks
-                .iter()
-                .find(|track| track.path == path && track.path.is_file())
-            {
-                self.genius_rows.push(crate::ui::GeniusRow {
-                    title: track.title.clone().into(),
-                    artist: track.artist.clone().into(),
-                    path: track.path.to_string_lossy().into_owned().into(),
-                });
-            }
-        }
-        Ok(result.sparse)
+        self.genius
+            .apply_result(request, result, &self.state.tracks)
     }
 
+    #[cfg(test)]
     fn genius_context_matches(&self, request: &crate::genius::Request) -> bool {
-        self.genius_seed.as_deref() == Some(request.seed_path.as_path())
-            && self.library_revision() == request.library_revision
-            && request.candidates.iter().all(|candidate| {
-                self.state.tracks.iter().any(|track| {
-                    track.path == candidate.path
-                        && track.title.chars().take(160).collect::<String>() == candidate.title
-                        && track.artist.chars().take(160).collect::<String>() == candidate.artist
-                        && track.album.chars().take(160).collect::<String>() == candidate.album
-                        && track.genre.chars().take(80).collect::<String>() == candidate.genre
-                        && track.duration.max(0.0) == candidate.duration_seconds
-                })
-            })
+        self.genius.context_matches(request, &self.state.tracks)
     }
 
     fn genius_command(&mut self, ui: &AppWindow, command: &str) {
         match command {
             "create" => {
-                self.genius_seed = Some(PathBuf::from(ui.get_genius_seed_path().as_str()));
-                self.genius_rows.clear();
+                self.genius
+                    .set_seed(PathBuf::from(ui.get_genius_seed_path().as_str()));
                 self.start_genius(ui, false);
             }
             "refresh" => self.start_genius(ui, true),
             "close" => {
-                if let Some(token) = self.genius_cancel.take() {
-                    token.cancel();
-                }
-                self.genius_request = None;
-                self.genius_seed = None;
-                self.genius_rows.clear();
-                self.genius_variation = 0;
+                self.genius.close();
                 ui.set_genius_busy(false);
                 ui.set_genius_songs(ModelRc::default());
                 ui.set_genius_message("".into());
             }
             "play" => {
                 let ids = self.genius_playable_indices();
-                if ids.is_empty() || ids.len() != self.genius_rows.len() {
+                if ids.is_empty() || ids.len() != self.genius.entries().len() {
                     ui.set_genius_message(self.text("Library or seed changed; result discarded"));
                     return;
                 }
@@ -3656,14 +3502,7 @@ impl Controller {
     }
 
     fn genius_playable_indices(&self) -> Vec<usize> {
-        self.genius_rows
-            .iter()
-            .filter_map(|row| {
-                self.state.tracks.iter().position(|track| {
-                    track.path.to_string_lossy() == row.path.as_str() && track.path.is_file()
-                })
-            })
-            .collect()
+        self.genius.playable_indices(&self.state.tracks)
     }
 
     fn install_genius_queue(&mut self, ids: Vec<usize>) -> (usize, Option<usize>, f64) {
@@ -3693,21 +3532,7 @@ impl Controller {
     }
 
     fn save_genius_playlist(&mut self) -> Result<(), String> {
-        let paths: Vec<PathBuf> = self
-            .genius_playable_indices()
-            .into_iter()
-            .filter_map(|id| self.state.tracks.get(id).map(|track| track.path.clone()))
-            .collect();
-        if paths.is_empty() || paths.len() != self.genius_rows.len() {
-            return Err("Some selected songs are unavailable".into());
-        }
-        let seed = self
-            .genius_seed
-            .as_ref()
-            .and_then(|path| self.state.tracks.iter().find(|track| &track.path == path));
-        let name = seed
-            .map(|track| format!("{} - {}", track.artist, track.title))
-            .unwrap_or_else(|| "Genius Mix".into());
+        let (name, paths) = self.genius.playlist_snapshot(&self.state.tracks)?;
         let playlist = playlists::create(&self.directory.join("library.sqlite3"), &name, &paths)?;
         self.state.playlists.push(playlist);
         Ok(())
@@ -4522,16 +4347,16 @@ mod ai_controller_tests {
             make_track(seed.clone(), "Seed", Lyrics::default()),
             make_track(song.clone(), "Song", Lyrics::default()),
         ];
-        controller.genius_seed = Some(seed.clone());
+        controller.genius.set_seed(seed.clone());
         controller.state.current = Some(1);
         assert_eq!(controller.prepare_genius_seed(false), Some(seed.clone()));
         assert_eq!(controller.prepare_genius_seed(true), Some(seed.clone()));
-        assert_eq!(controller.genius_variation, 1);
+        assert_eq!(controller.genius.variation(), 1);
         let request = crate::genius::Request {
             request_id: 4,
             seed_path: seed.clone(),
             library_revision: controller.library_revision(),
-            variation: controller.genius_variation,
+            variation: controller.genius.variation(),
             limit: 1,
             candidates: controller
                 .state
@@ -4567,7 +4392,8 @@ mod ai_controller_tests {
         );
         assert_eq!(
             controller
-                .genius_rows
+                .genius
+                .entries()
                 .iter()
                 .map(|row| row.title.as_str())
                 .collect::<Vec<_>>(),
@@ -4725,19 +4551,22 @@ mod ai_controller_tests {
         controller.state.status = PlaybackStatus::Paused;
         controller.state.paused = true;
         controller.state.shuffle = true;
-        controller.genius_seed = Some(seed.clone());
-        controller.genius_rows = vec![
-            crate::ui::GeniusRow {
-                title: "Seed".into(),
-                artist: "Artist".into(),
-                path: seed.to_string_lossy().into_owned().into(),
-            },
-            crate::ui::GeniusRow {
-                title: "Next".into(),
-                artist: "Artist".into(),
-                path: next.to_string_lossy().into_owned().into(),
-            },
-        ];
+        controller.genius.set_seed(seed.clone());
+        controller.genius.set_preview(
+            seed.clone(),
+            vec![
+                genius::PreviewEntry {
+                    title: "Seed".into(),
+                    artist: "Artist".into(),
+                    path: seed.clone(),
+                },
+                genius::PreviewEntry {
+                    title: "Next".into(),
+                    artist: "Artist".into(),
+                    path: next.clone(),
+                },
+            ],
+        );
         let ids = controller.genius_playable_indices();
         let (start, kept, position) = controller.install_genius_queue(ids);
         assert_eq!(start, 0);
