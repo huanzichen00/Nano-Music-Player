@@ -1,10 +1,18 @@
-# Native playback P0 investigation
+# Native playback: macOS folder authorization
 
-Investigation date: 2026-10-15 (Asia/Shanghai). The installed playback stall was
-reproduced and released by the user's explicit Downloads authorization. Real
-installed playback, transport, consecutive tracks, relaunch and shutdown were
-then verified. No production code has been changed. Future rebuilt ad-hoc-signed
-bundles remain a separate authorization/packaging limitation.
+Investigation date: 2026-10-15 (Asia/Shanghai).
+
+**Classification: required macOS folder authorization, not an application bug.**
+The initial P0 concern is closed: playback was waiting for the user to approve
+Downloads access. Granting that access allowed the unchanged installed app to
+play normally. Real playback, transport, consecutive tracks, relaunch and shutdown
+were verified. No software fix was required or made. The filename retains the
+original investigation name for existing references.
+
+A rebuilt ad-hoc-signed bundle may require renewed folder authorization. This
+is an authorization requirement, not evidence of a playback-engine defect. The
+previously intermittent CoreAudio startup delay is separate and remains
+unexplained; it was not reproduced in this investigation.
 
 ## Isolation and plan
 
@@ -25,7 +33,7 @@ bundles remain a separate authorization/packaging limitation.
   `129f836`; the monitoring recovery is a controller change, not another engine
   rewrite.
 
-Plan: capture the installed failure before changing process state; run the
+Plan: capture the installed playback wait before changing process state; run the
 existing tests using the existing isolated real-library manifest/snapshot;
 compare original protected files with temporary copies; check the installed
 process before and after legitimate authorization/relaunch; repair only a
@@ -87,9 +95,9 @@ speakers at 48 kHz as default output. This does not measure initial Rodio stream
 setup or speaker output and does not explain the previously intermittent
 CoreAudio initialization delays.
 
-## Reproduction and resolution
+## Authorization and playback verification
 
-The observed installed failure began after replacing the ad-hoc-signed release,
+The observed authorization wait began after replacing the ad-hoc-signed release,
 launching the normal installed bundle, selecting a real Downloads-library song,
 and requesting Play. The earlier native UI check stayed at 0:00; samples of that
 process at 10:46 and 10:53 still find the file-open wait. Do not deliberately
@@ -109,7 +117,7 @@ authorization change releases the same stalled process, rather than merely
 coinciding with a successful different test executable.
 
 No new installation or bundle replacement was needed. Do not deliberately reset
-privacy authorization to reproduce this failure. A new signing identity, bundle
+privacy authorization to reproduce this wait. A new signing identity, bundle
 identifier or permissive custom requirement is not an approved workaround.
 
 ## Verification results
@@ -202,8 +210,8 @@ signature verification. No new Nano crash report is found since the permission
 grant. The normal app is left open at its production Songs list without active
 playback.
 
-**NOT TESTED:** installation of another changed executable, a persistent fix for
-future ad-hoc requirement changes, a dedicated development GUI executable,
+**NOT TESTED:** installation of another changed executable, authorization
+persistence across future ad-hoc rebuilds, a dedicated development GUI executable,
 installed Gapless/ReplayGain On in this baseline pass, physical output loss,
 full-length playback of every song, or objective output gap/clipping measurements.
 The user heard ordinary music playback; that does not establish audible Gapless
@@ -211,8 +219,9 @@ continuity or absence of artifacts across every format/device.
 
 ## Assessment
 
-This instance's root cause is confirmed as a pending macOS Downloads authorization
-after the rebuilt bundle failed the previous code requirement. The OS blocked
+This case is confirmed as a pending macOS Downloads authorization, not an
+application bug. After the rebuilt bundle no longer matched the previous code
+requirement, macOS required the user's approval again. The OS blocked
 file opening before decoding/output setup. Explicit user authorization released
 the outstanding requests and restored playback in the same process; the exact
 same installed bundle also works after a normal quit/relaunch. Descriptor
@@ -221,8 +230,8 @@ supported as the cause of this instance. CoreAudio's earlier intermittent startu
 delay was not reproduced and is not asserted fixed.
 
 No production patch or new regression test is justified by these observations.
-Rewriting the engine or relaxing its timeouts would not repair the demonstrated
-privacy authorization problem. The existing tests provide the relevant code
+Rewriting the engine or relaxing its timeouts would not satisfy the required
+privacy authorization. The existing tests provide the relevant code
 regressions; macOS's code-requirement/prompt behavior needs native acceptance.
 
 Ad-hoc signatures designate this executable by code hash. A future rebuild can
@@ -235,7 +244,7 @@ requirement, application ID or system-wide permission changes are made here.
 Repository changes remain documentation only. Main, overscroll work and the
 installed executable are preserved, and no branch is merged automatically.
 The user's explicit folder grant is the only privacy permission change involved
-in recovery.
+in this verification.
 
 Verified milestones are recorded in two documentation-only commits: the initial
 blocked evidence snapshot `45f8a4d` and the post-authorization acceptance update

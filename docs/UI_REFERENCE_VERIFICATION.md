@@ -171,10 +171,13 @@ initialization delays or verify the still-blocked installed song playback.
 
 ## Post-authorization playback investigation, 2026-10-15
 
+Classification: required macOS folder authorization, not an application bug.
 The user subsequently unlocked the Mac and explicitly allowed Downloads access.
 The same stalled installed process resumed real-song playback, and the user
 confirmed hearing its music. Original-file transport, consecutive tracks, normal
 shutdown/relaunch, and temporary fixture/real-file playback in the exact same
-installed bundle then passed. No production code, bundle identity or signature
-was changed. See [NATIVE_PLAYBACK_P0.md](NATIVE_PLAYBACK_P0.md) for the TCC grant
-results, test matrix, Git isolation and remaining future-build signing limitation.
+installed bundle then passed. No software fix was required; production code,
+bundle identity and signature were unchanged. See
+[NATIVE_PLAYBACK_P0.md](NATIVE_PLAYBACK_P0.md) for the TCC grant results, test
+matrix, Git isolation and possible reauthorization after future ad-hoc rebuilds.
+The separate intermittent CoreAudio startup delay remains unexplained.

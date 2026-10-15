@@ -9,11 +9,12 @@ This document records the recovery milestone. The later UI changes, shorter Back
 interval, expanded test totals and final installed-app checks are recorded in
 `docs/UI_REFERENCE_VERIFICATION.md`; production audio-core source remains unchanged.
 
-The later installed-app file-open stall is investigated separately in
-[NATIVE_PLAYBACK_P0.md](NATIVE_PLAYBACK_P0.md). Explicit Downloads authorization
-released that same process, after which native installed playback and relaunch
-passed. This is distinct from the descriptor-exhaustion recovery below; neither
-case required another audio-engine rewrite.
+The later installed-app file-open wait is documented separately in
+[NATIVE_PLAYBACK_P0.md](NATIVE_PLAYBACK_P0.md). It was required macOS Downloads
+authorization, not an application bug. Explicit approval allowed the same
+unchanged process to play, and native installed playback and relaunch passed.
+No software fix was required for that authorization case. The independently
+reproduced descriptor-exhaustion defect and its recovery below remain separate.
 
 ## Acceptance and plan
 
