@@ -331,3 +331,77 @@ fn lists_and_home_follow_live_input_and_cancel_without_stale_motion() {
     }
     ui.hide().unwrap();
 }
+
+#[test]
+fn native_list_hold_cancels_across_modals_and_navigation_without_extra_inertia() {
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
+            mock_time: true,
+            ..Default::default()
+        },
+    )))
+    .unwrap();
+    let ui = AppWindow::new().unwrap();
+    ui.global::<I18n>().on_translate(|_, text| text);
+    ui.set_device_mode(false);
+    ui.window().set_size(slint::LogicalSize::new(240.0, 432.0));
+    ui.set_screen(1);
+    ui.show().unwrap();
+    rows(&ui, 20);
+    for smooth in [true, false] {
+        ui.set_smooth_slides(smooth);
+        ui.set_list_scroll_y(-200.0);
+        tick(16);
+        ui.global::<WheelGesture>().set_active(true);
+        wheel(&ui, 0.0, -40.0);
+        let interior = ui.get_list_scroll_y();
+        assert!(interior < -200.0);
+        assert_eq!(ui.get_list_overshoot(), 0.0);
+        tick(400);
+        assert_eq!(ui.get_list_scroll_y(), interior);
+        ui.global::<WheelGesture>().set_active(false);
+        wheel(&ui, 0.0, 0.0);
+        tick(300);
+        assert_eq!(
+            ui.get_list_scroll_y(),
+            interior,
+            "OS momentum is not duplicated"
+        );
+
+        for modal in [true, false] {
+            ui.set_list_scroll_y(0.0);
+            tick(16);
+            ui.global::<WheelGesture>().set_active(true);
+            wheel(&ui, 0.0, 80.0);
+            let held = ui.get_list_overshoot();
+            assert!(held > 0.0);
+            tick(400);
+            assert_eq!(ui.get_list_overshoot(), held);
+            if modal {
+                ui.set_reference_open(true);
+            } else {
+                ui.set_screen_transition_generation(ui.get_screen_transition_generation() + 1);
+            }
+            tick(16);
+            assert_eq!(ui.get_list_overshoot(), 0.0);
+            assert_eq!(ui.get_list_scroll_y(), 0.0);
+            if modal {
+                wheel(&ui, 0.0, 80.0);
+                assert_eq!(ui.get_list_overshoot(), 0.0, "modal input stays guarded");
+                ui.set_reference_open(false);
+            }
+            // The old OS gesture ends after the view is enabled again.
+            ui.global::<WheelGesture>().set_active(false);
+            tick(400);
+            assert_eq!(ui.get_list_overshoot(), 0.0);
+            assert_eq!(ui.get_list_scroll_y(), 0.0);
+            // A new deliberate gesture still works after cancellation.
+            wheel(&ui, 0.0, 30.0);
+            assert!(ui.get_list_overshoot() > 0.0);
+            tick(300);
+            assert_eq!(ui.get_list_overshoot(), 0.0);
+        }
+    }
+    ui.hide().unwrap();
+}

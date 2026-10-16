@@ -23,10 +23,18 @@ slint::slint! {
         width: 240px; height: 300px;
         out property <length> overshoot: list.overshoot;
         out property <length> visual-position: list.visual-position;
+        out property <bool> active: list.user-interacting;
         in-out property <length> scroll-y;
         in property <duration> follow-duration;
+        in property <length> content-height: 600px;
+        in property <length> viewport-height: 300px;
+        in property <bool> enabled: true;
+        in property <int> navigation-generation;
+        public function native-wheel-active(active: bool) { WheelGesture.active = active; }
         list := ElasticFlickable {
-            width: 240px; height: 300px; content-height: 600px;
+            width: root.width; height: root.viewport-height;
+            content-height: root.content-height; enabled: root.enabled;
+            navigation-generation: root.navigation-generation;
             content-y <=> root.scroll-y; follow-duration: root.follow-duration;
             Rectangle { width: 240px; height: 600px; background: #fff; TouchArea {} }
         }
@@ -358,4 +366,249 @@ fn elastic_axis_boundaries_resistance_momentum_and_interruptions() {
     assert_eq!(ui.get_position(), 0.0);
     tick(2000);
     assert!(!ui.get_active());
+}
+
+#[test]
+fn resistance_is_partition_independent_and_reversible_across_the_boundary() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    for extent in [100.0, 300.0, 800.0] {
+        ui.set_extent(extent);
+        tick(16);
+        for (boundary, direction) in [(0.0, 1.0), (-500.0, -1.0)] {
+            ui.invoke_reset(boundary);
+            ui.invoke_begin();
+            ui.invoke_drag(160.0 * direction);
+            let whole = ui.get_position();
+            ui.invoke_reset(boundary);
+            ui.invoke_begin();
+            for _ in 0..160 {
+                ui.invoke_drag(direction);
+            }
+            assert!(
+                (ui.get_position() - whole).abs() < 0.01,
+                "resistance must depend on accumulated distance, not event partitioning"
+            );
+            ui.invoke_drag(-160.0 * direction);
+            assert!(
+                (ui.get_position() - boundary).abs() < 0.01,
+                "the inverse must undo a pull without retaining a visual offset"
+            );
+
+            // Start inside, cross the edge, then undo the same input. This
+            // exercises the production inverse and bounded coordinates together.
+            let inside = boundary - direction * 25.0;
+            ui.invoke_reset(inside);
+            ui.invoke_begin();
+            ui.invoke_drag(120.0 * direction);
+            assert!((ui.get_position() - boundary) * direction > 0.0);
+            assert_eq!(ui.get_bounded(), boundary);
+            ui.invoke_drag(-120.0 * direction);
+            assert!((ui.get_position() - inside).abs() < 0.01);
+
+            // Position is continuous at the edge, including tiny reversals.
+            ui.invoke_reset(boundary - direction * 0.01);
+            ui.invoke_begin();
+            ui.invoke_drag(direction * 0.01);
+            assert!((ui.get_position() - boundary).abs() < 0.0001);
+            ui.invoke_drag(direction * 0.001);
+            let outside = (ui.get_position() - boundary) * direction;
+            assert!(outside > 0.0 && outside < 0.001);
+            ui.invoke_drag(-direction * 0.002);
+            let inside = (ui.get_position() - boundary) * direction;
+            assert!(inside < 0.0 && inside > -0.002);
+            ui.invoke_reset(boundary);
+        }
+    }
+}
+
+#[test]
+fn equal_pulls_have_diminishing_gain_and_scale_with_the_viewport() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    let mut normalized: Option<f32> = None;
+    for extent in [100.0, 300.0, 800.0] {
+        ui.set_extent(extent);
+        tick(16);
+        ui.invoke_reset(0.0);
+        ui.invoke_begin();
+        let delta = extent * 0.1;
+        let mut previous = 0.0;
+        let mut previous_gain = delta;
+        for _ in 0..20 {
+            ui.invoke_drag(delta);
+            let current = ui.get_position();
+            let gain = current - previous;
+            assert!(gain > 0.0 && gain < previous_gain);
+            assert_eq!(ui.get_bounded(), 0.0);
+            previous = current;
+            previous_gain = gain;
+        }
+        let result = ui.get_position() / extent;
+        if let Some(expected) = normalized {
+            assert!((result - expected).abs() < 0.0001);
+        }
+        normalized = Some(result);
+        ui.invoke_reset(0.0);
+    }
+}
+
+#[test]
+fn native_wheel_release_does_not_synthesize_inertia_inside_the_list() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    ui.invoke_reset(-250.0);
+    ui.invoke_native_wheel_active(true);
+    for (delta, interval) in [(-50.0, 8), (-20.0, 17), (-5.0, 27), (3.0, 6), (0.0, 200)] {
+        ui.invoke_wheel(delta);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let held = ui.get_position();
+        tick(interval);
+        assert_eq!(ui.get_position(), held, "native events own all motion");
+        assert!(ui.get_active());
+    }
+    let released = ui.get_position();
+    ui.invoke_native_wheel_active(false);
+    ui.invoke_wheel(0.0);
+    i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+    tick(160);
+    assert_eq!(ui.get_position(), released, "no second momentum animation");
+    assert!(!ui.get_active());
+    tick(1000);
+    assert_eq!(ui.get_position(), released);
+    assert!(!ui.get_active(), "the idle axis stays stopped");
+}
+
+#[test]
+fn rapid_alternating_input_has_no_accumulated_drift_or_stale_rebound() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    for (boundary, direction) in [(0.0, 1.0), (-500.0, -1.0)] {
+        ui.invoke_reset(boundary);
+        ui.invoke_native_wheel_active(true);
+        for _ in 0..60 {
+            ui.invoke_wheel(20.0 * direction);
+            let pulled = ui.get_position();
+            assert!((pulled - boundary) * direction > 0.0);
+            ui.invoke_wheel(-20.0 * direction);
+            assert!((ui.get_position() - boundary).abs() < 0.001);
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(7));
+        }
+        ui.invoke_native_wheel_active(false);
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        tick(160);
+        // Opposite floating-point deltas can leave a tiny coordinate inside
+        // the list; release preserves that bounded coordinate rather than
+        // inventing a snap. Match the same inverse-roundtrip tolerance above.
+        assert!((ui.get_position() - boundary).abs() < 0.001);
+        assert!(!ui.get_active());
+
+        for _ in 0..12 {
+            ui.invoke_begin();
+            ui.invoke_drag(80.0 * direction);
+            tick(128); // release from rest, independent of the velocity filter
+            ui.invoke_release();
+            tick(32);
+            let returning = ui.get_position();
+            ui.invoke_begin();
+            assert_eq!(ui.get_position(), returning);
+            ui.invoke_drag(-10.0 * direction);
+            let reversed = ui.get_position();
+            assert!((reversed - returning) * direction < 0.0);
+            tick(128);
+            assert_eq!(
+                ui.get_position(),
+                reversed,
+                "a held reversal stops the old spring"
+            );
+            ui.invoke_reset(boundary);
+            tick(64);
+            assert_eq!(ui.get_position(), boundary);
+            assert!(!ui.get_active());
+        }
+    }
+}
+
+#[test]
+fn irregular_and_delayed_frames_remain_finite_and_finish_without_crossing_the_edge() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = ElasticHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    for (boundary, direction) in [(0.0, 1.0), (-500.0, -1.0)] {
+        ui.invoke_reset(boundary);
+        ui.invoke_begin();
+        ui.invoke_drag(160.0 * direction);
+        tick(128);
+        ui.invoke_release();
+        i_slint_backend_testing::mock_elapsed_time(Duration::ZERO);
+        let mut previous = (ui.get_position() - boundary).abs();
+        for interval in [7, 9, 8, 15, 23, 250, 4, 16, 48, 17, 100] {
+            // One delayed frame intentionally delivers one timer callback.
+            i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(interval));
+            let position = ui.get_position();
+            let offset = (position - boundary) * direction;
+            assert!(position.is_finite());
+            assert!(
+                offset >= 0.0,
+                "a rested rebound must not cross into the list"
+            );
+            assert!(offset <= previous + 0.0001);
+            assert_eq!(ui.get_bounded(), boundary);
+            previous = offset;
+        }
+        tick(2000);
+        assert_eq!(ui.get_position(), boundary);
+        assert!(!ui.get_active());
+    }
+}
+
+#[test]
+fn flickable_invalidation_during_a_native_hold_cannot_replay_motion() {
+    use slint::platform::WindowEvent;
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = FlickHarness::new().unwrap();
+    ui.show().unwrap();
+    tick(16);
+    for invalidation in 0..4 {
+        ui.set_enabled(true);
+        ui.set_content_height(600.0);
+        ui.set_scroll_y(0.0);
+        tick(16);
+        ui.invoke_native_wheel_active(true);
+        ui.window().dispatch_event(WindowEvent::PointerScrolled {
+            position: slint::LogicalPosition::new(100.0, 100.0),
+            delta_x: 0.0,
+            delta_y: 80.0,
+        });
+        tick(16);
+        assert!(ui.get_overshoot() > 0.0);
+        assert!(ui.get_active());
+        match invalidation {
+            0 => ui.set_navigation_generation(ui.get_navigation_generation() + 1),
+            1 => ui.set_enabled(false),
+            2 => ui.set_content_height(0.0),
+            _ => ui.set_viewport_height(340.0),
+        }
+        tick(16);
+        assert_eq!(ui.get_overshoot(), 0.0);
+        assert_eq!(ui.get_scroll_y(), 0.0);
+        assert!(!ui.get_active());
+        ui.invoke_native_wheel_active(false);
+        ui.set_enabled(true);
+        tick(300);
+        assert_eq!(ui.get_visual_position(), 0.0);
+        assert!(
+            !ui.get_active(),
+            "an old native end cannot restart canceled motion"
+        );
+    }
 }
