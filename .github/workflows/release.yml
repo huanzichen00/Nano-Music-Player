@@ -95,7 +95,7 @@ jobs:
           test -f "Nano-Music-Player-$version-macos-arm64.zip"
           test -f "Nano-Music-Player-$version-linux-x86_64.tar.gz"
           test -f "Nano-Music-Player-$version-windows-x86_64.zip"
-          cat ./*.sha256 > SHA256SUMS
+          cat ./*.sha256 | tr -d '\r' > SHA256SUMS
           sha256sum --check SHA256SUMS
           if gh release view "$tag" >/dev/null 2>&1; then
             echo "Release $tag already exists; refusing to replace its assets."

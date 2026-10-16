@@ -1,0 +1,79 @@
+name: Retry release publishing
+
+on:
+  push:
+    branches: ['codex/publish-*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: retry-release-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Validate completed builds and unchanged application source
+        id: build
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          version = subprocess.check_output(['python', 'scripts/package-release.py', '--version'], text=True).strip()
+          record = json.loads(pathlib.Path(f'docs/releases/v{version}-build.json').read_text())
+          assert record['version'] == version
+          if os.environ['GITHUB_EVENT_NAME'] == 'push':
+              assert os.environ['GITHUB_REF_NAME'] == f'codex/publish-v{version}'
+          sha, run_id = record['source_sha'], record['run_id']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', f'repos/{os.environ["GH_REPO"]}/{path}'], text=True))
+          run = api(f'actions/runs/{run_id}')
+          assert run['head_sha'] == sha and run['status'] == 'completed'
+          jobs = api(f'actions/runs/{run_id}/jobs')['jobs']
+          for name in ('Build macos-arm64', 'Build linux-x86_64', 'Build windows-x86_64'):
+              assert any(job['name'] == name and job['conclusion'] == 'success' for job in jobs), name
+          changes = subprocess.check_output(['git', 'diff', '--name-only', sha, 'HEAD', '--', 'src', 'ui', 'assets', 'Cargo.toml', 'Cargo.lock', 'build.rs'], text=True)
+          assert not changes.strip(), f'Application source changed since the builds: {changes}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'run_id={run_id}\nsource_sha={sha}\nversion={version}\n')
+          PY
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.build.outputs.run_id }}
+          pattern: release-*
+          merge-multiple: true
+          path: target/release-dist
+      - name: Verify checksums and publish existing builds
+        shell: bash
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+          SOURCE_SHA: ${{ steps.build.outputs.source_sha }}
+        run: |
+          tag="v$VERSION"
+          cd target/release-dist
+          test -f "Nano-Music-Player-$VERSION-macos-arm64.zip"
+          test -f "Nano-Music-Player-$VERSION-linux-x86_64.tar.gz"
+          test -f "Nano-Music-Player-$VERSION-windows-x86_64.zip"
+          cat ./*.sha256 | tr -d '\r' > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to replace its assets."
+            exit 1
+          fi
+          gh release create "$tag" ./*.zip ./*.tar.gz SHA256SUMS \
+            --target "$SOURCE_SHA" \
+            --title "Nano Music Player $VERSION" \
+            --notes-file "../../docs/releases/$tag.md" \
+            --latest
