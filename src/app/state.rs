@@ -542,7 +542,7 @@ impl State {
                                 .cloned()
                                 .unwrap_or_else(|| {
                                     if track.lyrics.is_empty() {
-                                        "Search with DeepSeek"
+                                        "Search online sources"
                                     } else {
                                         "Lyrics are already available"
                                     }

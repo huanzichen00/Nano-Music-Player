@@ -818,6 +818,26 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "DeepSeek がオンライン検索を実行しませんでした",
     ),
     ("Find Lyrics", "查找歌词", "歌詞を探す"),
+    (
+        "Search online sources",
+        "在线查找匹配歌词",
+        "オンラインで一致する歌詞を検索",
+    ),
+    (
+        "Multiple online lyric recordings match; import lyrics for this version",
+        "找到多个匹配的歌词版本，请为此录音手动导入歌词",
+        "複数の歌詞が一致しました。このバージョンの歌詞を手動で読み込んでください",
+    ),
+    (
+        "DeepSeek web search rate limit reached; try again later",
+        "DeepSeek 网页搜索已达限额，请稍后重试",
+        "DeepSeek のウェブ検索上限に達しました。後でもう一度お試しください",
+    ),
+    (
+        "DeepSeek search reached its tool-use limit",
+        "DeepSeek 搜索已达到本次请求的工具使用次数上限",
+        "DeepSeek 検索がこのリクエストのツール使用回数上限に達しました",
+    ),
     ("Choose Song", "选择歌曲", "曲を選択"),
     (
         "Cancel Lyric Search",

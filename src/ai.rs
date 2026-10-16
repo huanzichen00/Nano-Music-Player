@@ -14,6 +14,8 @@ pub const DEFAULT_MODEL: &str = "deepseek-flash";
 const ENDPOINT: &str = "https://api.deepseek.com/chat/completions";
 const SEARCH_ENDPOINT: &str = "https://api.deepseek.com/anthropic/v1/messages";
 const RESPONSE_LIMIT: u64 = 1_048_576;
+#[path = "ai/rate_limit.rs"]
+pub(crate) mod rate_limit;
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -153,6 +155,9 @@ impl DeepSeek {
     }
 
     pub fn json(&self, system: &str, input: &Value) -> Result<Value, String> {
+        if !rate_limit::ready(&self.endpoint) {
+            return Err("DeepSeek rate limit reached; try again later".into());
+        }
         let response = self
             .client
             .post(&self.endpoint)
@@ -198,6 +203,9 @@ impl DeepSeek {
     }
 
     fn search_at(&self, endpoint: &str, query: &str) -> Result<Vec<String>, String> {
+        if !rate_limit::ready(endpoint) {
+            return Err("DeepSeek rate limit reached; try again later".into());
+        }
         let response = self.client.post(endpoint)
             .bearer_auth(&self.api_key)
             .header("x-api-key", &self.api_key)
@@ -210,38 +218,52 @@ impl DeepSeek {
             }))
             .send().map_err(|error| if error.is_timeout() { "DeepSeek request timed out" } else { "Cannot connect to DeepSeek" })?;
         let body = Self::read_response(response)?;
-        if body["stop_reason"] != "end_turn" {
-            return Err("DeepSeek returned an incomplete search response".into());
-        }
         let blocks = body["content"]
             .as_array()
             .ok_or("DeepSeek returned an invalid search response")?;
         let mut searched = false;
         let mut sources = Vec::new();
+        let mut tool_error = None;
         for block in blocks
             .iter()
             .filter(|block| block["type"] == "web_search_tool_result")
         {
             searched = true;
+            if block["content"]["type"] == "web_search_tool_result_error" {
+                tool_error = Some(Self::search_error(endpoint, &block["content"]));
+                continue;
+            }
             let results = block["content"]
                 .as_array()
                 .ok_or("DeepSeek web search failed")?;
-            if results
+            if let Some(error) = results
                 .iter()
-                .any(|result| result["type"] == "web_search_tool_result_error")
+                .find(|result| result["type"] == "web_search_tool_result_error")
             {
-                return Err("DeepSeek web search failed".into());
+                tool_error = Some(Self::search_error(endpoint, error));
             }
             for result in results
                 .iter()
                 .filter(|result| result["type"] == "web_search_result")
             {
-                if let Some(url) = result["url"].as_str().filter(|url| !url.is_empty()) {
-                    if sources.len() < 32 && !sources.iter().any(|existing| existing == url) {
-                        sources.push(url.to_owned());
-                    }
+                if let Some(url) = result["url"].as_str().filter(|url| !url.is_empty())
+                    && sources.len() < 32
+                    && !sources.iter().any(|existing| existing == url)
+                {
+                    sources.push(url.to_owned());
                 }
             }
+        }
+        // The model may exhaust its one-search budget or output tokens after
+        // returning useful native results. Those structured URLs remain valid.
+        if !sources.is_empty() {
+            return Ok(sources);
+        }
+        if let Some(error) = tool_error {
+            return Err(error);
+        }
+        if body["stop_reason"] != "end_turn" {
+            return Err("DeepSeek returned an incomplete search response".into());
         }
         if !searched {
             return Err("DeepSeek did not perform an online search".into());
@@ -249,12 +271,26 @@ impl DeepSeek {
         Ok(sources)
     }
 
+    fn search_error(endpoint: &str, error: &Value) -> String {
+        match error["error_code"].as_str() {
+            Some("rate_limit_exceeded") => {
+                rate_limit::observe(endpoint, &Default::default());
+                "DeepSeek web search rate limit reached; try again later".into()
+            }
+            Some("max_uses_exceeded") => "DeepSeek search reached its tool-use limit".into(),
+            _ => "DeepSeek web search failed".into(),
+        }
+    }
+
     fn read_response(response: reqwest::blocking::Response) -> Result<Value, String> {
         match response.status().as_u16() {
             200..=299 => {}
             401 | 403 => return Err("DeepSeek rejected the API key".into()),
             402 => return Err("DeepSeek account has insufficient balance".into()),
-            429 => return Err("DeepSeek rate limit reached; try again later".into()),
+            429 => {
+                rate_limit::observe(response.url().as_str(), response.headers());
+                return Err("DeepSeek rate limit reached; try again later".into());
+            }
             500..=599 => return Err("DeepSeek is temporarily unavailable".into()),
             _ => return Err("DeepSeek rejected the request; check the model setting".into()),
         }
@@ -321,6 +357,60 @@ mod tests {
             api_key: "test-secret".into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn actual_rate_limits_apply_to_subsequent_requests_and_tool_budgets_are_distinct() {
+        let (endpoint, server) = mock_request("429 Too Many Requests", "{}");
+        let client =
+            DeepSeek::with_endpoint(&settings(), &endpoint, Duration::from_secs(5)).unwrap();
+        assert!(
+            client
+                .json("JSON", &json!({}))
+                .unwrap_err()
+                .contains("rate limit")
+        );
+        server.join().unwrap();
+        // The listener is closed; this must fail locally with the same limit.
+        assert!(
+            client
+                .json("JSON", &json!({}))
+                .unwrap_err()
+                .contains("rate limit")
+        );
+        assert!(
+            client
+                .search_at(&endpoint, "song")
+                .unwrap_err()
+                .contains("rate limit")
+        );
+        let (endpoint, server) = mock_request("200 OK", &json!({"stop_reason":"end_turn", "content":[
+            {"type":"web_search_tool_result", "content":{"type":"web_search_tool_result_error", "error_code":"max_uses_exceeded"}}
+        ]}).to_string());
+        let client =
+            DeepSeek::with_endpoint(&settings(), &endpoint, Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            client.search_at(&endpoint, "song").unwrap_err(),
+            "DeepSeek search reached its tool-use limit"
+        );
+        server.join().unwrap();
+        assert!(rate_limit::ready(&endpoint));
+    }
+
+    #[test]
+    fn native_results_survive_a_later_tool_budget_or_token_limit() {
+        let body = json!({"stop_reason":"max_tokens", "content":[
+            {"type":"web_search_tool_result", "content":[{"type":"web_search_result", "url":"https://lrclib.net/api/get/1"}]},
+            {"type":"web_search_tool_result", "content":{"type":"web_search_tool_result_error", "error_code":"max_uses_exceeded"}}
+        ]}).to_string();
+        let (endpoint, server) = mock_request("200 OK", &body);
+        let client =
+            DeepSeek::with_endpoint(&settings(), &endpoint, Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            client.search_at(&endpoint, "song").unwrap(),
+            ["https://lrclib.net/api/get/1"]
+        );
+        server.join().unwrap();
     }
 
     #[test]

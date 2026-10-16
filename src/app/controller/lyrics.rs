@@ -350,9 +350,6 @@ impl LyricsService {
         }
         let request = online_lyrics::Request::new(track);
         let settings = crate::ai::DeepSeekSettings::load(&self.directory.join("deepseek.json"))?;
-        if !settings.has_key() {
-            return Err("Configure a DeepSeek API key first".into());
-        }
         let path = request.path.clone();
         self.translation_after_lookup = translate_after.then(|| path.clone());
         self.online_lyrics_path = Some(path.clone());
@@ -360,9 +357,8 @@ impl LyricsService {
         let worker_cancellation = cancellation.clone();
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = crate::ai::DeepSeek::new(&settings).and_then(|provider| {
-                online_lyrics::lookup(&request, &provider, &worker_cancellation)
-            });
+            let provider = crate::ai::DeepSeek::new(&settings).ok();
+            let result = online_lyrics::lookup(&request, provider.as_ref(), &worker_cancellation);
             let _ = sender.send((request, result));
         });
         self.online_lyrics_request = Some(receiver);

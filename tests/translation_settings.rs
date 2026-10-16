@@ -106,7 +106,7 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
     );
     assert_eq!(
         ui.get_rows().row_data(1).unwrap().subtitle,
-        "Search with DeepSeek"
+        "Search online sources"
     );
     assert_eq!(controller.borrow().state.current, Some(1));
     assert_eq!(controller.borrow().state.queue.order, queue);
