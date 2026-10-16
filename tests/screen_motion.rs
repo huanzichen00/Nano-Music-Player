@@ -295,11 +295,11 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     key(&ui, Key::Return);
     tick(35);
     assert!(ui.get_transition_offset() > 0.0);
-    key(&ui, Key::Return); // Display is the first Settings level.
+    key(&ui, Key::Return); // Appearance is the first Settings level.
     let toggle = ui
         .get_rows()
         .iter()
-        .position(|row| row.title == "Smooth Slides")
+        .position(|row| row.title == "Page Animation")
         .unwrap();
     for _ in 0..toggle {
         key(&ui, "j");

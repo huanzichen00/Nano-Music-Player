@@ -2,12 +2,13 @@ import { BackScroll } from "back-scroll.slint";
 import { ElasticFlickable } from "overscroll.slint";
 import { I18n } from "i18n.slint";
 import { RatingControl } from "rating.slint";
-export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwork: image, show-artwork: bool, icon: int, font-family: string }
+export struct LibraryRow { title: string, subtitle: string, chevron: bool, artwork: image, show-artwork: bool, icon: int, font-family: string, setting: bool, value: string, toggle: bool, checked: bool }
 export struct GeniusRow { title: string, artist: string, path: string }
 
 // Shared with the controller for thumbnail decoding and selection scrolling.
 export global ListMetrics {
     out property <float> text-row-height: 48;
+    out property <float> setting-row-height: 56;
     // PDF page 10: 82-pixel rows / 340-pixel LCD width × 240 logical units.
     out property <float> artwork-row-height: 58;
     out property <float> artwork-padding: 1;
@@ -86,7 +87,7 @@ export component LibraryView inherits Rectangle {
     // Videos starts with an Import action, then artwork rows. Its action must
     // not force the thumbnails and two-line titles into 48-pixel text rows.
     private property <bool> video-list: root.rows.length > 1 && root.rows[1].icon == 9;
-    out property <length> row-height: (root.video-list || (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork) ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
+    out property <length> row-height: (root.rows.length > 0 && root.rows[0].setting ? ListMetrics.setting-row-height : root.video-list || (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork) ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
     callback edited(string);
     public function focus-search() { input.focus(); }
@@ -189,7 +190,7 @@ export component LibraryView inherits Rectangle {
                 Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row.artwork; image-fit: contain; }
                 if row.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row.icon == 9 ? @image-url("../assets/generated/videos.png") : @image-url("../assets/icons/nano/songs.png"); colorize: row.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
             }
-            Text {
+            if !row.setting: Text {
                 x: row.show-artwork ? (row.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
                 y: row.subtitle == "" ? 0px : (parent.height - 40px * root.s) / 2;
                 width: parent.width - self.x - 25px * root.s; height: row.subtitle == "" ? parent.height : 23px * root.s;
@@ -197,12 +198,62 @@ export component LibraryView inherits Rectangle {
                 font-family: row.font-family == "" ? root.text-font-family : row.font-family;
                 font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
-            if row.subtitle != "": Text {
+            if !row.setting && row.subtitle != "": Text {
                 x: row.show-artwork ? (row.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
                 y: (parent.height - 40px * root.s) / 2 + 23px * root.s;
                 width: parent.width - self.x - 25px * root.s; height: 17px * root.s;
                 text: row.subtitle; color: (root.selected == index && root.keyboard-navigation) ? #e1efff : #929292; font-size: (row.show-artwork || root.music-list || root.playlist-list ? 14px : 11px) * root.s; overflow: elide;
                 font-family: row.font-family == "" ? root.text-font-family : row.font-family;
+            }
+            if row.setting: Rectangle {
+                background: transparent;
+                Text {
+                    x: 10px * root.s; y: row.subtitle == "" ? 0px : 5px * root.s;
+                    width: parent.width - self.x - (row.toggle ? 56px * root.s : row.value != "" ? setting-value.width + 36px * root.s : 28px * root.s);
+                    height: row.subtitle == "" ? parent.height : 22px * root.s;
+                    text: row.title; font-size: 14px * root.s; font-weight: 600;
+                    font-family: row.font-family == "" ? root.text-font-family : row.font-family;
+                    color: root.selected == index && root.keyboard-navigation ? white : #202b35;
+                    vertical-alignment: center; overflow: elide;
+                }
+                setting-value := Text {
+                    visible: !row.toggle && row.value != "";
+                    x: parent.width - self.width - 25px * root.s; y: 8px * root.s;
+                    width: min(self.preferred-width, 96px * root.s); height: 22px * root.s;
+                    text: row.value; font-size: 11px * root.s;
+                    color: root.selected == index && root.keyboard-navigation ? #edf6ff : #49677f;
+                    vertical-alignment: center; horizontal-alignment: right; overflow: elide;
+                }
+                if row.subtitle != "": Text {
+                    x: 10px * root.s; y: 29px * root.s; width: parent.width - 20px * root.s; height: 25px * root.s;
+                    text: row.subtitle; font-size: 11px * root.s; wrap: word-wrap; overflow: elide;
+                    color: root.selected == index && root.keyboard-navigation ? #e1efff : #667584;
+                    font-family: row.font-family == "" ? root.text-font-family : row.font-family;
+                }
+                if row.toggle: Rectangle {
+                    accessible-role: switch;
+                    accessible-label: row.title + ". " + row.subtitle;
+                    accessible-enabled: root.enabled;
+                    accessible-checkable: true;
+                    accessible-checked: row.checked;
+                    accessible-action-default => { if root.enabled { root.activated(index); } }
+                    x: parent.width - 46px * root.s; y: 8px * root.s; width: 36px * root.s; height: 20px * root.s;
+                    border-radius: 10px * root.s; border-width: 1px * root.s;
+                    border-color: row.checked ? #377d46 : #939da5;
+                    background: row.checked ? @linear-gradient(180deg, #75b97d, #429653) : @linear-gradient(180deg, #b4bec6, #d0d7dd);
+                    Rectangle {
+                        x: (row.checked ? 18px : 2px) * root.s; y: 2px * root.s;
+                        width: 16px * root.s; height: 16px * root.s; border-radius: 8px * root.s;
+                        background: @linear-gradient(180deg, #fff, #e5e9ed);
+                        border-width: 1px * root.s; border-color: #ffffffaa;
+                    }
+                }
+                if row.checked && !row.toggle: Text {
+                    x: parent.width - 26px * root.s; width: 18px * root.s; height: parent.height;
+                    text: "✓"; font-size: 16px * root.s; font-weight: 700;
+                    color: root.selected == index && root.keyboard-navigation ? white : #2675ba;
+                    vertical-alignment: center;
+                }
             }
             if row.chevron: Image {
                 x: parent.width - 18px * root.s; y: (parent.height - self.height) / 2; width: 7px * root.s; height: 12px * root.s;

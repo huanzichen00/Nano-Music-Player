@@ -5,6 +5,7 @@ pub mod controller;
 pub mod geometry;
 pub mod i18n;
 pub mod navigation;
+mod settings;
 pub mod state;
 mod thumbnails;
 pub mod typography;

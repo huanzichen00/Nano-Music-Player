@@ -1044,8 +1044,8 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         ui.invoke_item_clicked(language.index() as i32);
         assert_eq!(ui.get_screen_title(), title);
         assert_eq!(
-            ui.get_rows().row_data(language.index()).unwrap().subtitle,
-            "✓"
+            ui.get_rows().row_data(language.index()).unwrap().checked,
+            true
         );
         assert_eq!(
             Settings::load(&directory.path().join("settings.json"))

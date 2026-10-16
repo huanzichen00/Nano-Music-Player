@@ -3,7 +3,7 @@ use nano_music_player::{
         action::Action,
         config::Settings,
         controller::{Controller, connect},
-        navigation::{Screen, SettingsSection},
+        navigation::Screen,
     },
     translation::TargetLanguage,
     ui::AppWindow,
@@ -28,12 +28,12 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
     controller.borrow_mut().execute(&ui, Action::Settings);
     ui.invoke_item_clicked(2);
     assert_eq!(ui.get_screen_title(), "Lyrics");
+    assert_eq!(ui.get_rows().row_data(1).unwrap().value, "English");
+    assert!(ui.get_rows().row_data(0).unwrap().toggle);
+    assert!(!ui.get_rows().row_data(0).unwrap().checked);
+    assert!(!ui.get_rows().row_data(0).unwrap().chevron);
     ui.invoke_item_clicked(1);
-    assert_eq!(ui.get_screen_title(), "Translation");
-    assert_eq!(ui.get_rows().row_data(0).unwrap().subtitle, "English");
-    assert_eq!(ui.get_rows().row_data(3).unwrap().subtitle, "Off");
-    ui.invoke_item_clicked(0);
-    assert_eq!(ui.get_screen_title(), "Translation Language");
+    assert_eq!(ui.get_screen_title(), "Translate To");
     ui.invoke_item_clicked(1);
     assert_eq!(
         Settings::load(&directory.path().join("settings.json"))
@@ -41,25 +41,33 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
             .translation_target,
         TargetLanguage::SimplifiedChinese
     );
-    assert_eq!(ui.get_rows().row_data(1).unwrap().subtitle, "✓");
+    assert!(ui.get_rows().row_data(1).unwrap().checked);
     assert_eq!(
         controller.borrow().state.language,
         nano_music_player::app::i18n::Language::English
     );
     controller.borrow_mut().execute(&ui, Action::Back);
-    assert_eq!(ui.get_rows().row_data(0).unwrap().subtitle, "简体中文");
-    ui.invoke_item_clicked(3);
-    assert_eq!(ui.get_rows().row_data(3).unwrap().subtitle, "On");
+    assert_eq!(ui.get_rows().row_data(1).unwrap().value, "简体中文");
+    ui.invoke_item_clicked(0);
+    assert!(ui.get_rows().row_data(0).unwrap().checked);
+    assert_eq!(
+        ui.get_notice(),
+        "Import a music folder to begin",
+        "the Settings switch only changes display, without requesting translation"
+    );
     ui.invoke_command("toggle_translation".into());
-    assert_eq!(ui.get_rows().row_data(3).unwrap().subtitle, "Off");
-    ui.invoke_item_clicked(1);
+    assert!(!ui.get_rows().row_data(0).unwrap().checked);
+    ui.invoke_item_clicked(3);
+    assert_eq!(ui.get_screen_title(), "Song Translation");
+    ui.invoke_item_clicked(0);
     assert!(ui.get_notice().contains("Choose a song first"));
-    ui.invoke_item_clicked(6);
+    controller.borrow_mut().execute(&ui, Action::Settings);
+    ui.invoke_item_clicked(5);
     assert!(ui.get_deepseek_settings_open());
     assert_eq!(ui.get_deepseek_api_key(), "");
     assert_eq!(
         controller.borrow().state.navigation.current().screen,
-        Screen::SettingsSection(SettingsSection::Translation)
+        Screen::Settings
     );
     ui.set_deepseek_settings_open(false);
     {
@@ -93,6 +101,24 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
         c.execute(&ui, Action::Settings);
     }
     let queue = controller.borrow().state.queue.order.clone();
+    ui.invoke_item_clicked(2);
+    ui.invoke_item_clicked(3);
+    assert_eq!(ui.get_rows().row_data(0).unwrap().subtitle, "Playing Song");
+    {
+        let mut c = controller.borrow_mut();
+        c.state.current = Some(0);
+        c.execute(&ui, Action::FinishSearchEditing);
+    }
+    assert_eq!(
+        ui.get_rows().row_data(0).unwrap().subtitle,
+        "Chosen Song",
+        "the translation action always names the song it will affect"
+    );
+    {
+        let mut c = controller.borrow_mut();
+        c.state.current = Some(1);
+        c.execute(&ui, Action::Settings);
+    }
     ui.invoke_item_clicked(2);
     ui.invoke_item_clicked(4);
     assert_eq!(ui.get_screen_title(), "Choose Song");

@@ -14,7 +14,7 @@ use super::{
     artwork::ArtworkLoader,
     config::Settings,
     i18n::{self, Language, translate},
-    navigation::{Filter, Group, Screen},
+    navigation::{Filter, Group, Screen, SettingsSection},
     state::{Effect, State, Target},
     thumbnails::{self, Prepared, Thumbnails},
 };
@@ -577,15 +577,7 @@ impl Controller {
         } else {
             None
         };
-        if matches!(
-            action,
-            Action::CycleReplayGain
-                | Action::CycleReplayGainPreamp
-                | Action::ToggleReplayGainClipping
-        ) {
-            self.cancel_gapless_prefetch();
-            self.failed_prefetch = None;
-        }
+        let previous_gain = self.gain_config();
         if action == Action::ToggleTranslation {
             let current = self.state.current.and_then(|id| self.state.tracks.get(id));
             if self
@@ -598,6 +590,10 @@ impl Controller {
             }
         }
         let effects = self.state.apply(action);
+        if self.gain_config() != previous_gain {
+            self.cancel_gapless_prefetch();
+            self.failed_prefetch = None;
+        }
         // Start audio immediately; focus effects still need the new screen to exist.
         let (audio, effects): (Vec<_>, Vec<_>) = effects
             .into_iter()
@@ -1363,6 +1359,7 @@ impl Controller {
             (size.height - content_height).max(0.0),
         ) {
             self.state.zoom = zoom;
+            self.rows_dirty = true;
             self.resize(ui);
         }
     }
@@ -2352,7 +2349,10 @@ impl Controller {
         if screen_changed
             || self.rows_dirty
             || self.last_query != self.state.query
-            || (*screen == Screen::Music && self.last_track != self.state.current)
+            || (matches!(
+                screen,
+                Screen::Music | Screen::SettingsSection(SettingsSection::Translation)
+            ) && self.last_track != self.state.current)
         {
             let metadata_rows = matches!(
                 screen,
@@ -2367,6 +2367,12 @@ impl Controller {
             let rows = source_rows
                 .into_iter()
                 .map(|row| LibraryRow {
+                    setting: self.state.is_settings_list(),
+                    toggle: self.state.is_settings_list()
+                        && self.state.setting_toggle(&row.target).is_some(),
+                    checked: self.state.setting_selected(&row.target)
+                        || self.state.setting_toggle(&row.target).unwrap_or(false),
+                    value: self.text(&self.state.setting_value(&row.target)),
                     icon: match (&row.target, screen) {
                         (Target::PlayVideo(_), _) => 9,
                         (Target::GeniusPreview, _) => 1,
@@ -2391,7 +2397,8 @@ impl Controller {
                         _ => 0,
                     },
                     title: if *screen == Screen::LyricSongs
-                        || matches!(&row.target, Target::Screen(Screen::LyricSongs))
+                        || (matches!(screen, Screen::LyricsSearch(_))
+                            && matches!(&row.target, Target::Screen(Screen::LyricSongs)))
                         || matches!(&row.target, Target::PlayVideo(_))
                         || (metadata_rows && !matches!(&row.target, Target::Action(_)))
                         || matches!(
@@ -2413,11 +2420,12 @@ impl Controller {
                     } else {
                         if metadata_rows
                             || *screen == Screen::LyricSongs
-                            || matches!(row.target, Target::Screen(Screen::LyricSongs))
+                            || (matches!(screen, Screen::LyricsSearch(_))
+                                && matches!(row.target, Target::Screen(Screen::LyricSongs)))
                             || matches!(
                                 row.target,
                                 Target::Translation(crate::translation::Command::Translate)
-                            )
+                            ) && self.state.current.is_some()
                             || (*screen == Screen::Music
                                 && matches!(row.target, Target::Screen(Screen::NowPlaying)))
                             || matches!(
@@ -2450,16 +2458,23 @@ impl Controller {
                                         | super::navigation::Group::Albums
                                 ) | Screen::Artist(_)
                             )),
-                    chevron: !(*screen == Screen::Music
-                        && matches!(row.target, Target::Screen(Screen::NowPlaying)))
-                        && !matches!(
-                            row.target,
-                            Target::Play(_)
-                                | Target::Action(Action::ShuffleList)
-                                | Target::PlayVideo(_)
-                                | Target::Language(_)
-                                | Target::Font(_)
-                        ),
+                    chevron: matches!(
+                        row.target,
+                        Target::Screen(_)
+                            | Target::Shortcut(_)
+                            | Target::GeniusPreview
+                            | Target::Action(
+                                Action::ConfigureDeepSeek
+                                    | Action::ManageLyrics
+                                    | Action::ImportLyrics
+                                    | Action::ImportFolder
+                                    | Action::ImportVideos
+                                    | Action::NewPlaylist
+                                    | Action::EditPlaylist
+                                    | Action::Search
+                            )
+                    ) && !(*screen == Screen::Music
+                        && matches!(row.target, Target::Screen(Screen::NowPlaying))),
                     font_family: if let Target::Font(font) = row.target {
                         font.family().into()
                     } else {

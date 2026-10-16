@@ -24,7 +24,7 @@ fn fixture() -> State {
     }
 }
 #[test]
-fn settings_have_five_clear_roots_and_nested_playback_controls() {
+fn settings_have_six_roots_and_flat_playback_preferences() {
     let mut state = fixture();
     state.start(1);
     let queue = state.queue.order.clone();
@@ -36,11 +36,12 @@ fn settings_have_five_clear_roots_and_nested_playback_controls() {
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
         [
-            "Display",
+            "Appearance",
             "Playback",
             "Lyrics",
             "Language",
-            "Keyboard Shortcuts"
+            "Keyboard Shortcuts",
+            "AI Services"
         ]
     );
     state.navigation.select(1);
@@ -49,7 +50,7 @@ fn settings_have_five_clear_roots_and_nested_playback_controls() {
         state.navigation.current().screen,
         Screen::SettingsSection(SettingsSection::Playback)
     );
-    assert_eq!(state.rows().len(), 2);
+    assert_eq!(state.rows().len(), 4);
     state.navigation.select(1);
     state.apply(Action::Activate);
     assert_eq!(

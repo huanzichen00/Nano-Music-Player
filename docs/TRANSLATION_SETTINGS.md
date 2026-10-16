@@ -1,7 +1,8 @@
 # iPod translation settings and online lyrics
 
-Settings → Lyrics → Translation exposes language selection, Translate, Regenerate,
-Show, Cancel, Remove, DeepSeek credentials and Find Lyrics Online. The native menu
+Settings → Lyrics exposes Show Translation, Translate To and Japanese Readings.
+Translate Current Song opens Translate, Regenerate, Cancel and Remove for the
+playing song; AI credentials live in Settings → AI Services. The native menu
 and device rows dispatch the same typed commands. Translation language is saved
 independently of interface language. Translate reuses a valid exact-source cache;
 Regenerate makes a new request. Show Translation and plain T control the same
@@ -18,7 +19,7 @@ starts a request, and a pending result cannot override a later T-off
 choice. T uses a free default chord; migration preserves custom T assignments and
 current-format explicit unassignment.
 
-Settings → Lyrics → Find Lyrics opens a song chooser and a dedicated lookup page.
+Settings → Lyrics → Find / Edit Lyrics opens a song chooser and a dedicated lookup page.
 Choosing a song does not start it or change the current queue. The page shows the
 selected title/artist, persistent request status, Find/Cancel, lyric management
 and DeepSeek settings. It also opens from Lyrics for Track. Explicit Find can

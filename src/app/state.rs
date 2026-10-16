@@ -1,7 +1,7 @@
 use super::{
     action::Action,
     i18n::Language,
-    navigation::{Filter, Group, Navigation, Screen, SettingsSection},
+    navigation::{Filter, Group, Navigation, Screen},
     typography::Font,
 };
 use crate::{
@@ -24,6 +24,10 @@ pub enum Target {
     Language(Language),
     Font(Font),
     GeniusPreview,
+    DisplayMode(bool),
+    Zoom(f32),
+    ReplayGain(crate::audio::gain::GainMode),
+    ReplayGainPreamp(f32),
     Translation(crate::translation::Command),
     FindLyrics(usize),
 }
@@ -239,6 +243,9 @@ impl State {
     }
 
     fn list_rows(&self) -> Vec<Row> {
+        if let Some(rows) = self.settings_rows() {
+            return rows;
+        }
         let row = |title: &str, target| Row {
             title: title.to_owned(),
             subtitle: String::new(),
@@ -262,223 +269,6 @@ impl State {
                     }))
                     .collect()
             }
-            Screen::Settings => vec![
-                Row {
-                    title: "Display".into(),
-                    subtitle: "Mode, size, font & window".into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::SettingsSection(SettingsSection::Display)),
-                },
-                Row {
-                    title: "Playback".into(),
-                    subtitle: "Gapless & volume normalization".into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::SettingsSection(SettingsSection::Playback)),
-                },
-                Row {
-                    title: "Lyrics".into(),
-                    subtitle: "Track lyrics, romaji & AI".into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::SettingsSection(SettingsSection::Lyrics)),
-                },
-                Row {
-                    title: "Language".into(),
-                    subtitle: self.language.label().into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::Languages),
-                },
-                Row {
-                    title: "Keyboard Shortcuts".into(),
-                    subtitle: "Customize keys and navigation".into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::Shortcuts),
-                },
-            ],
-            Screen::SettingsSection(SettingsSection::Display) => vec![
-                Row {
-                    title: "Display Mode".into(),
-                    subtitle: if self.device_mode { "Device" } else { "Screen" }.into(),
-                    artwork_id: None,
-                    target: Target::Action(if self.device_mode {
-                        Action::ScreenMode
-                    } else {
-                        Action::DeviceMode
-                    }),
-                },
-                row("Zoom In", Target::Action(Action::ZoomIn)),
-                row("Zoom Out", Target::Action(Action::ZoomOut)),
-                Row {
-                    title: "Font".into(),
-                    subtitle: self.font.label().into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::Fonts),
-                },
-                Row {
-                    title: "Smooth Slides".into(),
-                    subtitle: if self.smooth_slides { "On" } else { "Off" }.into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::ToggleSmoothSlides),
-                },
-                Row {
-                    title: "Always on Top".into(),
-                    subtitle: if self.always_on_top { "On" } else { "Off" }.into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::ToggleAlwaysOnTop),
-                },
-            ],
-            Screen::SettingsSection(SettingsSection::Playback) => vec![
-                Row {
-                    title: "Gapless Playback".into(),
-                    subtitle: if self.gapless_playback { "On" } else { "Off" }.into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::ToggleGaplessPlayback),
-                },
-                Row {
-                    title: "ReplayGain".into(),
-                    subtitle: match self.replay_gain_mode {
-                        crate::audio::gain::GainMode::Off => "Off",
-                        crate::audio::gain::GainMode::Track => "Track",
-                        crate::audio::gain::GainMode::Album => "Album",
-                    }
-                    .into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::SettingsSection(SettingsSection::ReplayGain)),
-                },
-            ],
-            Screen::SettingsSection(SettingsSection::ReplayGain) => vec![
-                Row {
-                    title: "Normalization Mode".into(),
-                    subtitle: match self.replay_gain_mode {
-                        crate::audio::gain::GainMode::Off => "Off",
-                        crate::audio::gain::GainMode::Track => "Track",
-                        crate::audio::gain::GainMode::Album => "Album",
-                    }
-                    .into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::CycleReplayGain),
-                },
-                Row {
-                    title: "ReplayGain Preamp".into(),
-                    subtitle: format!("{:+.0} dB", self.replay_gain_preamp_db),
-                    artwork_id: None,
-                    target: Target::Action(Action::CycleReplayGainPreamp),
-                },
-                Row {
-                    title: "Prevent Clipping".into(),
-                    subtitle: if self.replay_gain_prevent_clipping {
-                        "On"
-                    } else {
-                        "Off"
-                    }
-                    .into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::ToggleReplayGainClipping),
-                },
-            ],
-            Screen::SettingsSection(SettingsSection::Lyrics) => vec![
-                row("Lyrics for Track", Target::Action(Action::ManageLyrics)),
-                to(
-                    "Translation",
-                    Screen::SettingsSection(SettingsSection::Translation),
-                ),
-                Row {
-                    title: "Show Romaji".into(),
-                    subtitle: if self.romaji_visible { "On" } else { "Off" }.into(),
-                    artwork_id: None,
-                    target: Target::Action(Action::ToggleRomaji),
-                },
-                row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
-                to("Find Lyrics", Screen::LyricSongs),
-            ],
-            Screen::SettingsSection(SettingsSection::Translation) => vec![
-                Row {
-                    title: "Translation Language".into(),
-                    subtitle: self.translation_target.label().into(),
-                    artwork_id: None,
-                    target: Target::Screen(Screen::SettingsSection(
-                        SettingsSection::TranslationLanguage,
-                    )),
-                },
-                Row {
-                    title: "Translate Lyrics".into(),
-                    subtitle: self
-                        .current
-                        .and_then(|id| self.tracks.get(id))
-                        .map(|track| track.title.clone())
-                        .unwrap_or_default(),
-                    artwork_id: None,
-                    target: Target::Translation(crate::translation::Command::Translate),
-                },
-                row(
-                    "Regenerate Translation",
-                    Target::Translation(crate::translation::Command::Regenerate),
-                ),
-                Row {
-                    title: "Show Translation".into(),
-                    subtitle: if self.translation_visible {
-                        "On"
-                    } else {
-                        "Off"
-                    }
-                    .into(),
-                    artwork_id: None,
-                    target: Target::Translation(crate::translation::Command::Toggle),
-                },
-                row(
-                    "Cancel Translation",
-                    Target::Translation(crate::translation::Command::Cancel),
-                ),
-                row(
-                    "Remove Translation",
-                    Target::Translation(crate::translation::Command::Remove),
-                ),
-                row("DeepSeek API…", Target::Action(Action::ConfigureDeepSeek)),
-                row(
-                    "Find Lyrics Online",
-                    Target::Translation(crate::translation::Command::FindLyrics),
-                ),
-            ],
-            Screen::SettingsSection(SettingsSection::TranslationLanguage) => {
-                crate::translation::TargetLanguage::ALL
-                    .into_iter()
-                    .map(|target| Row {
-                        title: target.label().into(),
-                        subtitle: if target == self.translation_target {
-                            "✓"
-                        } else {
-                            ""
-                        }
-                        .into(),
-                        artwork_id: None,
-                        target: Target::Translation(crate::translation::Command::SetTarget(target)),
-                    })
-                    .collect()
-            }
-            Screen::Fonts => Font::ALL
-                .into_iter()
-                .map(|font| Row {
-                    title: font.label().into(),
-                    subtitle: format!(
-                        "{}Aa Bb Cc Ss 0123 · 日本語 中文",
-                        if self.font == font { "✓ · " } else { "" }
-                    ),
-                    artwork_id: None,
-                    target: Target::Font(font),
-                })
-                .collect(),
-            Screen::Languages => Language::ALL
-                .into_iter()
-                .map(|language| Row {
-                    title: language.label().into(),
-                    subtitle: if self.language == language {
-                        "✓".into()
-                    } else {
-                        String::new()
-                    },
-                    artwork_id: None,
-                    target: Target::Language(language),
-                })
-                .collect(),
             Screen::Lyrics(id) => vec![
                 Row {
                     title: "Import / Replace Lyrics…".into(),
@@ -1443,12 +1233,40 @@ impl State {
                                     let languages = screen == Screen::Languages;
                                     let fonts = screen == Screen::Fonts;
                                     self.navigation.open(screen);
+                                    if self.is_settings_list() && !languages && !fonts {
+                                        if let Some(index) = self
+                                            .rows()
+                                            .iter()
+                                            .position(|row| self.setting_selected(&row.target))
+                                        {
+                                            self.navigation.select(index);
+                                        }
+                                    }
                                     if languages {
                                         self.navigation.select(self.language.index());
                                     }
                                     if fonts {
                                         self.navigation.select(self.font.index());
                                     }
+                                }
+                                Target::DisplayMode(device) => {
+                                    return self.apply(if device {
+                                        DeviceMode
+                                    } else {
+                                        ScreenMode
+                                    });
+                                }
+                                Target::Zoom(zoom) => {
+                                    self.zoom = zoom;
+                                    return vec![Effect::Resize];
+                                }
+                                Target::ReplayGain(mode) => {
+                                    self.replay_gain_mode = mode;
+                                    return vec![Effect::WindowPreferencesChanged];
+                                }
+                                Target::ReplayGainPreamp(db) => {
+                                    self.replay_gain_preamp_db = db;
+                                    return vec![Effect::WindowPreferencesChanged];
                                 }
                                 Target::Language(language) => {
                                     self.language = language;
