@@ -1,4 +1,5 @@
 import { BackScroll } from "back-scroll.slint";
+import { ElasticPhysics } from "overscroll-physics.slint";
 
 // Slint TouchArea drops native wheel phases; the window event observer supplies them.
 export global WheelGesture {
@@ -12,10 +13,13 @@ export component ElasticAxis inherits Rectangle {
     in property <length> maximum: 0px;
     in property <length> extent: 240px;
     in property <bool> enabled: true;
+    // Development harness selection only; no application setting exposes this.
+    in property <int> physics-configuration: 0;
     out property <length> position: 0px;
     out property <length> bounded-position: clamp(root.position, root.minimum, root.maximum);
     out property <length> overshoot: root.position - root.bounded-position;
     out property <bool> active: root.held || root.wheeling || clock.running;
+    out property <float> motion-velocity: root.velocity;
     private property <bool> held;
     private property <bool> wheeling;
     private property <bool> native-wheel-active: WheelGesture.active;
@@ -24,13 +28,14 @@ export component ElasticAxis inherits Rectangle {
     private property <duration> frame-time;
     private property <length> limit: max(1px, root.extent * 0.32);
     width: 0px; height: 0px;
+    physics := ElasticPhysics { configuration: root.physics-configuration; }
 
     // d*0.55/(1 + d*0.55/L): slope falls continuously towards zero.
     pure function rubber(distance: length) -> length {
-        return distance * 0.55 / (1 + abs(distance) * 0.55 / root.limit);
+        return physics.rubber(distance, root.limit);
     }
     pure function uncompress(distance: length) -> length {
-        return distance / (0.55 * max(0.000001, 1 - abs(distance) / root.limit));
+        return physics.uncompress(distance, root.limit);
     }
     public function reset(value: length) {
         clock.stop(); wheel-end.stop(); root.held = false; root.wheeling = false; root.velocity = 0;
@@ -78,6 +83,7 @@ export component ElasticAxis inherits Rectangle {
     changed minimum => { root.reset(root.bounded-position); }
     changed maximum => { root.reset(root.bounded-position); }
     changed extent => { root.reset(root.bounded-position); }
+    changed physics-configuration => { root.reset(root.bounded-position); }
     changed native-wheel-active => {
         if root.wheeling {
             wheel-end.stop();
@@ -97,14 +103,16 @@ export component ElasticAxis inherits Rectangle {
     clock := Timer {
         interval: 16ms; running: false;
         triggered => {
-            let dt = clamp((animation-tick() - root.frame-time) / 1s, 0.001, 0.032);
+            let elapsed = (animation-tick() - root.frame-time) / 1s;
+            let dt = clamp(elapsed, 0.001, 0.032);
             root.frame-time = animation-tick();
             let offset = root.overshoot / 1px;
             if abs(offset) > 0.001 {
-                // Implicit critically damped spring (omega=240/s). Stable even
-                // after a delayed frame; preserve incoming velocity at the edge.
-                root.velocity = (root.velocity - 57600 * offset * dt) / (1 + 480 * dt + 57600 * dt * dt);
-                let next = root.position + root.velocity * dt * 1px;
+                // A preserves the original integration and absolute-position
+                // arithmetic. B/C consume elapsed spring time analytically.
+                let state = physics.spring(offset, root.velocity, root.physics-configuration == 0 ? dt : max(0.001, elapsed));
+                root.velocity = state.velocity;
+                let next = root.physics-configuration == 0 ? root.position + root.velocity * dt * 1px : root.bounded-position + state.offset * 1px;
                 // Settle at the boundary without oscillating into the list.
                 if (next - root.bounded-position) * offset <= 0px {
                     root.position = root.bounded-position; root.velocity = 0;

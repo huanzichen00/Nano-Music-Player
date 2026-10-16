@@ -1,0 +1,47 @@
+// Production equations shared by ElasticAxis and the opt-in comparison harness.
+// Configuration 0 is the unchanged control; 1 and 2 are development experiments.
+export struct MotionState { offset: float, velocity: float }
+
+export component ElasticPhysics inherits Rectangle {
+    in property <int> configuration: 0;
+    width: 0px; height: 0px;
+
+    public pure function rubber(distance: length, limit: length) -> length {
+        if root.configuration == 2 {
+            // Same squared falloff principle as Flutter's outward friction,
+            // calibrated here to a .40*viewport cap. Flutter normalizes its
+            // local friction by viewport extent; it does not impose this cap.
+            let cap = limit * 1.25;
+            return distance * 0.52 / (1 + abs(distance) * 0.52 / cap);
+        }
+        return distance * 0.55 / (1 + abs(distance) * 0.55 / limit);
+    }
+
+    public pure function uncompress(distance: length, limit: length) -> length {
+        if root.configuration == 2 {
+            let cap = limit * 1.25;
+            return distance / (0.52 * max(0.000001, 1 - abs(distance) / cap));
+        }
+        return distance / (0.55 * max(0.000001, 1 - abs(distance) / limit));
+    }
+
+    // offset is logical pixels, velocity pixels/second, dt elapsed seconds.
+    // The caller keeps the control's old dt clamp for configuration 0; analytic
+    // candidates consume full elapsed time. Boundary/settling rules stay shared.
+    public pure function spring(offset: float, velocity: float, dt: float) -> MotionState {
+        if root.configuration == 0 {
+            let next-velocity = (velocity - 57600 * offset * dt) / (1 + 480 * dt + 57600 * dt * dt);
+            return { offset: offset + next-velocity * dt, velocity: next-velocity };
+        }
+        // Exact solution of x'' + 2*omega*x' + omega^2*x = 0, omega=100/s.
+        // An elapsed-time solution preserves the initial velocity and composes
+        // across arbitrary frame intervals without numerical substeps.
+        let omega = 100;
+        let decay = Math.exp(-omega * dt);
+        let coefficient = velocity + omega * offset;
+        return {
+            offset: (offset + coefficient * dt) * decay,
+            velocity: (velocity - omega * coefficient * dt) * decay,
+        };
+    }
+}
