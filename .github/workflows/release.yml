@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['codex/release-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: macos-arm64
+          - os: ubuntu-22.04
+            platform: linux-x86_64
+          - os: windows-2022
+            platform: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libasound2-dev libudev-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libgl1-mesa-dev libfontconfig1-dev
+      - name: Use the static Windows C runtime
+        if: runner.os == 'Windows'
+        run: echo 'RUSTFLAGS=-C target-feature=+crt-static' >> "$GITHUB_ENV"
+      - name: Validate release version
+        run: |
+          version=$(python scripts/package-release.py --version)
+          if [[ "$GITHUB_EVENT_NAME" != workflow_dispatch ]]; then
+            case "$GITHUB_REF_NAME" in
+              "v$version"|"codex/release-v$version") ;;
+              *) echo "Ref does not match version $version"; exit 1 ;;
+            esac
+          fi
+          test -f "docs/releases/v$version.md"
+      - name: Build optimized executable
+        run: cargo build --release --locked
+      - name: Package native download
+        run: python scripts/package-release.py --expected-platform '${{ matrix.platform }}'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: target/release-dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: target/release-dist
+      - name: Publish verified packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          version=$(python scripts/package-release.py --version)
+          tag="v$version"
+          cd target/release-dist
+          test -f "Nano-Music-Player-$version-macos-arm64.zip"
+          test -f "Nano-Music-Player-$version-linux-x86_64.tar.gz"
+          test -f "Nano-Music-Player-$version-windows-x86_64.zip"
+          cat ./*.sha256 > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; refusing to replace its assets."
+            exit 1
+          fi
+          gh release create "$tag" ./*.zip ./*.tar.gz SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "Nano Music Player $version" \
+            --notes-file "../../docs/releases/$tag.md" \
+            --latest
