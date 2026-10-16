@@ -1,9 +1,23 @@
 # Nano Music Player
 
+English | [简体中文](README.zh-CN.md)
+
 A Rust/Slint desktop music player inspired by the seventh-generation iPod nano. Device Mode fits the window to a narrow bezel and Home button; Screen Mode shows the display alone. Music playback, library browsing, keyboard navigation and synchronized lyrics work together through one action dispatcher.
 
 See the [0.1.1 integration record](docs/RELEASE_0_1_1.md) for included branches,
 merge compatibility changes and verification results.
+
+## Download
+
+Prebuilt packages are available in [GitHub Releases](https://github.com/huanzichen00/Nano-Music-Player/releases/tag/v0.1.1):
+
+| Platform | Package | Installation |
+| --- | --- | --- |
+| macOS Apple Silicon | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-macos-arm64.zip) | Extract and move Nano Music Player.app to Applications |
+| Windows x86-64 | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-windows-x86_64.zip) | Extract the complete folder and run `nano-music-player.exe` |
+| Linux x86-64 | [tar.gz](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-linux-x86_64.tar.gz) | Extract and run `./nano-music-player`; built on Ubuntu 22.04 |
+
+The release includes `SHA256SUMS`, installation notes and runtime requirements. macOS releases are ad-hoc signed and not notarized; Windows releases are unsigned. Windows/Linux native builds and download checksums have been verified, while physical audio output, desktop integration and gestures still need manual testing on those platforms.
 
 ## Run
 
@@ -15,7 +29,7 @@ cargo run
 cargo run -- --config-dir ./local-config
 ```
 
-On macOS, `scripts/package-macos.sh` builds `target/Nano Music Player.app`. Add `--debug` for a quicker development build. The UI images are embedded in the executable. The app bundle is for local use; signing and notarization are not configured.
+On macOS, `scripts/package-macos.sh` builds `target/Nano Music Player.app`. Add `--debug` for a quicker development build. The UI images are embedded in the executable. The release workflow applies an ad-hoc signature; Developer ID signing and notarization are not configured.
 
 Use **File → Import Music Folder** or **Cmd/Ctrl + O** to import folders recursively. Importing reads your music and keeps a metadata cache in SQLite; it does not rewrite song files. Audio remains at its original location; SQLite contains paths, metadata, artwork and lyrics. There is no configured library cap; practical limits are disk space and RAM. MP3, M4A, FLAC and WAV are supported. M4A playback uses Symphonia's AAC/ALAC decoders; AAC M4A is covered by an actual fixture test. Unsupported or damaged files are reported and skipped.
 
@@ -32,6 +46,7 @@ On macOS, File, Playback, View and Help are native menus at the top of the scree
 | Playback | R | Show / hide romaji on Now Playing; cycle repeat elsewhere |
 | Playback | N | Now Playing |
 | Playback | Y | Toggle lyrics on Now Playing |
+| Playback | T | Show / hide translation on Now Playing; generate a missing translation when enabling |
 | Navigation | Up / Down or K / J | Move visible selection |
 | Navigation | L / Enter | Open or activate selection in lists; Enter opens Home icons |
 | Navigation | H / Escape / Backspace | Back in lists, restoring the previous selection |
@@ -77,7 +92,7 @@ Network requests occur only after an explicit action. Lookup sends song metadata
 
 Open **Music → Playlists → Add Playlist** or **File → New Playlist…**. The Add Playlist entry participates in J/K navigation above All Songs; press Enter to open it. Optionally enter a name, press Enter to leave the name field, and select songs with checkboxes or **J/K + Space**. Review is available as soon as you select a song; a blank name receives a unique New Playlist N name. Choose Review, arrange the order with Move Up/Move Down or Remove, then Create. Saved playlists appear in Music → Playlists and survive restarts; their playback queue follows your chosen order. Cancel leaves the library and playback unchanged. Saving happens in the background; a failed save retains the draft for retry.
 
-Names must be nonempty, single-line and at most 100 characters; duplicate names are rejected regardless of case. Missing paths remain stored and songs absent from the current library are skipped. Editing/deleting saved playlists and iTunes synchronization are not included yet.
+Names must be nonempty, single-line and at most 100 characters; duplicate names are rejected regardless of case. Missing paths remain stored and songs absent from the current library are skipped. Saved playlists support editing songs and their order; deleting an entire saved playlist and iTunes synchronization are not included yet.
 
 ## Song ratings
 
@@ -93,7 +108,7 @@ The small title above the stars identifies the song being rated. It stays pinned
 
 On macOS, the player publishes metadata, duration, playback position and optional artwork to Now Playing and accepts play/pause, next/previous and seek commands. Stopping playback or handing audio to video clears music metadata. Physical media-key and Control Center behavior still needs manual hardware verification.
 
-Imported folders, including empty ones, remain monitored across restarts. Changes are debounced, metadata/database work runs in the background, and directory changes or lost notifications trigger background reconciliation. Unavailable volumes and incomplete scans preserve cached songs. Setting `monitor_deleted_files` to false disables automatic filesystem monitoring. Confirmed file rename events transfer statistics and retained history to the new path; backends that report only remove/add create a new path identity.
+The monitoring implementation retains imported folders, including empty ones, across restarts. When enabled, it debounces changes, runs metadata/database work in the background, and reconciles directory changes or lost notifications. Unavailable volumes and incomplete scans preserve cached songs. Confirmed file rename events transfer statistics and retained history to the new path; backends that report only remove/add create a new path identity. Automatic filesystem monitoring is currently suspended in the playback recovery build, including when older settings enabled it; manual import and startup refresh remain available.
 
 **Music → Playlists** includes Recently Added, Most Played, Recently Played and Never Played. These computed views use available library paths and leave user playlists and Genius intact. Statistics persist in SQLite, with the latest 1,000 qualified plays in listening history. A session counts once after `max(3 seconds, min(30 seconds, half the duration))` of observed listening; unknown durations require 30 seconds. Tracks shorter than three seconds count only on natural completion after observing at least half their duration. Pauses, stalled positions and seeks add no listening time; restarting begins a new session.
 
@@ -137,7 +152,7 @@ Artists, Albums and global Songs sort alphabetically using case-insensitive keys
 
 See [`docs/MACOS_INTEGRATION.md`](docs/MACOS_INTEGRATION.md) for the stable bundle ID and targeted AeroSpace floating rule. The app leaves your window-manager configuration untouched. [`docs/FUTURE_MEDIA.md`](docs/FUTURE_MEDIA.md) records the original video feasibility study and future podcast architecture; local video playback is now implemented. Implementation phases and verified checks are tracked in [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
 
-The Rust/Slint architecture supports Windows and Linux, but this implementation has been built and exercised on macOS only. Native Windows/Linux compilation, audio output, packaging and UI behavior remain unverified.
+Native macOS Apple Silicon, Windows x86-64 and Linux x86-64 packages are built by GitHub Actions. macOS has additional local runtime verification; Windows/Linux physical audio output, desktop integration and UI behavior remain subject to manual testing.
 
 Saved playlists can be edited from their **Edit** toolbar or **File → Edit Playlist…**. **Add** opens the name/song picker; the red minus then **Delete** removes a row from the draft. Drag the right-hand three-line grip (with edge scrolling), or use **Move Up/Down**, to change order; **Done** saves the existing playlist, and **Cancel** discards changes. Edit, Shuffle and songs share J/K selection; Enter/L opens the selected control. Missing songs remain visible and stored until explicitly removed. Home preserves the draft for reopening through New Playlist. Editing leaves the currently playing queue intact.
 
@@ -145,4 +160,4 @@ Saved playlists can be edited from their **Edit** toolbar or **File → Edit Pla
 
 Rightward pointer swipes and horizontal trackpad scrolling return to the parent from library lists. Vertical gestures retain scrolling; small/diagonal motions and text/modal/transition input are guarded.
 
-Home pages use persistent icon trees with a 180 ms ease-out slide for horizontal trackpad input and H/L page changes. Continued momentum at a page boundary does not reset selection or submit more navigation. Smooth Slides Off draws the destination immediately; pointer swipes over icons navigate without launching them.
+Home pages use persistent icon trees with a 180 ms ease-out slide for horizontal trackpad input and H/L page changes. Continued momentum at a page boundary does not reset selection or submit more navigation. Turning **Settings → Appearance → Page Animation** off draws the destination immediately; pointer swipes over icons navigate without launching them.

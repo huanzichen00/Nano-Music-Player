@@ -58,7 +58,8 @@ def main():
         destination = licenses / font
         destination.mkdir(parents=True, exist_ok=True)
         shutil.copy2(root / 'ui/fonts' / font / 'LICENSE.txt', destination / 'LICENSE.txt')
-    shutil.copy2(root / 'README.md', staging / 'README.md')
+    for readme in ('README.md', 'README.zh-CN.md'):
+        shutil.copy2(root / readme, staging / readme)
     shutil.copy2(root / 'docs/releases' / f'v{version}.md', staging / 'RELEASE-NOTES.md')
 
     if system == 'Darwin':
