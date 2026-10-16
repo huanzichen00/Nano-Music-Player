@@ -15,7 +15,7 @@ to the origin.
   `0.55*d / (1 + 0.55*abs(d)/L)`, where `L` is 32% of the viewport extent. The
   inverse mapping preserves resistance across successive events and reversals.
   A held drag has no return timer. Release starts decaying pointer inertia or an
-  implicit critically damped spring (240/s), preserving velocity on boundary
+  analytic critically damped spring (100/s), preserving velocity on boundary
   entry. The spring settles exactly, without repeated oscillation.
 - `ElasticFlickable` retains Slint's `Flickable` viewport, content dimensions,
   clipping and programmatic scroll coordinates. A single `SwipeGestureHandler`
@@ -45,8 +45,9 @@ velocity, so no synthetic fling is added. Physical trackpad evaluation is still
 required. Lyric programmatic following keeps its 180ms easing and is interruptible
 from the currently rendered position.
 
-The spring timer runs at 16ms only during motion and uses elapsed animation time,
-capped at 32ms per integration step to keep delayed frames stable. No timer runs
+The spring timer runs at 16ms only during motion and consumes elapsed animation
+time using the exact critical-damping solution. Interior pointer inertia retains
+its existing 32ms integration cap. No timer runs
 for a held stationary drag or an idle viewport. Resizing/content changes clamp
 the canonical position and cancel obsolete motion. Disabling a viewport, opening
 a modal, or changing navigation generation cancels pending gestures and rebound.
@@ -134,7 +135,7 @@ installed app bundle.
 ## Integration with the current player
 
 The current version uses a 40ms Back quiet interval and 70ms screen animation
-with 80ms completion. The spring frequency is 240/s. A paused 160px pull settles
+with 80ms completion. The selected spring frequency is 100/s. A paused 160px pull settles
 within 128ms after pointer release in the frame-stepped regression. Wheel motion
 settles within 160ms after native gesture end or the last phase-less input.
 Tests cover monotone outward input, full-range stretching, 500ms held pauses,
@@ -153,3 +154,20 @@ fails without this integration call: the following deliberate gesture stays on
 Albums. It passes with the call, together with the original continuous-momentum
 and elastic-motion regressions. No audio-core or media backend source changes
 are required for this integration.
+
+## Physics comparison — 2026-10-16
+
+The selected refinement retains the .55 resistance coefficient, 32%-viewport
+elastic cap, inverse mapping, pointer velocity estimate, native wheel ownership,
+32ms handoff guard, and existing settling assertions. Only rebound evolution
+changes: an exact critically damped spring at 100/s gives a smaller initial
+return step and consumes delayed elapsed time without numerical substeps.
+`ui/overscroll-physics.slint` contains the shared production equations; the
+development harness selects A (unchanged control), B (selected), or C (alternate
+resistance). There is no user-facing experimental setting.
+
+See [the source research, numerical comparison, and verification record](OVERSCROLL_PHYSICS.md)
+and [the complete 120-row measurement table](overscroll-physics-comparison.csv).
+Frame independence applies to the rebound solver before existing boundary/rest
+clamps; interior pointer inertia and 16ms timer scheduling retain their previous
+behavior. Physical trackpad and native display pacing still require verification.

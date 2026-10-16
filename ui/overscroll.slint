@@ -13,8 +13,8 @@ export component ElasticAxis inherits Rectangle {
     in property <length> maximum: 0px;
     in property <length> extent: 240px;
     in property <bool> enabled: true;
-    // Development harness selection only; no application setting exposes this.
-    in property <int> physics-configuration: 0;
+    // B is selected; A/C remain available to the development harness only.
+    in property <int> physics-configuration: 1;
     out property <length> position: 0px;
     out property <length> bounded-position: clamp(root.position, root.minimum, root.maximum);
     out property <length> overshoot: root.position - root.bounded-position;
