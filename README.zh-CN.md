@@ -4,6 +4,10 @@
 
 一款使用 Rust 和 Slint 开发、灵感来自第七代 iPod nano 的桌面音乐播放器。设备模式显示完整机身、窄边框和 Home 按钮；屏幕模式仅显示屏幕区域。音乐播放、曲库浏览、键盘导航和同步歌词由统一的操作分发机制协调。
 
+iOS 开发版复用桌面 iPod 界面与 Rust 服务，已完成签名安装和真机基础播放验证，生命周期验收见 [UI 检查记录](docs/IOS_UI_QA.md)。参见 [iOS 开发方案](docs/IOS_DEVELOPMENT_PLAN.md)、[构建与预览](ios/README.md)和[电脑传歌工具](docs/COMPUTER_TRANSFER.md)。
+
+电脑端的 **文件 → Sync to iPhone…** 打开 USB 设备同步窗口，可先预览，再将音乐、歌单、歌词和播放资料合并到手机，保留手机独立资料及已有编辑。详见 [iPhone 同步说明](docs/IPHONE_SYNC.md)。
+
 有关已合并分支、合并兼容性调整及验证结果，请参阅 [0.1.1 集成记录](docs/RELEASE_0_1_1.md)。
 
 ## 下载

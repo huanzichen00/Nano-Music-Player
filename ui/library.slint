@@ -64,6 +64,7 @@ export component LibraryView inherits Rectangle {
     in property <bool> compact-title;
     in property <bool> fit-settings: false;
     in property <bool> keyboard-navigation;
+    in property <bool> touch-mode: false;
     in property <bool> playlist-list: false;
     in property <bool> playlist-list-editing: false;
     in property <bool> music-list: false;
@@ -76,6 +77,12 @@ export component LibraryView inherits Rectangle {
     callback rating-changed(int);
     private property <length> rating-header-height: root.rating-visible ? 48px * root.s : 0px;
     private property <int> prefix-count: root.playlist-content || root.playlist-list ? 2 : root.shuffle-list ? 1 : 0;
+    out property <int> first-visible-row: root.prefix-count + max(0, floor(-root.scroll-y / root.row-height));
+    out property <int> visible-row-count: ceil(max(0px, root.height - root.header-height) / root.row-height) + 1;
+    // Instantiate a viewport plus one spare row on either side. Follow the
+    // rendered position during scroll/rebound animations, not their target.
+    private property <int> first-rendered-row: min(root.rows.length, root.prefix-count + max(0, floor(-list-scroll.visual-position / max(1px, root.row-height)) - 1));
+    private property <int> rendered-row-count: max(0, min(root.rows.length - root.first-rendered-row, root.visible-row-count + 2));
     out property <length> header-height: root.rating-header-height + (root.search ? 44px : root.playlist-list || root.playlist-content ? 38px : 0px) * root.s + (root.shuffle-list ? root.row-height : 0px);
     callback edit-playlist();
     callback back;
@@ -84,6 +91,7 @@ export component LibraryView inherits Rectangle {
     in-out property <string> search-text;
     in-out property <length> scroll-y;
     out property <length> overshoot: list-scroll.overshoot;
+    out property <length> navigation-offset: list-scroll.navigation-offset;
     out property <bool> search-focused: input.has-focus;
     // Videos starts with an Import action, then artwork rows. Its action must
     // not force the thumbnails and two-line titles into 48-pixel text rows.
@@ -155,120 +163,134 @@ export component LibraryView inherits Rectangle {
     }
     list-scroll := ElasticFlickable {
         s: root.s; enabled: root.enabled;
+        touch-navigation: root.touch-mode; forward-enabled: root.touch-mode && !(root.search && input.has-focus);
         navigation-generation: root.navigation-generation;
         back-enabled: !(root.search && input.has-focus);
         back => { root.back(); }
+        can-forward(content-y) => {
+            let index = floor(content-y / root.row-height) + root.prefix-count;
+            return index >= root.prefix-count && index < root.rows.length && root.rows[index].chevron;
+        }
+        forward(content-y) => {
+            let index = floor(content-y / root.row-height) + root.prefix-count;
+            if index >= root.prefix-count && index < root.rows.length && root.rows[index].chevron { root.activated(index); }
+        }
+        tapped(content-y) => {
+            let index = floor(content-y / root.row-height) + root.prefix-count;
+            if index >= root.prefix-count && index < root.rows.length { root.activated(index); }
+        }
         y: root.header-height;
         height: root.height - self.y; width: root.width;
         content-height: max(self.height, (root.rows.length - root.prefix-count) * root.row-height);
         content-y <=> root.scroll-y;
-        for row[index] in root.rows: Rectangle {
-            visible: index >= root.prefix-count;
-            y: (index - root.prefix-count) * root.row-height; width: root.width; height: root.row-height;
-            background: root.rating-visible ? ((root.selected == index && root.keyboard-navigation) ? #222 : black) : (root.selected == index && root.keyboard-navigation) ? @linear-gradient(180deg, #4794e4, #1666bb) : #fff;
+        for slot in root.rendered-row-count: row-item := Rectangle {
+            private property <int> row-index: root.first-rendered-row + slot;
+            private property <LibraryRow> row-data: root.rows[self.row-index];
+            y: (row-item.row-index - root.prefix-count) * root.row-height; width: root.width; height: root.row-height;
+            background: root.touch-mode && list-scroll.touch-pressed && floor(list-scroll.pressed-content-y / root.row-height) + root.prefix-count == row-item.row-index ? (root.rating-visible ? #293f53 : #d8e9f8) : root.rating-visible ? ((root.selected == row-item.row-index && root.keyboard-navigation) ? #222 : black) : (root.selected == row-item.row-index && root.keyboard-navigation) ? @linear-gradient(180deg, #4794e4, #1666bb) : #fff;
             Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: root.rating-visible ? #333 : #d5d5d5; }
-            if row.icon > 0 && row.icon < 8 && !row.show-artwork: Image {
+            if row-item.row-data.icon > 0 && row-item.row-data.icon < 8 && !row-item.row-data.show-artwork: Image {
                 x: 6px * root.s; y: (parent.height - self.height) / 2;
                 width: 26px * root.s; height: 26px * root.s;
-                source: row.icon == 1 ? @image-url("../assets/icons/nano/genius.png")
-                    : row.icon == 2 ? @image-url("../assets/icons/nano/playlist.png")
-                    : row.icon == 3 ? @image-url("../assets/icons/nano/artists.png")
-                    : row.icon == 4 ? @image-url("../assets/icons/nano/albums.png")
-                    : row.icon == 5 ? @image-url("../assets/icons/nano/songs.png")
-                    : row.icon == 6 ? @image-url("../assets/icons/nano/genres.png")
+                source: row-item.row-data.icon == 1 ? @image-url("../assets/icons/nano/genius.png")
+                    : row-item.row-data.icon == 2 ? @image-url("../assets/icons/nano/playlist.png")
+                    : row-item.row-data.icon == 3 ? @image-url("../assets/icons/nano/artists.png")
+                    : row-item.row-data.icon == 4 ? @image-url("../assets/icons/nano/albums.png")
+                    : row-item.row-data.icon == 5 ? @image-url("../assets/icons/nano/songs.png")
+                    : row-item.row-data.icon == 6 ? @image-url("../assets/icons/nano/genres.png")
                     : @image-url("../assets/icons/nano/smart-playlist.png");
-                colorize: (root.selected == index && root.keyboard-navigation) && row.icon != 4 ? white : transparent;
+                colorize: (root.selected == row-item.row-index && root.keyboard-navigation) && row-item.row-data.icon != 4 ? white : transparent;
                 image-fit: contain;
             }
-            if row.icon == 8: Image {
+            if row-item.row-data.icon == 8: Image {
                 x: parent.width - 26px * root.s; y: (parent.height - self.height) / 2;
                 width: 20px * root.s; height: 20px * root.s;
                 source: @image-url("../assets/icons/nano/speaker.png");
-                colorize: (root.selected == index && root.keyboard-navigation) ? white : #555; image-fit: contain;
+                colorize: (root.selected == row-item.row-index && root.keyboard-navigation) ? white : #555; image-fit: contain;
             }
-            if row.show-artwork: Rectangle {
-                x: (row.icon == 9 ? ListMetrics.video-thumbnail-padding : ListMetrics.artwork-padding) * 1px * root.s;
-                width: row.icon == 9 ? ListMetrics.video-thumbnail-width * 1px * root.s : parent.height - 2 * self.x;
-                height: row.icon == 9 ? ListMetrics.video-thumbnail-height * 1px * root.s : self.width;
+            if row-item.row-data.show-artwork: Rectangle {
+                x: (row-item.row-data.icon == 9 ? ListMetrics.video-thumbnail-padding : ListMetrics.artwork-padding) * 1px * root.s;
+                width: row-item.row-data.icon == 9 ? ListMetrics.video-thumbnail-width * 1px * root.s : parent.height - 2 * self.x;
+                height: row-item.row-data.icon == 9 ? ListMetrics.video-thumbnail-height * 1px * root.s : self.width;
                 y: (parent.height - self.height) / 2;
-                background: row.artwork.width > 0 ? #e0e3e6 : @linear-gradient(180deg, #455b71, #101d2b);
-                Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row.artwork; image-fit: contain; }
-                if row.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row.icon == 9 ? @image-url("../assets/generated/videos.png") : @image-url("../assets/icons/nano/songs.png"); colorize: row.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
+                background: row-item.row-data.artwork.width > 0 ? #e0e3e6 : @linear-gradient(180deg, #455b71, #101d2b);
+                Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row-item.row-data.artwork; image-fit: contain; }
+                if row-item.row-data.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row-item.row-data.icon == 9 ? @image-url("../assets/generated/videos.png") : @image-url("../assets/icons/nano/songs.png"); colorize: row-item.row-data.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
             }
-            if !row.setting: Text {
-                x: row.show-artwork ? (row.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
-                y: row.subtitle == "" ? 0px : (parent.height - 40px * root.s) / 2;
-                width: parent.width - self.x - 25px * root.s; height: row.subtitle == "" ? parent.height : 23px * root.s;
-                text: row.title; color: root.rating-visible || (root.selected == index && root.keyboard-navigation) ? white : #111;
-                font-family: row.font-family == "" ? root.text-font-family : row.font-family;
+            if !row-item.row-data.setting: Text {
+                x: row-item.row-data.show-artwork ? (row-item.row-data.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row-item.row-data.icon > 0 && row-item.row-data.icon < 8 ? 38px : 8px) * root.s;
+                y: row-item.row-data.subtitle == "" ? 0px : (parent.height - 40px * root.s) / 2;
+                width: parent.width - self.x - 25px * root.s; height: row-item.row-data.subtitle == "" ? parent.height : 23px * root.s;
+                text: row-item.row-data.title; color: root.rating-visible || (root.selected == row-item.row-index && root.keyboard-navigation) ? white : #111;
+                font-family: row-item.row-data.font-family == "" ? root.text-font-family : row-item.row-data.font-family;
                 font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
-            if !row.setting && row.subtitle != "": Text {
-                x: row.show-artwork ? (row.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row.icon > 0 && row.icon < 8 ? 38px : 8px) * root.s;
+            if !row-item.row-data.setting && row-item.row-data.subtitle != "": Text {
+                x: row-item.row-data.show-artwork ? (row-item.row-data.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row-item.row-data.icon > 0 && row-item.row-data.icon < 8 ? 38px : 8px) * root.s;
                 y: (parent.height - 40px * root.s) / 2 + 23px * root.s;
                 width: parent.width - self.x - 25px * root.s; height: 17px * root.s;
-                text: row.subtitle; color: (root.selected == index && root.keyboard-navigation) ? #e1efff : #929292; font-size: (row.show-artwork || root.music-list || root.playlist-list ? 14px : 11px) * root.s; overflow: elide;
-                font-family: row.font-family == "" ? root.text-font-family : row.font-family;
+                text: row-item.row-data.subtitle; color: (root.selected == row-item.row-index && root.keyboard-navigation) ? #e1efff : #929292; font-size: (row-item.row-data.show-artwork || root.music-list || root.playlist-list ? 14px : 11px) * root.s; overflow: elide;
+                font-family: row-item.row-data.font-family == "" ? root.text-font-family : row-item.row-data.font-family;
             }
-            if row.setting: Rectangle {
+            if row-item.row-data.setting: Rectangle {
                 background: transparent;
                 Text {
-                    x: 10px * root.s; y: row.subtitle == "" ? 0px : 5px * root.s;
-                    width: parent.width - self.x - (row.toggle ? 56px * root.s : row.value != "" ? setting-value.width + 36px * root.s : 28px * root.s);
-                    height: row.subtitle == "" ? parent.height : 22px * root.s;
-                    text: row.title; font-size: 14px * root.s; font-weight: 600;
-                    font-family: row.font-family == "" ? root.text-font-family : row.font-family;
-                    color: root.selected == index && root.keyboard-navigation ? white : #202b35;
+                    x: 10px * root.s; y: row-item.row-data.subtitle == "" ? 0px : 5px * root.s;
+                    width: parent.width - self.x - (row-item.row-data.toggle ? 56px * root.s : row-item.row-data.value != "" ? setting-value.width + 36px * root.s : 28px * root.s);
+                    height: row-item.row-data.subtitle == "" ? parent.height : 22px * root.s;
+                    text: row-item.row-data.title; font-size: 14px * root.s; font-weight: 600;
+                    font-family: row-item.row-data.font-family == "" ? root.text-font-family : row-item.row-data.font-family;
+                    color: root.selected == row-item.row-index && root.keyboard-navigation ? white : #202b35;
                     vertical-alignment: center; overflow: elide;
                 }
                 setting-value := Text {
-                    visible: !row.toggle && row.value != "";
+                    visible: !row-item.row-data.toggle && row-item.row-data.value != "";
                     x: parent.width - self.width - 25px * root.s; y: 8px * root.s;
                     width: min(self.preferred-width, 96px * root.s); height: 22px * root.s;
-                    text: row.value; font-size: 11px * root.s;
-                    color: root.selected == index && root.keyboard-navigation ? #edf6ff : #49677f;
+                    text: row-item.row-data.value; font-size: 11px * root.s;
+                    color: root.selected == row-item.row-index && root.keyboard-navigation ? #edf6ff : #49677f;
                     vertical-alignment: center; horizontal-alignment: right; overflow: elide;
                 }
-                if row.subtitle != "": Text {
+                if row-item.row-data.subtitle != "": Text {
                     x: 10px * root.s; y: 29px * root.s; width: parent.width - 20px * root.s; height: 25px * root.s;
-                    text: row.subtitle; font-size: 11px * root.s; wrap: word-wrap; overflow: elide;
-                    color: root.selected == index && root.keyboard-navigation ? #e1efff : #667584;
-                    font-family: row.font-family == "" ? root.text-font-family : row.font-family;
+                    text: row-item.row-data.subtitle; font-size: 11px * root.s; wrap: word-wrap; overflow: elide;
+                    color: root.selected == row-item.row-index && root.keyboard-navigation ? #e1efff : #667584;
+                    font-family: row-item.row-data.font-family == "" ? root.text-font-family : row-item.row-data.font-family;
                 }
-                if row.toggle: Rectangle {
+                if row-item.row-data.toggle: Rectangle {
                     accessible-role: switch;
-                    accessible-label: row.title + ". " + row.subtitle;
+                    accessible-label: row-item.row-data.title + ". " + row-item.row-data.subtitle;
                     accessible-enabled: root.enabled;
                     accessible-checkable: true;
-                    accessible-checked: row.checked;
-                    accessible-action-default => { if root.enabled { root.activated(index); } }
+                    accessible-checked: row-item.row-data.checked;
+                    accessible-action-default => { if root.enabled { root.activated(row-item.row-index); } }
                     x: parent.width - 46px * root.s; y: 8px * root.s; width: 36px * root.s; height: 20px * root.s;
                     border-radius: 10px * root.s; border-width: 1px * root.s;
-                    border-color: row.checked ? #377d46 : #939da5;
-                    background: row.checked ? @linear-gradient(180deg, #75b97d, #429653) : @linear-gradient(180deg, #b4bec6, #d0d7dd);
+                    border-color: row-item.row-data.checked ? #377d46 : #939da5;
+                    background: row-item.row-data.checked ? @linear-gradient(180deg, #75b97d, #429653) : @linear-gradient(180deg, #b4bec6, #d0d7dd);
                     Rectangle {
-                        x: (row.checked ? 18px : 2px) * root.s; y: 2px * root.s;
+                        x: (row-item.row-data.checked ? 18px : 2px) * root.s; y: 2px * root.s;
                         width: 16px * root.s; height: 16px * root.s; border-radius: 8px * root.s;
                         background: @linear-gradient(180deg, #fff, #e5e9ed);
                         border-width: 1px * root.s; border-color: #ffffffaa;
                     }
                 }
-                if row.checked && !row.toggle: Text {
+                if row-item.row-data.checked && !row-item.row-data.toggle: Text {
                     x: parent.width - 26px * root.s; width: 18px * root.s; height: parent.height;
                     text: "✓"; font-size: 16px * root.s; font-weight: 700;
-                    color: root.selected == index && root.keyboard-navigation ? white : #2675ba;
+                    color: root.selected == row-item.row-index && root.keyboard-navigation ? white : #2675ba;
                     vertical-alignment: center;
                 }
             }
-            if row.chevron: Image {
+            if row-item.row-data.chevron: Image {
                 x: parent.width - 18px * root.s; y: (parent.height - self.height) / 2; width: 7px * root.s; height: 12px * root.s;
-                source: @image-url("../assets/icons/chevron-right.svg"); colorize: (root.selected == index && root.keyboard-navigation) ? #fff : #aaa;
+                source: @image-url("../assets/icons/chevron-right.svg"); colorize: (root.selected == row-item.row-index && root.keyboard-navigation) ? #fff : #aaa;
             }
-            TouchArea { clicked => { root.activated(index); } }
+            TouchArea { clicked => { root.activated(row-item.row-index); } }
         }
         if root.rows.length <= root.prefix-count: Text {
             width: root.width; height: 160px * root.s;
-            text: root.search ? I18n.tr("No matching songs") : root.playlist-content ? I18n.tr("Empty playlist") : I18n.tr("No music yet\nFile → Import Music Folder");
+            text: root.search ? I18n.tr("No matching songs") : root.playlist-content ? I18n.tr("Empty playlist") : I18n.tr(root.touch-mode ? "No music yet\nMusic → Import Music…" : "No music yet\nFile → Import Music Folder");
             font-size: 13px * root.s; color: #888; horizontal-alignment: center; vertical-alignment: center;
         }
     }

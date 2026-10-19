@@ -5,6 +5,7 @@ import { GeniusRow } from "library.slint";
 
 export component GeniusPreview inherits Rectangle {
     in property <float> s: 1;
+    in property <bool> touch-mode: false;
     in property <string> seed-title;
     in property <string> seed-artist;
     in property <bool> seed-available;
@@ -20,7 +21,7 @@ export component GeniusPreview inherits Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
         background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
         Text { x: 48px * root.s; width: parent.width - 96px * root.s; text: "Genius"; color: #252a30; font-size: 16px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-        Text { x: 6px * root.s; width: 44px * root.s; text: I18n.tr("Close"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; TouchArea { clicked => { root.command("close"); } } }
+        Text { x: 6px * root.s; width: 44px * root.s; text: I18n.tr("Close"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; TouchArea { width: root.touch-mode ? max(parent.width, 44px) : parent.width; height: root.touch-mode ? max(parent.height, 44px) : parent.height; clicked => { root.command("close"); } } }
     }
     Rectangle {
         x: 0px; width: root.width; y: 32px * root.s; height: 26px * root.s; background: #e1ebf5;
@@ -34,13 +35,14 @@ export component GeniusPreview inherits Rectangle {
         color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center;
     }
     if root.stage == 0: Text {
-        x: 16px * root.s; y: 151px * root.s; width: parent.width - 32px * root.s; height: 163px * root.s;
+        x: 16px * root.s; y: (root.touch-mode ? 133px : 151px) * root.s; width: parent.width - 32px * root.s;
+        height: root.touch-mode ? max(0px, parent.height - self.y - 82px * root.s) : 163px * root.s;
         text: root.seed-available ? I18n.tr("Create a playlist based on this song.") : I18n.tr("Choose a song from Music");
         color: #6c7885; font-size: 12px * root.s; wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
     }
     if root.stage > 0: ElasticFlickable {
         s: root.s; enabled: root.visible;
-        x: 0px; width: root.width; y: 133px * root.s; height: root.height - self.y - 82px * root.s;
+        x: 0px; width: root.width; y: 133px * root.s; height: max(0px, root.height - self.y - 82px * root.s);
         content-height: root.songs.length * 36px * root.s;
         for song[index] in root.songs: Rectangle {
             x: 0px; width: root.width; y: index * 36px * root.s; height: 36px * root.s; background: mod(index, 2) == 0 ? #fff : #edf0f3;

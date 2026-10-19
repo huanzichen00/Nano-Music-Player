@@ -1,0 +1,44 @@
+name: iOS simulator
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Rust and iOS targets
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Check environment and generate project
+        run: |
+          ./scripts/check-ios-env.sh
+          ./scripts/generate-ios-project.sh
+      - name: Build unsigned simulator application
+        run: |
+          xcodebuild \
+            -project ios/NanoMusicPlayer.xcodeproj \
+            -scheme NanoMusicPlayer \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath target/ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nano-ios-simulator
+          path: target/ios/DerivedData/Build/Products/Debug-iphonesimulator/NanoMusicPlayer.app
+          if-no-files-found: error
+          retention-days: 7

@@ -1,0 +1,45 @@
+name: NanoMusicPlayer
+options:
+  bundleIdPrefix: com.huanzichen.nano
+  deploymentTarget:
+    iOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+    MARKETING_VERSION: "0.1.1"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_BITCODE: NO
+targets:
+  NanoMusicPlayer:
+    type: application
+    platform: iOS
+    sources:
+      - path: Assets.xcassets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.huanzichen.nanomusicplayer.ios
+        PRODUCT_NAME: NanoMusicPlayer
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Nano Music Player
+    postBuildScripts:
+      - name: Build Rust music player
+        script: '"${SRCROOT}/../scripts/build-ios-cargo.sh"'
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - '$(TARGET_BUILD_DIR)/$(EXECUTABLE_PATH)'
+          - '$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/licenses/NotoSansCJK-OFL.txt'
+schemes:
+  NanoMusicPlayer:
+    build:
+      targets:
+        NanoMusicPlayer: all
+    run:
+      config: Debug
+    archive:
+      config: Release

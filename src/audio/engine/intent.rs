@@ -29,6 +29,7 @@ pub(super) struct IntentState {
 pub(super) struct PlaybackIntent {
     pub(super) generation: AtomicU64,
     pub(super) state: Mutex<IntentState>,
+    pub(super) reopen_output: AtomicBool,
 }
 
 pub(super) struct QueuedCommand {

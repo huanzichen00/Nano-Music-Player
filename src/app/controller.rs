@@ -71,6 +71,7 @@ pub struct Controller {
     last_landscape: bool,
     last_video_generation: u64,
     directory: PathBuf,
+    iphone_sync: Option<super::iphone_sync::SyncPanel>,
     settings: Settings,
     media_bridge: crate::platform::macos_media::MediaBridge,
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
@@ -178,6 +179,7 @@ impl Controller {
             last_video_generation: 0,
             directory,
             settings,
+            iphone_sync: None,
             media_bridge: crate::platform::macos_media::MediaBridge::default(),
             media_marker: None,
             statistics,
@@ -1383,6 +1385,7 @@ impl Controller {
             romaji_visible: self.state.romaji_visible,
             translation_target: self.settings.translation_target,
             translation_visible: self.lyrics.visible(),
+            lyrics_visible: self.settings.lyrics_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
             monitor_deleted_files: self.settings.monitor_deleted_files,
@@ -3738,6 +3741,23 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 ui.set_subtitle_menu_open(false);
             }
             match name.as_str() {
+                "sync_iphone" => {
+                    if controller.iphone_sync.is_none() {
+                        match super::iphone_sync::SyncPanel::new(
+                            controller.directory.clone(),
+                            controller.state.language,
+                        ) {
+                            Ok(panel) => controller.iphone_sync = Some(panel),
+                            Err(error) => controller.state.notice = error,
+                        }
+                    }
+                    if let Some(panel) = &controller.iphone_sync
+                        && let Err(error) = panel.show(controller.state.language)
+                    {
+                        controller.state.notice = error;
+                    }
+                    controller.sync(&ui);
+                }
                 _ if crate::translation::Command::parse(&name).is_some() => controller
                     .translation_command(&ui, crate::translation::Command::parse(&name).unwrap()),
                 _ if Action::parse(&name).is_some() => {

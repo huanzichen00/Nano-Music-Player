@@ -3,3 +3,6 @@
 /local-config/
 deepseek.json
 deepseek.json.*.tmp
+/ios/*.xcodeproj/
+/ios/*.xcworkspace/
+/ios/DerivedData/

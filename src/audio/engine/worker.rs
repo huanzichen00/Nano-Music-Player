@@ -163,7 +163,19 @@ impl AudioWorker {
         volume: f32,
         paused: bool,
     ) -> Result<(), String> {
-        self.backend.stop_sink();
+        crate::shared::diagnostics::record(
+            "audio_load_begin",
+            serde_json::json!({"session": current.id, "paused": paused}),
+        );
+        if self.intent.reopen_output.swap(false, Ordering::AcqRel) {
+            crate::shared::diagnostics::record(
+                "audio_output_reopen",
+                serde_json::json!({"session": current.id}),
+            );
+            self.backend.stop();
+        } else {
+            self.backend.stop_sink();
+        }
         self.tracks.clear();
         self.position_offset = Duration::ZERO;
         self.playback = WorkerPlayback {
@@ -171,10 +183,18 @@ impl AudioWorker {
             phase: PlaybackPhase::Failed,
         };
         let source = open_source(&path, gain)?;
+        crate::shared::diagnostics::record(
+            "audio_decode_ready",
+            serde_json::json!({"session": current.id}),
+        );
         if self.intent.snapshot().generation != current.source.generation {
             return Ok(());
         }
         let next = self.backend.new_sink(volume, paused)?;
+        crate::shared::diagnostics::record(
+            "audio_sink_ready",
+            serde_json::json!({"session": current.id}),
+        );
         // Output opening can itself take time; never publish a stale load.
         if self.intent.snapshot().generation != current.source.generation {
             return Ok(());
@@ -361,6 +381,10 @@ impl AudioWorker {
             AudioCommand::Shutdown => unreachable!(),
         };
         if let Err(message) = result {
+            crate::shared::diagnostics::record(
+                "audio_worker_error",
+                serde_json::json!({"session": self.playback.current.map(|current| current.id), "message": message.chars().take(512).collect::<String>()}),
+            );
             let _ = self.events.send(EventEnvelope {
                 event: AudioEvent::Error {
                     id: self.playback.current.map(|current| current.id),
@@ -428,6 +452,17 @@ pub(super) fn run(
     events: Sender<EventEnvelope>,
     intent: Arc<PlaybackIntent>,
 ) {
+    struct WorkerExit;
+    impl Drop for WorkerExit {
+        fn drop(&mut self) {
+            crate::shared::diagnostics::record(
+                "audio_worker_exit",
+                serde_json::json!({"panicking": std::thread::panicking()}),
+            );
+        }
+    }
+    let _exit = WorkerExit;
+    crate::shared::diagnostics::record("audio_worker_start", serde_json::json!({}));
     let mut worker = AudioWorker::new(events, intent);
     loop {
         match receiver.recv_timeout(Duration::from_millis(50)) {
@@ -447,6 +482,40 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_reopen_survives_a_superseded_load_and_retires_the_old_mixer() {
+        let intent = Arc::new(PlaybackIntent::default());
+        let (tx, _rx) = mpsc::channel();
+        let mut worker = AudioWorker::new(tx, Arc::clone(&intent));
+        let (mixer, _output) = rodio::mixer::mixer(1, 44_100);
+        worker.backend.mixer = Some(mixer);
+        let missing = PathBuf::from("/no-such-nano-test-source.wav");
+        let obsolete = intent.prepare(AudioCommand::Load {
+            id: 1,
+            path: missing.clone(),
+            volume: 1.0,
+            paused: false,
+        });
+        intent.reopen_output.store(true, Ordering::Release);
+        let current = intent.prepare(AudioCommand::Load {
+            id: 2,
+            path: missing,
+            volume: 1.0,
+            paused: false,
+        });
+        worker.process(obsolete);
+        assert!(intent.reopen_output.load(Ordering::Acquire));
+        assert!(worker.backend.mixer.is_some());
+        worker.process(current);
+        assert!(!intent.reopen_output.load(Ordering::Acquire));
+        assert!(
+            worker.backend.mixer.is_none(),
+            "recovery must release the prior device, even after coalescing"
+        );
+        assert!(worker.backend.sink.is_none());
+        assert_eq!(worker.playback.current.unwrap().id, 2);
+    }
 
     #[test]
     fn output_loss_after_unread_successor_start_reports_the_successor() {

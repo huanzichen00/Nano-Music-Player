@@ -1,0 +1,38 @@
+import { TextEdit } from "std-widgets.slint";
+import { NanoActionButton } from "../components.slint";
+import { I18n } from "../i18n.slint";
+
+export component LyricEditor inherits Rectangle {
+    in property <float> s: 1;
+    in property <string> font-family: "Noto Sans CJK SC";
+    in property <bool> saving;
+    in property <string> message;
+    in-out property <string> text;
+    callback command(string);
+    out property <bool> editor-focused: editor.has-focus;
+    public function focus-editor() { editor.focus(); }
+    public function dismiss-editor() { focus-sink.focus(); }
+    background: #f4f5f6;
+    focus-sink := FocusScope { x: 0px; y: 0px; width: 0px; height: 0px; }
+    Rectangle {
+        x: 0px; y: 0px; width: parent.width; height: 52px;
+        background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
+        Text { x: 10px; y: 0px; width: parent.width - 190px; height: parent.height; text: I18n.tr("Edit Lyrics"); font-size: 14px * root.s; font-weight: 600; color: #263441; vertical-alignment: center; overflow: elide; }
+        NanoActionButton { x: parent.width - 176px; y: 4px; width: 80px; height: 44px; s: root.s; label: "Paste"; enabled: !root.saving; clicked => { editor.paste(); } }
+        NanoActionButton { x: parent.width - 88px; y: 4px; width: 80px; height: 44px; s: root.s; label: "Done"; clicked => { root.dismiss-editor(); } }
+    }
+    editor := TextEdit {
+        x: 8px; y: 60px; width: parent.width - 16px;
+        height: max(0px, parent.height - self.y - (root.message != "" ? 100px : 64px));
+        text <=> root.text; read-only: root.saving; wrap: word-wrap;
+        font-size: max(14px, 11px * root.s); font-family: root.font-family;
+        placeholder-text: I18n.tr("Paste plain text or LRC lyrics.");
+    }
+    Text {
+        visible: root.message != "";
+        x: 10px; y: parent.height - 92px; width: parent.width - 20px; height: 30px;
+        text: root.message; color: #52647a; font-size: 11px * root.s; wrap: word-wrap; overflow: elide;
+    }
+    NanoActionButton { x: 8px; y: parent.height - 54px; width: (parent.width - 24px) / 2; height: 44px; s: root.s; label: "Cancel"; enabled: !root.saving; clicked => { root.dismiss-editor(); root.command("cancel"); } }
+    NanoActionButton { x: (parent.width + 8px) / 2; y: parent.height - 54px; width: (parent.width - 24px) / 2; height: 44px; s: root.s; primary: true; label: root.saving ? "Saving…" : "Save"; enabled: !root.saving; clicked => { root.dismiss-editor(); root.command("save"); } }
+}

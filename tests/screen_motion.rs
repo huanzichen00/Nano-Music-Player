@@ -215,7 +215,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
         key(&ui, "j");
     }
     key(&ui, "l");
-    tick(60);
+    tick(210);
     // The old deadline can fire before the next frame processes Back's change handler.
     raw_key(&ui, "h");
     tick(30);
@@ -233,7 +233,7 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     save(&frame(&ui), "screen-interrupted-back-middle");
     settled(&ui);
     key(&ui, "l");
-    tick(60);
+    tick(210);
     // Also cover commands which publish a generation without dispatching another input frame.
     controller.borrow_mut().execute(&ui, Action::Back);
     tick(30);

@@ -133,6 +133,8 @@ export component ElasticAxis inherits Rectangle {
 // supplies deltas to ElasticAxis while taps still reach the existing children.
 export component ElasticFlickable inherits Rectangle {
     in property <bool> back-enabled: false;
+    in property <bool> touch-navigation: false;
+    in property <bool> forward-enabled: false;
     in property <int> navigation-generation;
     in property <float> s: 1;
     in property <bool> enabled: true;
@@ -140,11 +142,21 @@ export component ElasticFlickable inherits Rectangle {
     in-out property <length> content-y;
     in property <duration> follow-duration: 0ms;
     callback back;
+    // Content coordinate at the original touch, never the row crossed later.
+    callback forward(length);
+    callback can-forward(length) -> bool;
+    callback tapped(length);
+    out property <length> navigation-offset: root.navigation-shift;
+    out property <bool> touch-pressed;
+    out property <length> pressed-content-y: mobile-touch.content-start-y;
     out property <length> overshoot: motion.overshoot;
     out property <length> visual-position: viewport.content-y + motion.overshoot;
     out property <bool> user-interacting: motion.active;
     private property <length> accumulated-x;
-    public function cancel-motion() { pan.cancel(); motion.reset(root.content-y); root.accumulated-x = 0px; back-timeout.stop(); }
+    private property <length> navigation-shift;
+    private property <bool> navigating;
+    animate navigation-shift { duration: root.navigating ? 0ms : 160ms; easing: ease-out; }
+    public function cancel-motion() { pan.cancel(); mobile-touch.active = false; mobile-touch.axis = 0; root.touch-pressed = false; motion.reset(root.content-y); root.accumulated-x = 0px; root.navigating = false; root.navigation-shift = 0px; back-timeout.stop(); }
     function interrupt-follow() {
         // A lyric highlight may still be animating towards its canonical row.
         // Start new input at the rendered position, rather than that target.
@@ -170,9 +182,22 @@ export component ElasticFlickable inherits Rectangle {
     changed content-height => { motion.reset(root.content-y); root.content-y = motion.bounded-position; }
     changed enabled => { if !root.enabled { root.cancel-motion(); } }
     changed navigation-generation => { root.cancel-motion(); }
+    // A small live displacement makes the committed direction visible before
+    // release. Only mobile opts in; the desktop wheel and physics stay shared.
+    if root.touch-navigation: Rectangle {
+        visible: abs(root.navigation-shift) > 0.1px;
+        background: #dbe4ec;
+        Image {
+            x: root.navigation-shift >= 0px ? 12px * root.s : root.width - self.width - 12px * root.s;
+            y: clamp(mobile-touch.pressed-y - self.height / 2, 8px, root.height - self.height - 8px);
+            width: 12px * root.s; height: 20px * root.s;
+            source: root.navigation-shift >= 0px ? @image-url("../assets/icons/chevron-left.svg") : @image-url("../assets/icons/chevron-right.svg");
+            colorize: #52728d;
+        }
+    }
     pan := SwipeGestureHandler {
         x: 0px; y: 0px; width: root.width; height: root.height;
-        enabled: root.enabled;
+        enabled: root.enabled && !root.touch-navigation;
         handle-swipe-up: true; handle-swipe-down: true;
         handle-swipe-right: root.back-enabled;
         private property <length> previous-y;
@@ -201,7 +226,7 @@ export component ElasticFlickable inherits Rectangle {
         }
         cancelled => { self.tracking = false; self.horizontal = false; motion.release(); }
         viewport := Flickable {
-            x: 0px; y: 0px; width: root.width; height: root.height;
+            x: root.navigation-shift; y: 0px; width: root.width; height: root.height;
             interactive: false;
             content-width: root.width;
             content-height: max(self.height, root.content-height);
@@ -236,6 +261,68 @@ export component ElasticFlickable inherits Rectangle {
                     width: root.width; height: max(root.height, root.content-height);
                     @children
                 }
+            }
+        }
+    }
+    // Mobile uses one immediate tap/pan owner. SwipeGestureHandler deliberately
+    // delays child presses by 100ms, which makes list taps feel unresponsive.
+    // Keeping taps here also prevents a completed swipe from playing its row.
+    mobile-touch := TouchArea {
+        enabled: root.enabled && root.touch-navigation;
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        property <bool> active;
+        property <int> axis; // 0 undecided, 1 horizontal, 2 vertical
+        property <length> content-start-y;
+        property <bool> forward-allowed;
+        property <length> previous-x;
+        property <length> previous-y;
+        property <duration> previous-time;
+        property <float> horizontal-velocity;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down && event.button == PointerEventButton.left {
+                root.interrupt-follow(); motion.reset(root.content-y);
+                self.active = true; self.axis = 0;
+                self.content-start-y = self.pressed-y - root.visual-position;
+                self.forward-allowed = root.forward-enabled && root.can-forward(self.content-start-y);
+                self.previous-x = self.mouse-x; self.previous-y = self.mouse-y;
+                self.previous-time = animation-tick(); self.horizontal-velocity = 0;
+                root.touch-pressed = true;
+            } else if event.kind == PointerEventKind.move && self.active {
+                let dx = self.mouse-x - self.pressed-x;
+                let dy = self.mouse-y - self.pressed-y;
+                if self.axis == 0 {
+                    if max(abs(dx), abs(dy)) < 8px { return; }
+                    if abs(dx) > 1.2 * abs(dy) { self.axis = 1; root.navigating = true; }
+                    else if abs(dy) > 1.2 * abs(dx) { self.axis = 2; motion.begin(); }
+                    else { root.touch-pressed = false; return; }
+                    root.touch-pressed = false;
+                }
+                if self.axis == 1 {
+                    let dt = (animation-tick() - self.previous-time) / 1s;
+                    if dt > 0 && dt < 0.15 { self.horizontal-velocity = ((self.mouse-x - self.previous-x) / 1px) / max(0.008, dt); }
+                    let allowed = dx >= 0px ? root.back-enabled : self.forward-allowed;
+                    root.navigation-shift = allowed ? clamp(dx * 0.7, -root.width * 0.42, root.width * 0.42) : 0px;
+                } else { motion.drag(self.mouse-y - self.previous-y); }
+                self.previous-x = self.mouse-x; self.previous-y = self.mouse-y;
+                self.previous-time = animation-tick();
+            } else if event.kind == PointerEventKind.up && self.active {
+                let dx = self.mouse-x - self.pressed-x;
+                let dy = self.mouse-y - self.pressed-y;
+                let recent = animation-tick() - self.previous-time < 100ms;
+                let commit = abs(dx) >= max(44px, root.width * 0.22) || (recent && abs(dx) >= 24px && self.horizontal-velocity * (dx >= 0px ? 1 : -1) > 550);
+                let forward = self.axis == 1 && dx < 0px && self.forward-allowed && commit;
+                let back = self.axis == 1 && dx > 0px && root.back-enabled && commit;
+                let tap = self.axis == 0 && max(abs(dx), abs(dy)) < 8px;
+                if self.axis == 2 { motion.release(); }
+                self.active = false; self.axis = 0; root.touch-pressed = false;
+                root.navigating = false; root.navigation-shift = 0px;
+                if forward { root.forward(self.content-start-y); }
+                else if back { root.back(); }
+                else if tap { root.tapped(self.content-start-y); }
+            } else if event.kind == PointerEventKind.cancel {
+                if self.axis == 2 { motion.release(); }
+                self.active = false; self.axis = 0; root.touch-pressed = false;
+                root.navigating = false; root.navigation-shift = 0px;
             }
         }
     }

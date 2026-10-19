@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>nano Music app icon</title>
+  <desc>A blue iPod nano body, cream bezel, orange music screen and circular Home button.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f5f8fa"/>
+      <stop offset="1" stop-color="#dbe5ed"/>
+    </linearGradient>
+    <!-- The body and bezel use ui/icons/device-shell.svg's original geometry and colors. -->
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#28627c"/>
+      <stop offset=".02" stop-color="#6ac0d8"/>
+      <stop offset=".05" stop-color="#3a9eba"/>
+      <stop offset=".93" stop-color="#409bb7"/>
+      <stop offset=".98" stop-color="#7ac6d9"/>
+      <stop offset="1" stop-color="#2c718c"/>
+    </linearGradient>
+    <linearGradient id="bezel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8f7f1"/>
+      <stop offset="1" stop-color="#eae9e1"/>
+    </linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffb842"/>
+      <stop offset=".48" stop-color="#ff941c"/>
+      <stop offset="1" stop-color="#df6108"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-40%" y="-20%" width="180%" height="140%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <clipPath id="screen-clip"><rect x="28" y="36" width="240" height="432"/></clipPath>
+  </defs>
+
+  <!-- Opaque square canvas. iOS supplies the app-icon corner mask. -->
+  <rect width="1024" height="1024" fill="url(#background)"/>
+  <rect x="288" y="83" width="449" height="878" rx="26" fill="#244c66" opacity=".23" filter="url(#shadow)"/>
+
+  <!-- Preserve the device's 296 × 571.8181818 aspect ratio with a 66 px safe margin. -->
+  <g id="nano-device" transform="translate(281.12 65.98) scale(1.56)">
+    <rect x=".5" y=".5" width="295" height="570.8181818" rx="14.5" fill="url(#metal)" stroke="#357185"/>
+    <rect x="14.5" y="14.5" width="267" height="542.8181818" rx="9.5" fill="url(#bezel)" stroke="#fff"/>
+
+    <g clip-path="url(#screen-clip)">
+      <rect x="28" y="36" width="240" height="432" fill="url(#screen)"/>
+      <path d="M28 36h240v156C188 230 108 203 28 248z" fill="url(#glass)"/>
+      <!-- Music glyph from assets/icons/music.svg: Font Awesome Free 7.3.1,
+           Icons CC BY 4.0, https://fontawesome.com/license/free. -->
+      <svg x="76" y="173" width="144" height="144" viewBox="0 0 512 512">
+        <path fill="#fffaf1" d="M468 7c7.6 6.1 12 15.3 12 25l0 304c0 44.2-43 80-96 80s-96-35.8-96-80 43-80 96-80c11.2 0 22 1.6 32 4.6l0-116.7-224 49.8 0 206.3c0 44.2-43 80-96 80s-96-35.8-96-80 43-80 96-80c11.2 0 22 1.6 32 4.6L128 96c0-15 10.4-28 25.1-31.2l288-64c9.5-2.1 19.4 .2 27 6.3z"/>
+      </svg>
+    </g>
+    <rect x="28" y="36" width="240" height="432" fill="none" stroke="#1b3444" stroke-width="1.5"/>
+    <path d="M29 37h238" fill="none" stroke="#ffdfa8" stroke-width="1" opacity=".8"/>
+
+    <circle cx="148" cy="513.8181818" r="34" fill="#eeede5" stroke="#b9bdc2"/>
+    <circle cx="148" cy="513.8181818" r="15" fill="none" stroke="#a7adb5" stroke-width="1.5"/>
+  </g>
+</svg>

@@ -141,6 +141,15 @@ impl Default for Engine {
 }
 
 impl Engine {
+    /// Rebuild the device on the next current load after an iOS interruption.
+    /// This flag survives superseded loads; a queued Stop could be skipped by
+    /// generation filtering when immediately followed by a newer Load.
+    pub fn reopen_on_next_load(&self) {
+        self.intent
+            .reopen_output
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
     pub fn send(&self, command: AudioCommand) -> Result<(), String> {
         if let AudioCommand::Seek(seconds) = &command {
             Duration::try_from_secs_f64(seconds.max(0.0))

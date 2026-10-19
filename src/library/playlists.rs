@@ -70,6 +70,18 @@ pub fn load(database: &Path) -> Result<Vec<Playlist>, String> {
     Ok(playlists)
 }
 
+/// Remove only the saved playlist; referenced audio files are never deleted.
+pub fn delete(database: &Path, id: i64) -> Result<(), String> {
+    let connection = open(database)?;
+    let changed = connection
+        .execute("DELETE FROM playlists WHERE id = ?", [id])
+        .map_err(|error| error.to_string())?;
+    if changed == 0 {
+        return Err("Playlist no longer exists".into());
+    }
+    Ok(())
+}
+
 pub fn create(database: &Path, name: &str, tracks: &[PathBuf]) -> Result<Playlist, String> {
     let (name, track_paths) = validate(name, tracks, false)?;
 

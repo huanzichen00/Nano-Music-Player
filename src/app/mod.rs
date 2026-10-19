@@ -1,30 +1,24 @@
-pub mod action;
+pub use crate::shared::{action, config, i18n, navigation, typography};
 mod artwork;
-pub mod config;
 pub mod controller;
 pub mod geometry;
-pub mod i18n;
-pub mod navigation;
+mod iphone_sync;
 mod settings;
 pub mod state;
 mod thumbnails;
-pub mod typography;
 mod video_thumbnails;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use slint::{ComponentHandle, Timer, TimerMode};
     use std::{cell::RefCell, rc::Rc, time::Duration};
-    // The OpenGL glyph atlas tears small text at some fractional window scales
-    // on macOS. Skia rendered the same native fixtures correctly without a font
-    // substitution. Keep explicit backend overrides available for diagnostics.
-    #[cfg(target_os = "macos")]
-    if std::env::var_os("SLINT_BACKEND").is_none() {
-        slint::BackendSelector::new()
-            .backend_name("winit".into())
-            .renderer_name("skia".into())
-            .select()?;
-    }
+    crate::platform::select_ui_backend()?;
     let directory = config::config_dir()?;
+    if std::env::args_os().any(|arg| arg == "--iphone-sync") {
+        let language = config::Settings::load(&directory.join("settings.json"))?.language;
+        let panel = iphone_sync::SyncPanel::new(directory, language)?;
+        panel.run(language)?;
+        return Ok(());
+    }
     let ui = crate::ui::AppWindow::new()?;
     let controller = Rc::new(RefCell::new(controller::Controller::new(directory)));
     controller::connect(&ui, &controller);

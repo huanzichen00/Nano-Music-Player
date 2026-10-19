@@ -1,0 +1,110 @@
+--- a/vendor/i-slint-backend-winit/ios.rs
++++ b/vendor/i-slint-backend-winit/ios.rs
+@@ -18,3 +18,10 @@
+ };
+ pub(crate) use trait_observer::TraitChangeObserver;
+ pub(crate) use virtual_keyboard::{KeyboardNotifications, register_keyboard_notifications};
++
++/// Metal rejects GPU work from an app in the background, see #14086.
++pub(crate) fn is_in_background() -> bool {
++    let mtm = objc2::MainThreadMarker::new().expect("UIKit is only accessible on the main thread");
++    objc2_ui_kit::UIApplication::sharedApplication(mtm).applicationState()
++        == objc2_ui_kit::UIApplicationState::Background
++}
+--- a/vendor/i-slint-backend-winit/renderer/skia.rs
++++ b/vendor/i-slint-backend-winit/renderer/skia.rs
+@@ -167,6 +167,14 @@
+         self.renderer.suspend()
+     }
+ 
++    // GPU work that iOS rejected while the app was in the background leaves stale atlas entries.
++    #[cfg(target_os = "ios")]
++    fn occluded(&self, occluded: bool) {
++        if !occluded {
++            self.renderer.free_gpu_resources();
++        }
++    }
++
+     #[cfg(target_os = "macos")]
+     fn set_transparent(&self, transparent: bool) -> Result<(), PlatformError> {
+         self.renderer.set_transparent(transparent)
+--- a/vendor/i-slint-backend-winit/winitwindowadapter.rs
++++ b/vendor/i-slint-backend-winit/winitwindowadapter.rs
+@@ -845,6 +845,12 @@
+ 
+         self.pending_redraw.set(false);
+ 
++        // `Occluded(false)` requests the skipped frame.
++        #[cfg(target_os = "ios")]
++        if crate::ios::is_in_background() {
++            return Ok(());
++        }
++
+         if let Some(winit_window) = self.winit_window_or_none.borrow().as_window() {
+             // on macOS we sometimes don't get a resize event after calling
+             // request_inner_size(), it returning None (promising a resize event), and then delivering RedrawRequested. To work around this,
+@@ -1568,6 +1574,12 @@
+                 #[cfg(target_os = "macos")]
+                 if !occluded && self.pending_redraw.get() {
+                     self.draw()?;
++                }
++
++                // UIKit still reports the app as in the background at this point, so `draw()` would skip.
++                #[cfg(target_os = "ios")]
++                if !occluded {
++                    self.request_redraw();
+                 }
+ 
+                 // Same hack as in the Resized arm above, so that we handle Minimized changes
+--- a/vendor/i-slint-renderer-skia/lib.rs
++++ b/vendor/i-slint-renderer-skia/lib.rs
+@@ -625,6 +625,13 @@
+         }
+     }
+ 
++    /// Drops the GPU resources Skia caches, so that the next frame uploads glyphs and images again.
++    pub fn free_gpu_resources(&self) {
++        if let Some(surface) = self.surface.borrow().as_ref() {
++            surface.free_gpu_resources();
++        }
++    }
++
+     /// Render the scene in the previously associated window.
+     pub fn render(&self) -> Result<DrawOutcome, i_slint_core::platform::PlatformError> {
+         let window_adapter = self.window_adapter()?;
+@@ -1112,6 +1119,9 @@
+     fn set_transparent(&self, _: bool) -> Result<(), PlatformError> {
+         Ok(())
+     }
++
++    /// Drops the GPU resources Skia caches, such as glyph atlases and uploaded images.
++    fn free_gpu_resources(&self) {}
+ }
+ 
+ pub trait SkiaRendererExt {
+--- a/vendor/i-slint-renderer-skia/wgpu_29_surface.rs
++++ b/vendor/i-slint-renderer-skia/wgpu_29_surface.rs
+@@ -486,6 +486,10 @@
+     fn as_any(&self) -> &dyn core::any::Any {
+         self
+     }
++
++    fn free_gpu_resources(&self) {
++        self.gr_context.borrow_mut().free_gpu_resources();
++    }
+ }
+ 
+ struct WindowAndDisplayHandle(
+--- a/vendor/i-slint-renderer-skia/wgpu_30_surface.rs
++++ b/vendor/i-slint-renderer-skia/wgpu_30_surface.rs
+@@ -517,6 +517,10 @@
+     fn as_any(&self) -> &dyn core::any::Any {
+         self
+     }
++
++    fn free_gpu_resources(&self) {
++        self.gr_context.borrow_mut().free_gpu_resources();
++    }
+ }
+ 
+ struct WindowAndDisplayHandle(

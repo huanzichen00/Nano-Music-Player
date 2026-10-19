@@ -144,10 +144,11 @@ impl StatisticsService {
                                     stars: previous,
                                 });
                             }
-                        } else if request < expected && result.is_ok() {
-                            if let Some(pending) = self.pending_ratings.get_mut(&path) {
-                                pending.1 = stars;
-                            }
+                        } else if request < expected
+                            && result.is_ok()
+                            && let Some(pending) = self.pending_ratings.get_mut(&path)
+                        {
+                            pending.1 = stars;
                         }
                     }
                 }

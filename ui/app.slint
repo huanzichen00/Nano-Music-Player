@@ -20,6 +20,7 @@ import { DeepSeekSettings } from "deepseek-settings.slint";
 import { GeniusPreview } from "genius-preview.slint";
 import { PlaylistEditor, PlaylistCandidate } from "playlist-editor.slint";
 import { I18n } from "i18n.slint";
+export { IPhoneSyncWindow, SyncDeviceRow, SyncPlaylistRow } from "iphone-sync.slint";
 export { I18n }
 export { LibraryRow }
 export { GeniusRow }
@@ -66,8 +67,9 @@ export component AppWindow inherits Window {
     private property <int> active-transition-generation: 0;
     private property <length> current-screen-x: 0px;
     private property <length> previous-screen-x: 0px;
+    private property <duration> screen-slide-duration: 220ms;
     transition-completion := Timer {
-        interval: 80ms; running: false;
+        interval: root.screen-slide-duration + 16ms; running: false;
         triggered => {
             self.stop();
             // A navigation event can publish new rows before its change handler
@@ -84,8 +86,8 @@ export component AppWindow inherits Window {
     out property <length> home-outgoing-transition-offset: home.page-outgoing-offset;
     out property <length> home-overshoot: home.overshoot;
     out property <length> list-overshoot: library.overshoot;
-    animate current-screen-x { duration: root.transition-animating ? 70ms : 0ms; easing: ease-in-out; }
-    animate previous-screen-x { duration: root.transition-animating ? 70ms : 0ms; easing: ease-in-out; }
+    animate current-screen-x { duration: root.transition-animating ? root.screen-slide-duration : 0ms; easing: ease-out; }
+    animate previous-screen-x { duration: root.transition-animating ? root.screen-slide-duration : 0ms; easing: ease-out; }
     changed screen-transition-generation => {
         root.reset-screen-motion();
         root.active-transition-generation = root.screen-transition-generation;
@@ -297,6 +299,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Import Videos…"); activated => { root.command("import_videos"); } }
             MenuItem { title: I18n.tr("Subtitles…"); enabled: root.screen == 9; activated => { root.subtitle-command("open"); } }
             MenuItem { title: I18n.tr("Import Music Folder…"); activated => { root.command("import_folder"); } }
+            MenuItem { title: I18n.tr("Sync to iPhone…"); activated => { root.command("sync_iphone"); } }
             MenuItem { title: I18n.tr("Import / Replace Lyrics…"); activated => { root.command("import_lyrics"); } }
             MenuItem { title: I18n.tr("Search Library…"); activated => { root.command("search"); } }
             MenuItem { title: I18n.tr("Quit"); activated => { root.close(); } }
@@ -519,7 +522,7 @@ export component AppWindow inherits Window {
             library := LibraryView {
                 navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
-                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
+                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
                 fit-settings: root.settings-root;

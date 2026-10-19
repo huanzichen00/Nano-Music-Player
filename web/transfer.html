@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>nano · 电脑导入</title>
+  <style>
+    :root{color-scheme:dark;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;background:#101513;color:#e8eee9;font-synthesis:none}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(ellipse at 80% 0,#293d31 0,transparent 50%)}button,input{font:inherit}button{cursor:pointer;border:1px solid #405348;border-radius:10px;background:#27372c;color:#edf7ef;padding:10px 16px}button:hover{background:#344a3c}button:disabled{cursor:default;opacity:.45}main{max-width:1080px;margin:0 auto;padding:50px 28px 40px}header{display:flex;align-items:center;gap:16px;margin-bottom:42px}.mark{width:44px;height:62px;flex:none;border-radius:9px;background:linear-gradient(145deg,#e5eddc,#9dac91);padding:7px;box-shadow:0 8px 22px #0005}.screen{height:23px;background:#304a3d;border-radius:3px}.wheel{width:19px;height:19px;border:5px solid #e7eee1;border-radius:50%;margin:6px auto 0}.eyebrow{font-size:12px;color:#a7c3ac;letter-spacing:3px}h1{font-size:28px;letter-spacing:-.8px;margin:4px 0 0;font-weight:600}.connection{margin-left:auto;font-size:13px;color:#aac6b1;display:flex;align-items:center;gap:8px}.dot{width:7px;height:7px;background:#a5dda9;border-radius:50%}.connection.offline{color:#edbfa3}.offline .dot{background:#edbfa3}.intro{font-size:16px;line-height:1.8;color:#b5c2b9;max-width:700px;margin:0 0 26px}.grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:24px}.panel{background:#17201bd9;border:1px solid #344038;border-radius:18px;padding:24px;min-width:0}h2{font-weight:550;font-size:17px;margin:0 0 18px}.drop{border:1px dashed #718b76;border-radius:12px;min-height:215px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;background:#20302666;transition:background .15s,border-color .15s}.drop.drag{background:#37513c;border-color:#d1e9bf}.arrow{font-size:32px;color:#d2e7c5;line-height:1;margin-bottom:15px}.drop p{margin:0 0 10px;font-size:17px}.sub{font-size:12px;color:#9db0a2;line-height:1.7;margin:13px 0 0}.primary{background:#cbe2b9;color:#1b2b1b;border-color:#cbe2b9;font-weight:550}.primary:hover{background:#def0cf}.queue-head{display:flex;align-items:center;justify-content:space-between;margin:22px 0 10px;font-size:13px;color:#b6c9ba}.queue-head button{padding:6px 10px;font-size:12px}.file{padding:13px 0;border-top:1px solid #324036}.file-line{display:flex;gap:12px;align-items:center;font-size:13px}.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}.size{color:#8eaa98;font-size:11px;flex:none}.result{font-size:12px;color:#a9caae;line-height:1.6;margin-top:6px;overflow-wrap:anywhere}.error .result{color:#edbfa3}progress{display:block;width:100%;height:4px;margin:9px 0 0;border:0;border-radius:3px;overflow:hidden;background:#334238}progress::-webkit-progress-bar{background:#334238}progress::-webkit-progress-value{background:#cbe2b9}progress::-moz-progress-bar{background:#cbe2b9}.library-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.library-head h2{margin:0}.library-head button{font-size:12px;padding:7px 10px}.count{font-size:12px;color:#a5b6a9;margin:0 0 12px}.song{padding:13px 0;border-top:1px solid #324036}.song-title{font-size:14px;overflow-wrap:anywhere}.song-detail{font-size:12px;color:#9fb1a4;margin-top:5px;line-height:1.6;overflow-wrap:anywhere}.library{max-height:560px;overflow:auto}.empty{font-size:13px;color:#8fa496;line-height:1.8;padding:24px 0}footer{font-size:12px;color:#8ea495;line-height:1.9;margin-top:22px}.alert{background:#48372d;border:1px solid #86664e;color:#f0cfb8;border-radius:12px;padding:13px 16px;font-size:13px;line-height:1.7;margin-bottom:20px}.hidden{display:none!important}input[type=file]{display:none}@media(max-width:760px){main{padding:28px 18px}.grid{grid-template-columns:1fr}header{margin-bottom:28px;flex-wrap:wrap}.connection{width:100%;margin:0 0 0 60px}h1{font-size:25px}.panel{padding:19px}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="mark" aria-hidden="true"><div class="screen"></div><div class="wheel"></div></div>
+    <div><div class="eyebrow">NANO MUSIC PLAYER</div><h1>把音乐带在身边</h1></div>
+    <div id="connection" class="connection"><span class="dot"></span><span id="connectionText">正在连接手机…</span></div>
+  </header>
+  <p class="intro">把电脑上的音乐拖到这里，直接传入 nano 曲库。<br>电脑和手机连接同一个 Wi-Fi，传输时请让手机保持在应用前台。</p>
+  <div id="alert" class="alert hidden" role="alert"></div>
+  <div class="grid">
+    <section class="panel" aria-labelledby="uploadTitle">
+      <h2 id="uploadTitle">导入音乐</h2>
+      <div id="drop" class="drop">
+        <div class="arrow" aria-hidden="true">↥</div><p>拖入音乐文件</p>
+        <button id="choose" class="primary" type="button">选择文件</button>
+        <p class="sub">MP3 · FLAC · WAV · M4A · AAC · OGG · AIFF<br>支持批量导入，单个文件最大 512 MiB</p>
+        <input id="files" type="file" multiple accept=".mp3,.flac,.wav,.m4a,.aac,.ogg,.aiff,audio/*">
+      </div>
+      <div id="queueHead" class="queue-head hidden"><span id="queueSummary">等待导入</span><button id="cancel" type="button">取消传输</button></div>
+      <div id="queue" aria-live="polite"></div>
+    </section>
+    <section class="panel" aria-labelledby="libraryTitle">
+      <div class="library-head"><h2 id="libraryTitle">手机曲库</h2><button id="refresh" type="button">刷新</button></div>
+      <p id="count" class="count">正在读取…</p><div id="library" class="library"></div>
+    </section>
+  </div>
+  <footer>音乐保存在手机本地。重名文件会分别保留；关闭手机上的“电脑导入”后，此地址立即失效。</footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const token = location.hash.slice(1);
+  const validToken = /^[a-f0-9]{32}$/.test(token);
+  const MAX = 512 * 1024 * 1024;
+  let busy = false, canceled = false, active = null, connected = false;
+  const networkMessage = '连接已暂停或中断。请回到手机上的播放器，再用当前地址重试。只有手动停止并重新开启传歌后才需要更换地址。';
+  function connection(ok, message) {
+    connected = ok;
+    byId('connection').classList.toggle('offline', !ok);
+    byId('connectionText').textContent = message;
+    byId('choose').disabled = !validToken || busy;
+  }
+  function alert(message) {
+    byId('alert').textContent = message;
+    byId('alert').classList.toggle('hidden', !message);
+  }
+  function humanSize(size) { return size >= 1048576 ? (size / 1048576).toFixed(1) + ' MiB' : Math.ceil(size / 1024) + ' KiB'; }
+  async function refresh() {
+    if (!validToken) return;
+    byId('refresh').disabled = true;
+    try {
+      const response = await fetch('/api/library', {headers: {'X-Nano-Token': token}, cache: 'no-store'});
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error || '读取曲库失败');
+      connection(true, '已连接手机');
+      byId('count').textContent = result.count + ' 首歌曲';
+      const library = byId('library'); library.replaceChildren();
+      if (!result.tracks.length) {
+        const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '曲库还是空的。导入第一首音乐，就能在手机上播放。'; library.append(empty);
+      }
+      for (const track of result.tracks) {
+        const row = document.createElement('div'); row.className = 'song';
+        const title = document.createElement('div'); title.className = 'song-title'; title.textContent = track.title;
+        const detail = document.createElement('div'); detail.className = 'song-detail';
+        const duration = Math.max(0, Math.floor(Number(track.duration) || 0));
+        detail.textContent = track.artist + ' · ' + track.album + ' · ' + Math.floor(duration / 60) + ':' + String(duration % 60).padStart(2, '0');
+        row.append(title, detail); library.append(row);
+      }
+    } catch (error) {
+      connection(false, '连接不可用');
+      byId('count').textContent = '暂时无法读取曲库';
+      alert(error instanceof TypeError ? networkMessage : error.message);
+    } finally { byId('refresh').disabled = false; }
+  }
+  function rowFor(file) {
+    const row = document.createElement('div'); row.className = 'file';
+    const line = document.createElement('div'); line.className = 'file-line';
+    const name = document.createElement('span'); name.className = 'name'; name.textContent = file.name; name.title = file.name;
+    const size = document.createElement('span'); size.className = 'size'; size.textContent = humanSize(file.size);
+    line.append(name, size);
+    const progress = document.createElement('progress'); progress.max = 100; progress.value = 0; progress.setAttribute('aria-label', file.name + ' 上传进度');
+    const result = document.createElement('div'); result.className = 'result'; result.textContent = '等待导入';
+    row.append(line, progress, result); byId('queue').append(row);
+    return {row, progress, result};
+  }
+  function upload(file, ui) {
+    return new Promise((resolve, reject) => {
+      if (!file.size) { reject(new Error('文件为空')); return; }
+      if (file.size > MAX) { reject(new Error('文件超过 512 MiB 限制')); return; }
+      const xhr = new XMLHttpRequest(); active = xhr;
+      xhr.open('POST', '/api/upload'); xhr.timeout = 11 * 60 * 1000;
+      xhr.setRequestHeader('X-Nano-Token', token);
+      xhr.setRequestHeader('X-Nano-Filename', encodeURIComponent(file.name));
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      ui.result.textContent = '正在上传…';
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable) {
+          const percent = Math.min(100, Math.round(event.loaded / event.total * 100));
+          ui.progress.value = percent;
+          ui.result.textContent = percent === 100 ? '正在整理曲库…' : '正在上传 ' + percent + '%';
+        }
+      };
+      xhr.onload = () => {
+        active = null;
+        let response;
+        try { response = JSON.parse(xhr.responseText); } catch { reject(new Error('手机返回了无效响应，请重试')); return; }
+        if (xhr.status >= 200 && xhr.status < 300 && response.ok) { resolve(response); }
+        else { reject(new Error(response.error || '导入失败')); }
+      };
+      xhr.onerror = () => { active = null; connection(false, '连接已断开'); reject(new Error(networkMessage)); };
+      xhr.ontimeout = () => { active = null; reject(new Error('上传超时，请检查 Wi-Fi 后重试')); };
+      xhr.onabort = () => { active = null; reject(new Error('已取消')); };
+      xhr.send(file);
+    });
+  }
+  async function enqueue(files) {
+    if (busy || !files.length || !validToken) return;
+    busy = true; canceled = false; alert('');
+    byId('choose').disabled = true; byId('cancel').disabled = false; byId('queueHead').classList.remove('hidden');
+    byId('queue').replaceChildren();
+    const entries = Array.from(files).map(file => ({file, ui: rowFor(file)}));
+    let completed = 0, failed = 0;
+    for (let index = 0; index < entries.length; index++) {
+      const {file, ui} = entries[index];
+      byId('queueSummary').textContent = '正在导入 ' + (index + 1) + ' / ' + entries.length;
+      if (canceled) { ui.result.textContent = '已取消'; continue; }
+      try {
+        const result = await upload(file, ui);
+        ui.progress.value = 100; ui.result.textContent = '已加入手机曲库'; completed++;
+        if (result.warnings && result.warnings.length) ui.result.textContent += '（曲库扫描有提示）';
+      } catch (error) {
+        ui.row.classList.add('error'); ui.result.textContent = error.message; failed++;
+        if (!connected && error.message === networkMessage) { canceled = true; alert(networkMessage); }
+      }
+    }
+    busy = false; active = null; byId('cancel').disabled = true; byId('choose').disabled = false;
+    byId('queueSummary').textContent = '已导入 ' + completed + ' 首' + (failed ? ' · ' + failed + ' 项未完成' : '') + (canceled ? ' · 传输已停止' : '');
+    await refresh();
+  }
+  byId('choose').addEventListener('click', () => byId('files').click());
+  byId('files').addEventListener('change', event => { enqueue(event.target.files); event.target.value = ''; });
+  byId('refresh').addEventListener('click', () => { alert(''); refresh(); });
+  byId('cancel').addEventListener('click', () => { canceled = true; if (active) active.abort(); });
+  const drop = byId('drop');
+  ['dragenter', 'dragover'].forEach(event => drop.addEventListener(event, value => { value.preventDefault(); if (!busy) drop.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(event => drop.addEventListener(event, value => { value.preventDefault(); drop.classList.remove('drag'); }));
+  drop.addEventListener('drop', event => enqueue(event.dataTransfer.files));
+  if (!validToken) {
+    connection(false, '缺少有效导入地址'); byId('count').textContent = '尚未连接'; byId('refresh').disabled = true;
+    alert('请在手机上开启“电脑导入”，然后打开包含 # 后访问码的完整地址。');
+  } else { refresh(); }
+})();
+</script>
+</body>
+</html>

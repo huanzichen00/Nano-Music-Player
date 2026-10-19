@@ -41,6 +41,486 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Sync to iPhone…", "同步到 iPhone…", "iPhone に同期…"),
+    (
+        "Audio worker stopped; tap Play to retry",
+        "音频服务已停止，点播放重试",
+        "音声処理が停止しました。再生をタップして再試行してください",
+    ),
+    // Desktop iPhone sync window and its structured CLI statuses.
+    ("Sync to iPhone", "同步到 iPhone", "iPhone に同期"),
+    ("USB Devices", "USB 设备", "USB デバイス"),
+    (
+        "Looking for USB devices…",
+        "正在查找 USB 设备…",
+        "USB デバイスを検索中…",
+    ),
+    (
+        "Connect your iPhone with a USB cable, unlock it and trust this computer.",
+        "用 USB 连接 iPhone，解锁后选择信任这台电脑。",
+        "iPhone を USB ケーブルで接続し、ロックを解除してこのコンピュータを信頼してください。",
+    ),
+    ("Scanning…", "正在扫描…", "検索中…"),
+    ("Refresh Devices", "刷新设备", "デバイスを更新"),
+    (
+        "A direct USB connection. Your music stays between this computer and your iPhone.",
+        "通过 USB 直接连接，音乐只在这台电脑与 iPhone 之间传输。",
+        "USB で直接接続します。音楽はこのコンピュータと iPhone の間だけで転送されます。",
+    ),
+    (
+        "Choose a connected iPhone to review your sync settings.",
+        "选择已连接的 iPhone，查看同步设置。",
+        "接続した iPhone を選んで同期設定を確認してください。",
+    ),
+    (
+        "Your music, on your iPhone",
+        "把音乐带到 iPhone",
+        "あなたの音楽を iPhone に",
+    ),
+    (
+        "Bring your computer library, playlists and listening data with you. Preview changes before starting the transfer.",
+        "把电脑上的音乐、歌单与聆听记录带到手机。开始传输前可先预览。",
+        "パソコンの音楽、プレイリスト、再生履歴を持ち出せます。転送前に内容をプレビューしてください。",
+    ),
+    ("On this computer", "这台电脑", "このコンピュータ"),
+    ("Music size", "音乐大小", "音楽の容量"),
+    (
+        "Use the Music tab to choose your sync range. Phone-only data is preserved.",
+        "在“音乐”标签中选择同步范围，手机独有的数据会保留。",
+        "「ミュージック」タブで同期する範囲を選んでください。iPhone だけにあるデータは保持されます。",
+    ),
+    ("Music sync settings", "音乐同步设置", "音楽の同期設定"),
+    (
+        "Entire music library",
+        "整个音乐资料库",
+        "音楽ライブラリ全体",
+    ),
+    ("Selected playlists", "所选播放列表", "選択したプレイリスト"),
+    (
+        "No playlists yet. Choose the entire library or create a playlist in Music.",
+        "还没有播放列表。请选择整个资料库，或先在音乐中创建歌单。",
+        "プレイリストがありません。ライブラリ全体を選ぶか、ミュージックでプレイリストを作成してください。",
+    ),
+    (
+        "Preview the selection to calculate what will be transferred.",
+        "预览所选内容，计算将传输的音乐。",
+        "選択内容をプレビューすると転送する音楽を確認できます。",
+    ),
+    (
+        "Include with your music",
+        "随音乐一起同步",
+        "音楽と一緒に同期",
+    ),
+    ("Lyrics and translations", "歌词与翻译", "歌詞と翻訳"),
+    (
+        "Keep available lyrics, translations and romaji alongside each song.",
+        "保留每首歌曲已有的歌词、翻译和罗马音。",
+        "各曲の歌詞、翻訳、ローマ字を一緒に転送します。",
+    ),
+    (
+        "Ratings and listening history",
+        "评分与聆听记录",
+        "評価と再生履歴",
+    ),
+    (
+        "Bring star ratings and recorded plays. Existing phone data is preserved.",
+        "同步星级评分与播放记录，保留手机上已有的数据。",
+        "星評価と再生記録を転送します。iPhone 上の既存データは保持されます。",
+    ),
+    (
+        "Phone-only music and playlists are kept. Sync never removes songs from your iPhone.",
+        "手机独有的音乐与歌单会保留，同步不会删除 iPhone 上的歌曲。",
+        "iPhone だけにある音楽とプレイリストは保持されます。同期によって iPhone の曲が削除されることはありません。",
+    ),
+    ("Ready to preview", "可以开始预览", "プレビューできます"),
+    (
+        "Preview first. Nothing is transferred until you click Sync.",
+        "请先预览，点击“同步”后才会传输。",
+        "まずプレビューしてください。「同期」をクリックするまで転送は始まりません。",
+    ),
+    ("Conflicts", "冲突处理", "競合"),
+    (
+        "You can close this window. Sync will continue in the background.",
+        "可以关闭此窗口，同步会在后台继续。",
+        "このウィンドウを閉じても同期はバックグラウンドで続きます。",
+    ),
+    ("Hide Window", "隐藏窗口", "ウィンドウを隠す"),
+    ("Preview Sync", "预览同步", "同期をプレビュー"),
+    ("Sync", "同步", "同期"),
+    ("Connected via USB", "已通过 USB 连接", "USB 接続済み"),
+    (
+        "USB · Music, playlists and listening data",
+        "USB · 音乐、歌单与聆听记录",
+        "USB · 音楽、プレイリスト、再生記録",
+    ),
+    (
+        "Connect and unlock your iPhone, then select it in the sidebar.",
+        "连接并解锁 iPhone，然后在侧栏中选择设备。",
+        "iPhone を接続してロックを解除し、サイドバーで選択してください。",
+    ),
+    (
+        "Reading your music selection…",
+        "正在读取所选音乐…",
+        "選択した音楽を確認中…",
+    ),
+    (
+        "Preview ready. Click Sync to transfer this selection.",
+        "预览已就绪，点击“同步”传输所选内容。",
+        "プレビューができました。「同期」をクリックして選択内容を転送してください。",
+    ),
+    ("Preparing sync", "正在准备同步", "同期を準備中"),
+    (
+        "Preparing your selection. Keep the iPhone connected.",
+        "正在准备所选内容，请保持 iPhone 连接。",
+        "選択内容を準備しています。iPhone を接続したままにしてください。",
+    ),
+    ("Preparing music", "正在准备音乐", "音楽を準備中"),
+    (
+        "Backing up iPhone",
+        "正在备份 iPhone",
+        "iPhone をバックアップ中",
+    ),
+    ("Transferring over USB", "正在通过 USB 传输", "USB で転送中"),
+    ("Finishing transfer", "正在完成传输", "転送を確定中"),
+    (
+        "Updating iPhone library",
+        "正在更新 iPhone 曲库",
+        "iPhone のライブラリを更新中",
+    ),
+    ("Sync complete", "同步完成", "同期完了"),
+    ("Sync cancelled", "同步已取消", "同期をキャンセルしました"),
+    (
+        "Sync could not finish",
+        "同步未能完成",
+        "同期を完了できませんでした",
+    ),
+    (
+        "Cancelling safely; please keep the USB cable connected…",
+        "正在安全取消，请保持 USB 连接…",
+        "安全にキャンセルしています。USB ケーブルは接続したままにしてください…",
+    ),
+    (
+        "Could not request cancellation. Keep the app open until sync finishes.",
+        "无法请求取消，请保持应用打开，等待同步结束。",
+        "キャンセルを要求できませんでした。同期が終わるまでアプリを開いておいてください。",
+    ),
+    (
+        "Keep Nano Music Player open on the iPhone while it updates the library.",
+        "更新曲库期间，请保持 iPhone 上的 Nano Music Player 打开。",
+        "ライブラリの更新中は、iPhone の Nano Music Player を開いたままにしてください。",
+    ),
+    (
+        "Keep the USB cable connected. This step does not report a byte percentage.",
+        "请保持 USB 连接，此步骤不提供字节传输百分比。",
+        "USB ケーブルを接続したままにしてください。この処理では転送量の割合は表示されません。",
+    ),
+    (
+        "No completion receipt was received. Keep the phone app open and retry later.",
+        "尚未收到完成回执，请保持手机应用打开，稍后再试。",
+        "完了通知を受信できませんでした。iPhone のアプリを開いたままにして、後でもう一度お試しください。",
+    ),
+    (
+        "Could not read connected devices. Refresh and retry.",
+        "无法读取已连接设备，请刷新后重试。",
+        "接続したデバイスを読み取れませんでした。更新してもう一度お試しください。",
+    ),
+    (
+        "Could not read the desktop library.",
+        "无法读取电脑曲库。",
+        "パソコンのライブラリを読み取れませんでした。",
+    ),
+    (
+        "Could not read the sync preview.",
+        "无法读取同步预览。",
+        "同期のプレビューを読み取れませんでした。",
+    ),
+    (
+        "Cannot prepare iPhone sync files. Check storage space and file permissions.",
+        "无法准备 iPhone 同步文件，请检查可用空间和文件权限。",
+        "iPhone の同期ファイルを準備できません。空き容量とファイルのアクセス権を確認してください。",
+    ),
+    (
+        "Cannot start iPhone sync. Install Xcode and its command line tools.",
+        "无法启动 iPhone 同步，请安装 Xcode 及其命令行工具。",
+        "iPhone との同期を開始できません。Xcode とコマンドラインツールをインストールしてください。",
+    ),
+    (
+        "Sync error output is unavailable",
+        "无法读取同步错误信息",
+        "同期エラー情報を読み取れません",
+    ),
+    (
+        "Sync output is unavailable",
+        "无法读取同步输出",
+        "同期の出力を読み取れません",
+    ),
+    (
+        "Cannot wait for iPhone sync",
+        "无法等待 iPhone 同步结果",
+        "iPhone の同期結果を待機できません",
+    ),
+    (
+        "Could not read iPhone sync progress. Refresh and retry.",
+        "无法读取 iPhone 同步进度，请刷新后重试。",
+        "iPhone の同期状況を読み取れませんでした。更新してもう一度お試しください。",
+    ),
+    (
+        "iPhone sync could not finish. Reconnect and unlock the phone, then retry.",
+        "iPhone 同步未能完成，请重新连接并解锁手机后重试。",
+        "iPhone との同期を完了できませんでした。接続し直してロックを解除し、もう一度お試しください。",
+    ),
+    (
+        "USB sync requires macOS and Xcode with devicectl",
+        "USB 同步需要 macOS 和包含 devicectl 的 Xcode",
+        "USB 同期には macOS と devicectl を含む Xcode が必要です",
+    ),
+    (
+        "Install Xcode and select its developer tools to enable USB sync",
+        "请安装 Xcode 并选择其开发工具，以启用 USB 同步",
+        "USB 同期を有効にするには、Xcode をインストールして開発ツールを選択してください",
+    ),
+    (
+        "Unable to list USB devices; unlock and trust the iPhone, then retry",
+        "无法列出 USB 设备，请解锁 iPhone 并信任这台电脑后重试",
+        "USB デバイスを表示できません。iPhone のロックを解除し、このコンピュータを信頼してから再試行してください",
+    ),
+    (
+        "Selected iPhone is not connected over USB; unlock, trust and reconnect it",
+        "所选 iPhone 未通过 USB 连接，请解锁、信任电脑并重新连接",
+        "選択した iPhone が USB で接続されていません。ロックを解除してコンピュータを信頼し、接続し直してください",
+    ),
+    (
+        "USB device operation failed; unlock the iPhone and check its connection",
+        "USB 设备操作失败，请解锁 iPhone 并检查连接",
+        "USB デバイスの操作に失敗しました。iPhone のロックを解除して接続を確認してください",
+    ),
+    (
+        "Unable to restart the phone app; open Nano Music Player on the iPhone",
+        "无法重新启动手机应用，请在 iPhone 上打开 Nano Music Player",
+        "iPhone のアプリを再起動できませんでした。iPhone で Nano Music Player を開いてください",
+    ),
+    (
+        "The library, sync selection or package is invalid; refresh the panel and retry",
+        "曲库、同步选择或同步包无效，请刷新面板后重试",
+        "ライブラリ、同期の選択内容、または同期パッケージが無効です。パネルを更新して再試行してください",
+    ),
+    (
+        "Unable to read the selected desktop music library",
+        "无法读取所选电脑音乐资料库",
+        "選択したパソコンの音楽ライブラリを読み取れません",
+    ),
+    (
+        "The operation timed out; keep the phone app open and check the USB connection",
+        "操作超时，请保持手机应用打开并检查 USB 连接",
+        "処理がタイムアウトしました。iPhone のアプリを開いたままにして USB 接続を確認してください",
+    ),
+    (
+        "Sync cancelled before the phone import was committed",
+        "同步已在手机导入提交前取消",
+        "同期は iPhone への読み込みが確定する前にキャンセルされました",
+    ),
+    (
+        "Preparing desktop music",
+        "正在准备电脑音乐",
+        "パソコンの音楽を準備中",
+    ),
+    (
+        "Prepared desktop audio",
+        "已准备音频",
+        "音声ファイルを準備しました",
+    ),
+    (
+        "Skipped an unavailable audio file",
+        "已跳过一个不可用的音频文件",
+        "利用できない音声ファイルをスキップしました",
+    ),
+    (
+        "Backing up the phone before copying",
+        "正在传输前备份手机数据",
+        "転送前に iPhone のデータをバックアップ中",
+    ),
+    ("{0} songs", "{0} 首歌曲", "{0} 曲"),
+    ("{0} songs · {1}", "{0} 首歌曲 · {1}", "{0} 曲 · {1}"),
+    (
+        "{0} songs · {1} playlists · {2} new history records",
+        "{0} 首歌曲 · {1} 个歌单 · 新增 {2} 条聆听记录",
+        "{0} 曲 · {1} 個のプレイリスト · 新規再生記録 {2} 件",
+    ),
+    (
+        "{0} unavailable files skipped",
+        "已跳过 {0} 个不可用文件",
+        "利用できないファイル {0} 個をスキップ",
+    ),
+    (
+        "{0} phone edits preserved",
+        "已保留手机上的 {0} 项修改",
+        "iPhone 上の変更 {0} 件を保持しました",
+    ),
+    (
+        "Kept phone audio for {0}",
+        "已保留手机音频：{0}",
+        "iPhone の音声ファイルを保持：{0}",
+    ),
+    (
+        "Kept phone edits to playlist {0}",
+        "已保留手机对歌单的修改：{0}",
+        "iPhone でのプレイリストの編集を保持：{0}",
+    ),
+    (
+        "Kept phone lyrics for {0}",
+        "已保留手机歌词：{0}",
+        "iPhone の歌詞を保持：{0}",
+    ),
+    (
+        "Kept phone readings for {0}",
+        "已保留手机注音：{0}",
+        "iPhone の読み仮名を保持：{0}",
+    ),
+    (
+        "Kept phone rating for {0}",
+        "已保留手机评分：{0}",
+        "iPhone の評価を保持：{0}",
+    ),
+    (
+        "Kept phone lyric translation",
+        "已保留手机上的歌词翻译",
+        "iPhone の歌詞翻訳を保持しました",
+    ),
+    ("Computer Transfer", "电脑传歌", "パソコンから転送"),
+    (
+        "Import and transfer music",
+        "导入与传歌",
+        "音楽の読み込み・転送",
+    ),
+    ("Refresh Library", "刷新曲库", "ライブラリを更新"),
+    (
+        "Preparing music library…",
+        "正在准备音乐资料库…",
+        "ライブラリを準備中…",
+    ),
+    (
+        "Refreshing library…",
+        "正在刷新曲库…",
+        "ライブラリを更新中…",
+    ),
+    ("Show Lyrics", "显示歌词", "歌詞を表示"),
+    (
+        "Show or hide song lyrics",
+        "显示或隐藏歌曲歌词",
+        "曲の歌詞を表示・非表示",
+    ),
+    ("About nano", "关于 nano", "nano について"),
+    (
+        "Not available on iOS yet",
+        "iOS 暂不支持此功能",
+        "iOS ではまだ利用できません",
+    ),
+    (
+        "Settings could not be saved",
+        "无法保存设置",
+        "設定を保存できませんでした",
+    ),
+    (
+        "Library updated · {0} songs",
+        "曲库已更新 · {0} 首歌曲",
+        "ライブラリを更新しました · {0} 曲",
+    ),
+    ("Choose a song", "选择一首歌曲", "曲を選択"),
+    (
+        "Choose music to import",
+        "请选择要导入的音乐",
+        "読み込む音楽を選択",
+    ),
+    (
+        "Copying and reading music…",
+        "正在复制并读取音乐…",
+        "音楽をコピー・読み込み中…",
+    ),
+    (
+        "Imported {0} files",
+        "已导入 {0} 个文件",
+        "{0} 個のファイルを読み込みました",
+    ),
+    (
+        "Imported {0} files; updating library…",
+        "已导入 {0} 个文件，正在更新曲库…",
+        "{0} 個のファイルを読み込みました。ライブラリを更新中…",
+    ),
+    (
+        "Loaded {0} songs",
+        "已载入 {0} 首歌曲",
+        "{0} 曲を読み込みました",
+    ),
+    ("Untitled song", "未命名歌曲", "無題の曲"),
+    (
+        "Music received; updating library…",
+        "音乐已收到，正在更新资料库…",
+        "音楽を受信しました。ライブラリを更新中…",
+    ),
+    (
+        "Computer transfer stopped",
+        "电脑传歌已停止",
+        "パソコンからの転送を停止しました",
+    ),
+    (
+        "Computer transfer stopped; reopen it in the foreground",
+        "电脑传歌已停止；回到前台后可重新开启",
+        "転送を停止しました。アプリを開いて再開してください",
+    ),
+    (
+        "Keep the app in the foreground while transferring. Tap Stop Computer Transfer when finished.",
+        "传歌时请保持应用在前台。完成后轻点“停止电脑传歌”。",
+        "転送中はこのアプリを開いたままにしてください。完了したら「転送を停止」をタップしてください。",
+    ),
+    (
+        "Library worker stopped; import again",
+        "曲库工作线程已停止，请重新导入",
+        "ライブラリの処理が停止しました。もう一度読み込んでください",
+    ),
+    ("Start Computer Transfer", "开启电脑传歌", "転送を開始"),
+    ("Stop Computer Transfer", "停止电脑传歌", "転送を停止"),
+    ("Copy Address", "复制地址", "アドレスをコピー"),
+    ("Address copied", "地址已复制", "アドレスをコピーしました"),
+    (
+        "You can switch apps briefly to share this address. If iOS pauses background transfer, return here to resume with the same address. Keep the app open for large uploads.",
+        "可以短暂切换应用分享地址。若 iOS 暂停后台传输，回到这里即可用同一地址继续。上传大文件时请保持应用打开。",
+        "アドレスの共有中は一時的にアプリを切り替えられます。iOS が転送を一時停止した場合、この画面に戻ると同じアドレスで再開します。大きなファイルの転送中はアプリを開いてください。",
+    ),
+    (
+        "The address remains valid while you switch apps briefly. Background transfer pauses when the iOS allowance expires; returning here resumes the same address.",
+        "短暂切换应用时地址仍然有效。iOS 后台时间用完后会暂停传输，回到这里即可用同一地址继续。",
+        "一時的にアプリを切り替えてもアドレスは有効です。iOS のバックグラウンド時間が終了すると一時停止し、この画面に戻ると同じアドレスで再開します。",
+    ),
+    (
+        "Computer transfer paused after the background allowance expired. Return to the app to resume with the same address.",
+        "后台运行时间已用完，传歌已暂停。回到应用即可用同一地址继续。",
+        "バックグラウンド時間が終了し、転送を一時停止しました。アプリに戻ると同じアドレスで再開します。",
+    ),
+    (
+        "Computer transfer resumed with the same address. Keep the app open for large uploads.",
+        "已用同一地址恢复传歌。上传大文件时请保持应用打开。",
+        "同じアドレスで転送を再開しました。大きなファイルの転送中はアプリを開いてください。",
+    ),
+    (
+        "Could not copy address",
+        "无法复制地址",
+        "アドレスをコピーできませんでした",
+    ),
+    (
+        "Connect your computer and phone to the same Wi-Fi. Start transfer, then open the address below in your computer's browser to upload music.",
+        "电脑与手机连接同一个 Wi-Fi。开启后，用电脑浏览器打开下方地址，选择音乐即可上传。",
+        "パソコンとスマートフォンを同じ Wi-Fi に接続します。転送を開始し、パソコンのブラウザで下のアドレスを開いて音楽をアップロードしてください。",
+    ),
+    (
+        "Open in your computer's browser:",
+        "在电脑浏览器打开：",
+        "パソコンのブラウザで開く：",
+    ),
+    (
+        "Received music is added to your library automatically.\nKeep the app open while transferring, then stop when finished.",
+        "收到的音乐会自动加入曲库。\n传歌时请保持应用在前台，完成后可停止。",
+        "受信した音楽はライブラリに自動追加されます。\n転送中はアプリを開いたままにし、完了後に停止してください。",
+    ),
     ("Display", "显示", "表示"),
     (
         "Mode, size, font & window",
@@ -1350,6 +1830,50 @@ const CATALOG: &[(&str, &str, &str)] = &[
     (" songs in library", " 首歌曲", " 曲"),
     (" · ", " · 跳过 ", " · スキップ "),
     (" files skipped", " 个文件", " 個のファイルをスキップ"),
+    (
+        "No music yet\nMusic → Import Music…",
+        "还没有音乐\n音乐 → 导入音乐…",
+        "曲がありません\nミュージック → 曲を読み込む…",
+    ),
+    ("Paste", "粘贴", "ペースト"),
+    (
+        "Clipboard has no text",
+        "剪贴板里没有文本",
+        "クリップボードにテキストがありません",
+    ),
+    (
+        "The clipboard has no text or paste access was denied",
+        "剪贴板没有文本，或粘贴权限未获允许",
+        "クリップボードが空か、貼り付けが許可されていません",
+    ),
+    (
+        "Paste plain text or LRC lyrics.",
+        "粘贴纯文本或 LRC 歌词。",
+        "テキストまたはLRC歌詞を貼り付けてください。",
+    ),
+    ("Delete Playlist", "删除播放列表", "プレイリストを削除"),
+    (
+        "Playlist deleted",
+        "播放列表已删除",
+        "プレイリストを削除しました",
+    ),
+    (
+        "Could not delete playlist",
+        "无法删除播放列表",
+        "プレイリストを削除できませんでした",
+    ),
+    ("Edit Lyrics", "编辑歌词", "歌詞を編集"),
+    ("Copy Lyrics", "复制歌词", "歌詞をコピー"),
+    ("Lyrics copied", "歌词已复制", "歌詞をコピーしました"),
+    (
+        "Enter lyrics before saving",
+        "请输入歌词后保存",
+        "歌詞を入力してから保存してください",
+    ),
+    ("Lyrics are too large", "歌词文本过长", "歌詞が長すぎます"),
+    ("Song Options", "歌曲选项", "曲のオプション"),
+    ("Smart Playlists", "智能播放列表", "スマートプレイリスト"),
+    ("Rate Current Song", "为当前歌曲评分", "再生中の曲を評価"),
 ];
 
 /// Translate a catalog key. Unknown text is returned unchanged for forward compatibility.
@@ -1378,6 +1902,37 @@ pub fn has_translation(english: &str) -> bool {
 pub fn notice(language: Language, text: &str) -> String {
     if language == Language::English {
         return text.to_owned();
+    }
+    for (prefix, suffix, key) in [
+        (
+            "Library updated · ",
+            " songs",
+            "Library updated · {0} songs",
+        ),
+        ("Loaded ", " songs", "Loaded {0} songs"),
+        (
+            "Imported ",
+            " files; updating library…",
+            "Imported {0} files; updating library…",
+        ),
+        ("Imported ", " files", "Imported {0} files"),
+    ] {
+        if let Some(rest) = text.strip_prefix(prefix)
+            && let Some((count, detail)) = rest.split_once(suffix)
+            && count.parse::<usize>().is_ok()
+            && (detail.is_empty() || detail.starts_with("; ") || detail.starts_with(" · "))
+        {
+            return format!("{}{detail}", translate(language, key).replace("{0}", count));
+        }
+    }
+    for key in [
+        "Settings could not be saved",
+        "Could not copy address",
+        "Could not delete playlist",
+    ] {
+        if let Some(detail) = text.strip_prefix(&format!("{key}: ")) {
+            return format!("{}: {detail}", translate(language, key));
+        }
     }
     if let Some(rest) = text.strip_prefix("Imported ")
         && let Some((count, errors)) = rest.split_once(" videos")
@@ -1566,6 +2121,8 @@ mod tests {
             (include_str!("../../ui/genius-preview.slint"), "I18n.tr("),
             (include_str!("../../ui/playlist-editor.slint"), "I18n.tr("),
             (include_str!("../../ui/shortcut-editor.slint"), "I18n.tr("),
+            (include_str!("../../ui/mobile.slint"), "I18n.tr("),
+            (include_str!("../../ui/mobile/transfer.slint"), "I18n.tr("),
             (include_str!("controller.rs"), "self.text("),
         ] {
             for tail in source.split(call).skip(1) {
@@ -1576,5 +2133,62 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn mobile_settings_and_transfer_keys_use_the_shared_catalog() {
+        for key in [
+            "Computer Transfer",
+            "Import and transfer music",
+            "Refresh Library",
+            "Refreshing library…",
+            "Show Lyrics",
+            "Show or hide song lyrics",
+            "About nano",
+            "Not available on iOS yet",
+            "Settings could not be saved",
+            "Library updated · {0} songs",
+            "Choose a song",
+            "Start Computer Transfer",
+            "Stop Computer Transfer",
+            "Copy Address",
+            "Address copied",
+            "Could not copy address",
+        ] {
+            assert!(has_translation(key), "missing mobile key: {key}");
+            for language in [Language::SimplifiedChinese, Language::Japanese] {
+                assert_ne!(translate(language, key), key);
+            }
+        }
+    }
+
+    #[test]
+    fn mobile_notice_templates_preserve_counts_and_error_details() {
+        assert_eq!(
+            notice(
+                Language::SimplifiedChinese,
+                "Library updated · 12 songs; Music/My Song.wav"
+            ),
+            "曲库已更新 · 12 首歌曲; Music/My Song.wav",
+        );
+        assert_eq!(
+            notice(Language::Japanese, "Imported 2 files; updating library…"),
+            "2 個のファイルを読み込みました。ライブラリを更新中…",
+        );
+        assert_eq!(
+            notice(
+                Language::SimplifiedChinese,
+                "Settings could not be saved: database is locked"
+            ),
+            "无法保存设置: database is locked",
+        );
+        assert_eq!(
+            notice(Language::English, "Library updated · 12 songs"),
+            "Library updated · 12 songs",
+        );
+        assert_eq!(
+            notice(Language::Japanese, "Library updated · demo songs"),
+            "Library updated · demo songs",
+        );
     }
 }

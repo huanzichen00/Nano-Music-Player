@@ -22,6 +22,7 @@ export component NanoSlider inherits Rectangle {
     in property <float> value;
     in property <bool> selected;
     in property <bool> enabled: true;
+    in property <bool> touch-mode: false;
     in property <length> handle-size: 18px * root.s;
     callback changed(float);
     height: 22px * s;
@@ -44,6 +45,8 @@ export component NanoSlider inherits Rectangle {
         border-color: root.selected ? #65b9ff : transparent;
     }
     touch := TouchArea {
+        x: 0px; y: root.touch-mode ? (root.height - max(root.height, 44px)) / 2 : 0px;
+        width: root.width; height: root.touch-mode ? max(root.height, 44px) : root.height;
         enabled: root.enabled;
         property <float> pressed-value;
         pointer-event(event) => {

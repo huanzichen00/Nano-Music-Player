@@ -1,0 +1,59 @@
+import { NanoActionButton } from "../components.slint";
+import { I18n } from "../i18n.slint";
+
+// A mobile-only service page within the shared 240 × 432 nano LCD.
+export component TransferView inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> running;
+    in property <[string]> urls;
+    in property <string> status;
+    callback command(string);
+    callback copy-text(string);
+    out property <length> start-button-y: start.y + start.height / 2;
+    out property <length> copy-button-y: address-label.y + address-label.height + 100px * root.s;
+    background: white; clip: true;
+    scroll := Flickable {
+        x: 0px; y: 0px; width: parent.width; height: parent.height;
+        content-width: self.width; content-height: max(self.height, message.y + message.height + 6px * root.s);
+        Rectangle {
+            x: 0px; y: 0px; width: scroll.width; height: scroll.content-height;
+            intro := Text {
+                x: 12px * root.s; y: 14px * root.s; width: parent.width - 24px * root.s;
+                height: max(54px * root.s, self.preferred-height);
+                text: I18n.tr("Connect your computer and phone to the same Wi-Fi. Start transfer, then open the address below in your computer's browser to upload music.");
+                font-size: 12px * root.s; color: #455462; wrap: word-wrap;
+            }
+            start := NanoActionButton {
+                x: 12px * root.s; y: intro.y + intro.height + 12px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s;
+                s: root.s; primary: true; label: root.running ? "Stop Computer Transfer" : "Start Computer Transfer";
+                clicked => { root.command(root.running ? "transfer-stop" : "transfer-start"); }
+            }
+            address-label := Text {
+                visible: root.running;
+                x: 12px * root.s; y: start.y + start.height + 18px * root.s; width: parent.width - 24px * root.s;
+                height: max(18px * root.s, self.preferred-height);
+                text: I18n.tr("Open in your computer's browser:"); font-size: 11px * root.s; font-weight: 600; color: #576675; wrap: word-wrap;
+            }
+            for url[index] in root.urls: Rectangle {
+                x: 10px * root.s; y: address-label.y + address-label.height + (7px + index * 126px) * root.s; width: parent.width - 20px * root.s; height: 116px * root.s;
+                background: #f5f7f9; border-width: 1px * root.s; border-color: #ccd4dc; border-radius: 4px * root.s;
+                TextInput {
+                    x: 7px * root.s; y: 7px * root.s; width: parent.width - 14px * root.s; height: 60px * root.s;
+                    text: url; read-only: true; wrap: word-wrap; font-size: 11px * root.s; color: #245b86;
+                }
+                NanoActionButton {
+                    x: 7px * root.s; y: 77px * root.s; width: parent.width - 14px * root.s; height: 32px * root.s;
+                    s: root.s; label: "Copy Address";
+                    clicked => { root.copy-text(url); }
+                }
+            }
+            message := Text {
+                x: 12px * root.s;
+                y: root.running ? address-label.y + address-label.height + (12px + root.urls.length * 126px) * root.s : start.y + start.height + 23px * root.s;
+                width: parent.width - 24px * root.s; height: max(64px * root.s, self.preferred-height);
+                text: root.status != "" ? root.status : I18n.tr("Received music is added to your library automatically.\nKeep the app open while transferring, then stop when finished.");
+                font-size: 11px * root.s; color: #66737e; wrap: word-wrap;
+            }
+        }
+    }
+}

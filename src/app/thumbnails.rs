@@ -330,6 +330,7 @@ pub(super) fn load(database_path: PathBuf) -> Receiver<LoadEvent> {
     receiver
 }
 
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
 pub(super) fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
     let cache = database_path.with_file_name("cover-previews-v1");
     let importing = scanner::import(database_path, title);

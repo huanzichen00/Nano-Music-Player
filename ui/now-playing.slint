@@ -43,6 +43,7 @@ component PlaybackBackArea inherits SwipeGestureHandler {
 export component NowPlayingView inherits Rectangle {
     in property <int> navigation-generation;
     in property <float> s;
+    in property <bool> touch-mode: false;
     in property <bool> navigation-enabled: true;
     in property <int> selected;
     in property <bool> selection-visible;
@@ -77,6 +78,24 @@ export component NowPlayingView inherits Rectangle {
     callback seek-changed(float);
     callback volume-changed(float);
     callback back;
+    private property <bool> lyric-following: true;
+    private property <length> active-lyric-y;
+    private property <int> lyric-generation;
+    function follow-lyric() {
+        if root.lyric-following && root.navigation-enabled {
+            root.lyric-scroll-y = root.active-lyric >= 0 ? root.active-lyric-y : 0px;
+        }
+    }
+    changed lyric-lines => {
+        root.lyric-generation += 1;
+        root.lyric-following = true;
+        root.active-lyric-y = 0px;
+        root.lyric-scroll-y = 0px;
+    }
+    changed active-lyric => { if root.active-lyric < 0 { root.follow-lyric(); } }
+    changed navigation-enabled => { if root.navigation-enabled { root.lyric-following = true; root.follow-lyric(); } }
+    changed overlay-visible => { if root.overlay-visible { root.lyric-following = true; root.follow-lyric(); } }
+    changed lyrics-visible => { if root.lyrics-visible { root.lyric-following = true; root.follow-lyric(); } }
     background: #13141a;
 
     // The title strip, full-width cover and transport follow the seventh-generation nano.
@@ -114,7 +133,7 @@ export component NowPlayingView inherits Rectangle {
                 Text { x: 9px * root.s; y: 7px * root.s; width: 54px * root.s; height: 18px * root.s; text: root.elapsed; font-size: 12px * root.s; font-weight: 700; color: white; }
                 Text { x: 60px * root.s; y: 3px * root.s; width: parent.width - 120px * root.s; height: 18px * root.s; text: root.track-count; font-size: 11px * root.s; font-weight: 600; horizontal-alignment: center; color: white; }
                 Text { x: parent.width - 63px * root.s; y: 7px * root.s; width: 54px * root.s; height: 18px * root.s; text: root.duration; horizontal-alignment: right; font-size: 12px * root.s; font-weight: 700; color: white; }
-                NanoSlider { x: 11px * root.s; y: 28px * root.s; width: parent.width - 22px * root.s; s: root.s; handle-size: 13px * root.s; value: root.progress; enabled: root.has-track; changed(value) => { root.seek-changed(value); } }
+                NanoSlider { x: 11px * root.s; y: 28px * root.s; width: parent.width - 22px * root.s; s: root.s; touch-mode: root.touch-mode; handle-size: 13px * root.s; value: root.progress; enabled: root.has-track; changed(value) => { root.seek-changed(value); } }
             }
             Rectangle {
                 x: 0px; y: 60px * root.s; width: parent.width; height: 42px * root.s;
@@ -136,10 +155,34 @@ export component NowPlayingView inherits Rectangle {
             if root.lyrics-visible: lyrics-scroll := ElasticFlickable {
                 y: 102px * root.s; height: parent.height - self.y;
                 s: root.s; enabled: root.navigation-enabled; follow-duration: 180ms;
-                navigation-generation: root.navigation-generation;
+                touch-navigation: root.touch-mode;
+                navigation-generation: root.navigation-generation + root.lyric-generation;
                 back-enabled: true; back => { root.back(); }
+                tapped(content-y) => { root.toggle-overlay(); }
                 content-height: max(self.height, words.preferred-height);
                 content-y <=> root.lyric-scroll-y;
+                changed user-interacting => {
+                    if self.user-interacting {
+                        root.lyric-following = false; follow-resume.stop();
+                    } else if !self.touch-pressed && !root.lyric-following {
+                        follow-resume.start(); follow-resume.restart();
+                    }
+                }
+                changed touch-pressed => {
+                    if self.touch-pressed {
+                        root.lyric-following = false; follow-resume.stop();
+                    } else if !self.user-interacting && !root.lyric-following {
+                        follow-resume.start(); follow-resume.restart();
+                    }
+                }
+                follow-resume := Timer {
+                    interval: 3s; running: false;
+                    triggered => {
+                        self.stop();
+                        root.lyric-following = true;
+                        root.follow-lyric();
+                    }
+                }
                 // Taps dismiss the overlay; vertical gestures scroll and rightward gestures return Back.
                 TouchArea { x: 0px; y: 0px; width: art.width; height: max(138px * root.s, words.preferred-height); clicked => { root.toggle-overlay(); } }
                 words := VerticalLayout {
@@ -153,13 +196,25 @@ export component NowPlayingView inherits Rectangle {
                             : (root.romaji-visible && index < root.romaji-lines.length ? root.romaji-lines[index] : "");
                         min-height: max(32px * root.s, lyric-text.preferred-height + (self.secondary-line != "" ? secondary-text.preferred-height + 3px * root.s : 0px) + 10px * root.s);
                         property <bool> active: root.active-lyric == index;
+                        property <int> lyric-generation: root.lyric-generation;
                         property <length> active-scroll-y: max(min(0px, lyrics-scroll.height - words.preferred-height), min(0px, 32px * root.s - self.y));
-                        changed active => { if self.active { root.lyric-scroll-y = self.active-scroll-y; } }
-                        changed active-scroll-y => { if self.active { root.lyric-scroll-y = self.active-scroll-y; } }
-                        background: self.active ? #ffffff18 : transparent;
+                        function publish-follow-target() {
+                            if self.active {
+                                root.active-lyric-y = self.active-scroll-y;
+                                root.follow-lyric();
+                            }
+                        }
+                        changed active => { self.publish-follow-target(); }
+                        changed active-scroll-y => { self.publish-follow-target(); }
+                        changed lyric-generation => { self.publish-follow-target(); }
+                        accessible-role: list-item;
+                        accessible-label: line;
+                        accessible-item-selected: self.active;
+                        background: self.active ? #ffffff22 : transparent;
+                        if self.active: Rectangle { x: 0px; width: 3px * root.s; height: parent.height; background: #b8eaff; }
                         lyric-text := Text {
                             x: 10px * root.s; y: 5px * root.s; width: parent.width - 20px * root.s;
-                            text: line; color: parent.active ? white : #eef0f5;
+                            text: line; color: parent.active ? white : #c4c9d4;
                             font-weight: parent.active ? 700 : 600; font-size: 13px * root.s; wrap: word-wrap;
                             horizontal-alignment: left;
                         }
@@ -190,7 +245,7 @@ export component NowPlayingView inherits Rectangle {
             icon: icon; selected: root.selection-visible && root.selected == index;
             clicked => { root.activated(index); }
         }
-        NanoSlider { x: 15px * root.s; y: 80px * root.s; width: 182px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
-        Image { x: 211px * root.s; y: 83px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: #a6e8ff; image-fit: contain; TouchArea { clicked => { root.activated(3); } } }
+        NanoSlider { x: 15px * root.s; y: 80px * root.s; width: 182px * root.s; s: root.s; touch-mode: root.touch-mode; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
+        Image { x: 211px * root.s; y: 83px * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: #a6e8ff; image-fit: contain; TouchArea { x: root.touch-mode ? (parent.width - max(parent.width, 44px)) / 2 : 0px; y: root.touch-mode ? (parent.height - max(parent.height, 44px)) / 2 : 0px; width: root.touch-mode ? max(parent.width, 44px) : parent.width; height: root.touch-mode ? max(parent.height, 44px) : parent.height; clicked => { root.activated(3); } } }
     }
 }

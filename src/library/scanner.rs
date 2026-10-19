@@ -24,6 +24,7 @@ pub enum ImportEvent {
 }
 
 /// Folder selection, filesystem traversal and metadata reads all happen off the UI thread.
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
 pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
@@ -42,13 +43,10 @@ pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
 
 /// Scan selected folders on a caller-owned background thread.
 pub fn scan_folders(database_path: &Path, folders: &[PathBuf]) -> Result<ScanResult, String> {
-    let database = Database::open(&database_path)?;
+    let database = Database::open(database_path)?;
     let mut tracks = database.load()?;
     let mut warnings = Vec::new();
-    let roots: Vec<_> = folders
-        .iter()
-        .map(|p| super::deletion_monitor::normalize(p))
-        .collect();
+    let roots: Vec<_> = folders.iter().map(|p| super::paths::normalize(p)).collect();
     for folder in &roots {
         for entry in walkdir::WalkDir::new(folder).follow_links(false) {
             let entry = match entry {
@@ -62,15 +60,7 @@ pub fn scan_folders(database_path: &Path, folders: &[PathBuf]) -> Result<ScanRes
                 continue;
             }
             let path = entry.path();
-            let extension = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or_default()
-                .to_lowercase();
-            if !matches!(
-                extension.as_str(),
-                "mp3" | "flac" | "wav" | "m4a" | "aac" | "ogg" | "aiff"
-            ) {
+            if !super::paths::is_audio(path) {
                 continue;
             }
             let modified = metadata_stamp(path);
@@ -122,8 +112,8 @@ pub fn reconcile_root(root: &Path, known: &[PathBuf]) -> Result<RootReconciliati
     let mut paths = std::collections::BTreeSet::new();
     for entry in walkdir::WalkDir::new(root).follow_links(false) {
         let entry = entry.map_err(|error| error.to_string())?;
-        if entry.file_type().is_file() && super::deletion_monitor::is_audio(entry.path()) {
-            paths.insert(super::deletion_monitor::normalize(entry.path()));
+        if entry.file_type().is_file() && super::paths::is_audio(entry.path()) {
+            paths.insert(super::paths::normalize(entry.path()));
         }
     }
     if !root.is_dir() {
@@ -356,6 +346,7 @@ pub fn store_online_lyrics(
 }
 
 /// Dialogs, parsing and persistent association changes are performed on a worker.
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
 pub fn edit_lyrics(
     database_path: PathBuf,
     path: PathBuf,

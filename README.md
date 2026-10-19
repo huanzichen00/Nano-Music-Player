@@ -1,5 +1,13 @@
 # Nano Music Player
 
+The iOS development version shares the desktop iPod interface and Rust services.
+Signed device builds and basic playback are verified; lifecycle acceptance is
+tracked in the [UI QA report](docs/IOS_UI_QA.md). See the [development plan](docs/IOS_DEVELOPMENT_PLAN.md),
+[build instructions](ios/README.md) and [computer import tool](docs/COMPUTER_TRANSFER.md).
+On the desktop, **File → Sync to iPhone…** opens a USB device manager for
+previewing and merging music, playlists, lyrics and listening data into the phone.
+See [iPhone sync](docs/IPHONE_SYNC.md) for scope and phone-edit preservation rules.
+
 English | [简体中文](README.zh-CN.md)
 
 A Rust/Slint desktop music player inspired by the seventh-generation iPod nano. Device Mode fits the window to a narrow bezel and Home button; Screen Mode shows the display alone. Music playback, library browsing, keyboard navigation and synchronized lyrics work together through one action dispatcher.

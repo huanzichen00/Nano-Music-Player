@@ -10,6 +10,8 @@ pub struct Settings {
     #[serde(default = "smooth_slides_default")]
     pub smooth_slides: bool,
     pub romaji_visible: bool,
+    #[serde(default = "lyrics_default")]
+    pub lyrics_visible: bool,
     #[serde(default)]
     pub translation_target: crate::translation::TargetLanguage,
     pub translation_visible: bool,
@@ -39,6 +41,7 @@ impl Default for Settings {
             always_on_top: true,
             smooth_slides: true,
             romaji_visible: true,
+            lyrics_visible: true,
             translation_target: crate::translation::TargetLanguage::English,
             translation_visible: false,
             zoom: 1.25,
@@ -56,6 +59,10 @@ impl Default for Settings {
 }
 
 fn smooth_slides_default() -> bool {
+    true
+}
+
+fn lyrics_default() -> bool {
     true
 }
 
@@ -113,16 +120,35 @@ impl Settings {
     }
 }
 
+#[cfg(not(target_os = "ios"))]
 pub fn config_dir() -> Result<PathBuf, String> {
     let mut args = std::env::args().skip(1);
-    match args.next().as_deref() {
-        Some("--config-dir") => args
-            .next()
-            .map(PathBuf::from)
-            .ok_or_else(|| "--config-dir needs a directory".to_owned()),
-        Some(_) => Err("Usage: nano-music-player [--config-dir DIRECTORY]".to_owned()),
-        None => directories::ProjectDirs::from("", "Nano", "Nano Music Player")
-            .map(|dirs| dirs.config_dir().to_path_buf())
-            .ok_or_else(|| "Cannot locate application configuration directory".to_owned()),
+    let mut directory = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--iphone-sync" => {}
+            "--config-dir" if directory.is_none() => {
+                directory = Some(
+                    args.next()
+                        .map(PathBuf::from)
+                        .ok_or_else(|| "--config-dir needs a directory".to_owned())?,
+                );
+            }
+            _ => {
+                return Err(
+                    "Usage: nano-music-player [--config-dir DIRECTORY] [--iphone-sync]".to_owned(),
+                );
+            }
+        }
     }
+    directory.map(Ok).unwrap_or_else(|| {
+        directories::ProjectDirs::from("", "Nano", "Nano Music Player")
+            .map(|dirs| dirs.config_dir().to_path_buf())
+            .ok_or_else(|| "Cannot locate application configuration directory".to_owned())
+    })
+}
+
+#[cfg(target_os = "ios")]
+pub fn config_dir() -> Result<PathBuf, String> {
+    crate::platform::ios::documents_dir().map(|directory| directory.join(".nano"))
 }

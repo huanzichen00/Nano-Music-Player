@@ -1,0 +1,404 @@
+import { HomeView } from "home.slint";
+import { LibraryView, LibraryRow, GeniusRow } from "library.slint";
+import { NowPlayingView } from "now-playing.slint";
+import { BackScroll } from "back-scroll.slint";
+import { I18n } from "i18n.slint";
+import { TransferView } from "mobile/transfer.slint";
+import { DeepSeekSettings } from "deepseek-settings.slint";
+import { PlaylistEditor, PlaylistCandidate } from "playlist-editor.slint";
+import { GeniusPreview } from "genius-preview.slint";
+import { NanoActionButton } from "components.slint";
+import { LyricEditor } from "mobile/lyric-editor.slint";
+// iOS's private Chinese UI font cannot be read by Slint's font loader.
+// Embed a complete CJK face for menus, runtime metadata and lyrics alike.
+import "fonts/noto-sans-cjk/NotoSansCJKsc-Regular.otf";
+export { LibraryRow, GeniusRow, PlaylistCandidate, BackScroll, I18n }
+
+// The phone hosts the same nano device, LCD and views as the desktop app.
+// Only safe-area fitting and event routing live in this adapter.
+export component MobileWindow inherits Window {
+    title: "iPod nano";
+    preferred-width: 390px; preferred-height: 844px;
+    min-width: 240px; min-height: 240px;
+    default-font-family: root.ui-font-family;
+    background: #e6e7e9;
+    in property <length> safe-top;
+    in property <length> safe-right;
+    in property <length> safe-bottom;
+    in property <length> safe-left;
+    in property <length> keyboard-height;
+    in-out property <int> screen: 0;
+    in property <string> navigation-key;
+    in property <string> screen-title;
+    in property <[LibraryRow]> rows;
+    in property <int> selected: -1;
+    in-out property <int> home-page: 0;
+    in property <string> clock-text;
+    in property <string> ui-font-family: "Noto Sans CJK SC";
+    in property <bool> smooth-slides: true;
+    in-out property <bool> device-mode: true;
+    in-out property <bool> overlay-visible: true;
+    in-out property <bool> lyrics-visible: true;
+    in-out property <float> volume: 0.8;
+    in property <bool> muted;
+    in property <bool> has-track;
+    in property <bool> playing;
+    in property <bool> loading;
+    in property <bool> library-initializing;
+    in property <string> track-title;
+    in property <string> track-artist;
+    in property <string> track-album;
+    in property <string> track-count;
+    in property <image> artwork;
+    in property <float> progress;
+    in property <string> elapsed: "0:00";
+    in property <string> duration: "0:00";
+    in property <bool> shuffle;
+    in property <string> repeat-mode: "Off";
+    in property <[string]> lyric-lines;
+    in property <int> active-lyric: -1;
+    in property <bool> timed-lyrics;
+    in property <[string]> translated-lines;
+    in property <[string]> romaji-lines;
+    in property <bool> translation-visible;
+    in property <bool> romaji-visible;
+    in property <bool> rating-visible;
+    in property <int> rating;
+    in property <string> rating-title;
+    in property <bool> busy;
+    in property <string> notice;
+    changed notice => {
+        if root.notice != "" && !root.library-initializing { notice-timeout.start(); notice-timeout.restart(); }
+        else { notice-timeout.stop(); }
+    }
+    notice-timeout := Timer { interval: 6s; running: false; triggered => { self.stop(); root.command("dismiss-notice"); } }
+    in property <int> library-count;
+    in property <bool> transfer-running;
+    in property <[string]> transfer-urls;
+    in property <string> transfer-status;
+    in-out property <string> search-query;
+    in property <bool> annotation-busy;
+    in-out property <bool> api-settings-open;
+    in-out property <string> api-key;
+    in-out property <string> api-model;
+    in property <bool> api-key-configured;
+    in property <string> api-message;
+    in-out property <bool> lyric-editor-open;
+    in-out property <string> lyric-editor-text;
+    in property <string> lyric-editor-message;
+    in property <bool> lyric-editor-saving;
+    in property <bool> playlist-list;
+    in property <bool> playlist-content;
+    in property <bool> playlist-list-editing;
+    in-out property <bool> playlist-editor-open;
+    in property <bool> playlist-editing;
+    in property <bool> playlist-persisted;
+    in property <bool> playlist-library-loading;
+    in property <bool> playlist-saving;
+    in-out property <string> playlist-name;
+    in property <string> playlist-message;
+    in property <[PlaylistCandidate]> playlist-candidates;
+    in property <[PlaylistCandidate]> playlist-draft;
+    in property <bool> playlist-delete-open;
+    in property <string> playlist-delete-name;
+    in property <string> playlist-delete-id;
+    in-out property <bool> genius-preview-open;
+    in property <bool> genius-busy;
+    in property <bool> genius-seed-available;
+    in property <string> genius-seed-title;
+    in property <string> genius-seed-artist;
+    in property <string> genius-message;
+    in-out property <int> genius-stage;
+    in-out property <int> genius-variation;
+    in property <[GeniusRow]> genius-songs;
+
+    private property <float> s: max(0, min((safe.width - 16px) / (root.device-mode ? 296px : 240px), (safe.height - 16px) / (root.device-mode ? 296px * 76.5 / 39.6 : 432px)));
+    private property <int> navigation-generation;
+    private property <int> page-direction: 1;
+    private property <length> list-scroll-y;
+    private property <length> lyric-scroll-y;
+    private property <bool> dark-status: root.screen == 0 || root.screen == 2;
+    private property <bool> modal-open: root.api-settings-open || root.lyric-editor-open || root.playlist-editor-open || root.genius-preview-open || root.playlist-delete-open;
+    private property <length> modal-width-value: max(0px, min(420px, safe.width - 16px));
+    private property <length> modal-height-value: max(0px, root.height - root.safe-top - max(root.safe-bottom, root.keyboard-height) - 16px);
+
+    out property <float> scale: root.s;
+    out property <int> first-visible-row: library.first-visible-row;
+    out property <int> visible-row-count: library.visible-row-count;
+    out property <bool> library-visible: library.visible;
+    out property <length> content-left: safe.x;
+    out property <length> content-top: safe.y;
+    out property <length> content-width: safe.width;
+    out property <length> content-height: safe.height;
+    out property <length> device-left: safe.x + device.x;
+    out property <length> device-top: safe.y + device.y;
+    out property <length> device-width: device.width;
+    out property <length> device-height: device.height;
+    out property <length> display-left: root.device-left + display.x;
+    out property <length> display-top: root.device-top + display.y;
+    out property <length> display-width: display.width;
+    out property <length> display-height: display.height;
+    out property <length> status-height: 26px * root.s;
+    out property <length> nav-height: 38px * root.s;
+    out property <length> transfer-start-y: root.display-top + 64px * root.s + transfer.start-button-y;
+    out property <length> transfer-copy-y: root.display-top + 64px * root.s + transfer.copy-button-y;
+    out property <length> home-button-x: root.device-left + device.width / 2;
+    out property <length> home-button-y: root.device-top + device.height - 58px * root.s;
+    out property <length> modal-left: (root.width - root.modal-width-value) / 2;
+    out property <length> modal-top: root.safe-top + 8px;
+    out property <length> modal-width: root.modal-width-value;
+    out property <length> modal-height: root.modal-height-value;
+    out property <float> modal-scale: root.modal-width-value / 240px;
+    out property <bool> api-editor-focused: api-dialog.editor-focused;
+    out property <bool> lyric-editor-focused: lyrics-dialog.editor-focused;
+    out property <bool> playlist-name-focused: playlist-editor.name-focused;
+    out property <bool> playlist-reviewing: playlist-editor.reviewing;
+    out property <length> list-navigation-offset: library.navigation-offset;
+    out property <length> list-scroll-position: root.list-scroll-y;
+
+    callback command(string);
+    callback item-clicked(int);
+    callback home-activated(int, int);
+    callback query-changed(string);
+    callback seek-changed(float);
+    callback volume-changed(float);
+    callback lyric-clicked(int);
+    callback copy-text(string);
+    callback api-command(string);
+    callback lyric-editor-command(string);
+    callback playlist-command(string, string);
+    callback genius-command(string);
+    callback rating-changed(int);
+
+    changed screen => {
+        root.navigation-generation += 1;
+        root.list-scroll-y = 0px;
+    }
+    changed navigation-key => {
+        root.navigation-generation += 1;
+        root.list-scroll-y = 0px;
+    }
+    public function focus-search() { library.focus-search(); }
+    public function dismiss-keyboard() { focus-sink.focus(); }
+    public function focus-api-editor() { api-dialog.focus-editor(); }
+    public function focus-lyric-editor() { lyrics-dialog.focus-editor(); }
+    public function open-playlist-editor() { root.playlist-editor-open = true; playlist-editor.reset-view(); playlist-editor.focus-name(); }
+    public function open-saved-playlist-editor() { root.playlist-editor-open = true; playlist-editor.reset-view(); playlist-editor.show-review(); root.dismiss-keyboard(); }
+    changed api-settings-open => { if !root.api-settings-open { root.dismiss-keyboard(); } }
+    changed lyric-editor-open => { if !root.lyric-editor-open { root.dismiss-keyboard(); } }
+    changed playlist-editor-open => { if !root.playlist-editor-open { root.dismiss-keyboard(); } }
+    focus-sink := FocusScope { x: 0px; y: 0px; width: 0px; height: 0px; }
+
+    safe := Rectangle {
+        x: max(0px, root.safe-left); y: max(0px, root.safe-top);
+        width: max(0px, root.width - root.safe-left - root.safe-right);
+        height: max(0px, root.height - root.safe-top - root.safe-bottom);
+        background: transparent;
+
+        device := Rectangle {
+            x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            width: (root.device-mode ? 296px : 240px) * root.s;
+            height: (root.device-mode ? 296px * 76.5 / 39.6 : 432px) * root.s;
+            background: transparent;
+            if root.device-mode: Image {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                source: @image-url("icons/device-shell.svg"); image-fit: contain;
+            }
+            if root.device-mode: Rectangle {
+                x: (parent.width - self.width) / 2; y: parent.height - 92px * root.s;
+                width: 68px * root.s; height: self.width; border-radius: self.width / 2;
+                background: home-touch.pressed ? #deddd5 : #eeede5;
+                border-width: 1px * root.s; border-color: #b9bdc2;
+                accessible-role: button; accessible-label: I18n.tr("Home");
+                accessible-action-default => { root.command("home"); }
+                Rectangle {
+                    x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+                    width: 30px * root.s; height: self.width; border-radius: self.width / 2;
+                    border-width: 1.5px * root.s; border-color: #a7adb5; background: transparent;
+                }
+                home-touch := TouchArea { clicked => { root.command("home"); } }
+            }
+
+            display := Rectangle {
+                x: (parent.width - self.width) / 2; y: root.device-mode ? 36px * root.s : 0px;
+                width: 240px * root.s; height: 432px * root.s;
+                clip: true; background: white;
+                border-width: 1px * root.s; border-color: #101010;
+
+                HomeView {
+                    x: 0px; y: 26px * root.s; width: parent.width; height: 406px * root.s;
+                    visible: root.screen == 0; navigation-enabled: root.screen == 0;
+                    s: root.s; page: root.home-page; selected: root.selected; page-direction: root.page-direction;
+                    smooth-slides: root.smooth-slides;
+                    activated(index) => { root.home-activated(root.home-page, index); }
+                    swipe(next) => { root.page-direction = next ? 1 : -1; root.home-page = next ? 1 : 0; }
+                }
+
+                status := Rectangle {
+                    x: 0px; y: 0px; width: parent.width; height: 26px * root.s;
+                    background: root.dark-status ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
+                    Text {
+                        x: 5px * root.s; y: 0px; width: parent.width - 10px * root.s; height: parent.height;
+                        text: root.clock-text; font-size: 13px * root.s; font-weight: 700;
+                        color: root.dark-status ? white : #333; horizontal-alignment: center; vertical-alignment: center;
+                    }
+                    if root.screen == 2: Rectangle {
+                        x: 0px; y: 0px; width: 65px * root.s; height: parent.height;
+                        Image { x: 6px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: white; }
+                        Text { x: 17px * root.s; y: 0px; width: parent.width - self.x; height: parent.height; text: I18n.tr("Back"); font-size: 11px * root.s; color: white; vertical-alignment: center; overflow: elide; }
+                        TouchArea { clicked => { root.command("back"); } }
+                    }
+                    if root.playing: Image {
+                        x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s;
+                        source: @image-url("../assets/icons/play.svg"); colorize: root.dark-status ? #eee : #2a73be;
+                    }
+                    Rectangle {
+                        x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
+                        border-color: #888; border-width: 1px * root.s; background: transparent;
+                        Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.dark-status ? #e1e9f4 : #7a994c; }
+                    }
+                }
+
+                if root.screen != 0 && root.screen != 2: Rectangle {
+                    x: 0px; y: 26px * root.s; width: parent.width; height: 38px * root.s;
+                    background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
+                    border-width: 1px * root.s; border-color: #969ca1;
+                    Text { x: 51px * root.s; y: 0px; width: parent.width - 102px * root.s; height: parent.height; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #252a30; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                    Rectangle {
+                        x: 5px * root.s; y: 6px * root.s; width: 39px * root.s; height: 26px * root.s;
+                        border-radius: 5px * root.s; border-width: 1px * root.s; border-color: #808891;
+                        background: @linear-gradient(180deg, #d9e0e5, #99a3af);
+                        Image { source: @image-url("../assets/icons/chevron-left.svg"); colorize: #fff; x: 14px * root.s; y: 6px * root.s; width: 10px * root.s; height: 14px * root.s; }
+                        TouchArea { clicked => { root.command("back"); } }
+                    }
+                }
+
+                library := LibraryView {
+                    x: 0px; y: 64px * root.s; width: parent.width; height: 368px * root.s;
+                    visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 7 || root.screen == 8 || root.screen == 9 || root.screen == 10;
+                    enabled: self.visible; s: root.s; navigation-generation: root.navigation-generation;
+                    rows: root.rows; selected: root.selected; search: root.screen == 3;
+                    music-list: root.screen == 7;
+                    playlist-list: root.playlist-list; playlist-content: root.playlist-content; playlist-list-editing: root.playlist-list-editing;
+                    rating-visible: root.rating-visible; rating-enabled: root.rating-visible;
+                    rating: root.rating; rating-title: root.rating-title;
+                    rating-changed(value) => { root.rating-changed(value); }
+                    shuffle-list: (root.screen == 1 || root.screen == 3) && root.rows.length > 0;
+                    compact-title: root.screen == 5 || root.screen == 8;
+                    keyboard-navigation: false; touch-mode: true; text-font-family: root.ui-font-family;
+                    search-text <=> root.search-query; scroll-y <=> root.list-scroll-y;
+                    activated(index) => { root.item-clicked(index); }
+                    edited(text) => { root.query-changed(text); }
+                    back => { root.command("back"); }
+                    edit-playlist => { root.command("edit-playlist"); }
+                }
+
+                NowPlayingView {
+                    x: 0px; y: 26px * root.s; width: parent.width; height: 406px * root.s;
+                    visible: root.screen == 2; navigation-enabled: root.screen == 2;
+                    s: root.s; touch-mode: true; navigation-generation: root.navigation-generation;
+                    selected: root.selected; selection-visible: false;
+                    playing: root.playing; has-track: root.has-track;
+                    title: root.track-title; artist: root.track-artist; album: root.track-album; artwork: root.artwork;
+                    volume: root.volume; muted: root.muted; progress: root.progress;
+                    elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
+                    shuffle: root.shuffle; repeat-mode: root.repeat-mode;
+                    overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible;
+                    lyric-lines: root.lyric-lines; active-lyric: root.active-lyric;
+                    translated-lines: root.translated-lines; translation-visible: root.translation-visible;
+                    romaji-lines: root.romaji-lines; romaji-visible: root.romaji-visible;
+                    lyric-scroll-y <=> root.lyric-scroll-y;
+                    activated(index) => {
+                        if index == 0 { root.command("previous"); }
+                        else if index == 1 { root.command("toggle"); }
+                        else if index == 2 { root.command("next"); }
+                        else if index == 3 { root.command("mute"); }
+                        else if index == 4 { root.command("shuffle"); }
+                        else if index == 5 { root.command("repeat"); }
+                        else if index == 6 { root.command("songs"); }
+                    }
+                    toggle-overlay => { root.overlay-visible = !root.overlay-visible; }
+                    genius-requested => { if !root.annotation-busy { root.command("genius"); } }
+                    seek-changed(value) => { root.seek-changed(value); }
+                    volume-changed(value) => { root.volume-changed(value); }
+                    back => { root.command("back"); }
+                }
+
+                if root.screen == 4: Text {
+                    x: 14px * root.s; y: 100px * root.s; width: parent.width - 28px * root.s; height: 230px * root.s;
+                    text: root.screen-title + "\n\n" + I18n.tr("Not available on iOS yet"); font-size: 14px * root.s; color: #666;
+                    wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center;
+                }
+
+                transfer := TransferView {
+                    x: 0px; y: 64px * root.s; width: parent.width; height: 368px * root.s;
+                    visible: root.screen == 6;
+                    s: root.s; running: root.transfer-running; urls: root.transfer-urls; status: root.transfer-status;
+                    command(name) => { root.command(name); }
+                    copy-text(value) => { root.copy-text(value); }
+                }
+
+                if root.notice != "" && root.screen != 6: Rectangle {
+                    x: 4px * root.s; y: parent.height - 24px * root.s; width: parent.width - 8px * root.s; height: 20px * root.s;
+                    background: #111b;
+                    Text { x: 5px * root.s; y: 0px; width: parent.width - 10px * root.s; height: parent.height; text: root.notice; font-size: 10px * root.s; color: white; vertical-alignment: center; overflow: elide; }
+                    TouchArea { clicked => { root.command("dismiss-notice"); } }
+                }
+            }
+        }
+    }
+
+    if root.library-initializing: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        background: #e6e7e933;
+        TouchArea {}
+    }
+
+    // Editors use their own readable touch scale above the keyboard. The nano
+    // device beneath them keeps its size instead of shrinking to the IME area.
+    Rectangle {
+        x: 0px; y: 0px; width: root.width; height: root.height;
+        visible: root.modal-open; background: #111b;
+        TouchArea {}
+        Rectangle {
+            x: root.modal-left; y: root.modal-top; width: root.modal-width; height: root.modal-height;
+            clip: true; background: #f4f5f6;
+            api-dialog := DeepSeekSettings {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                s: root.modal-scale; touch-mode: true; open: root.api-settings-open;
+                key-configured: root.api-key-configured; message: root.api-message;
+                api-key <=> root.api-key; model <=> root.api-model;
+                command(name) => { if name != "paste-api-key" { root.dismiss-keyboard(); } root.api-command(name); }
+            }
+            lyrics-dialog := LyricEditor {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; visible: root.lyric-editor-open;
+                s: root.modal-scale; font-family: root.ui-font-family;
+                text <=> root.lyric-editor-text; saving: root.lyric-editor-saving; message: root.lyric-editor-message;
+                command(name) => { root.dismiss-keyboard(); root.lyric-editor-command(name); }
+            }
+            playlist-editor := PlaylistEditor {
+                x: 0px; y: 0px; width: parent.width; height: parent.height;
+                s: min(1.25, root.modal-scale); touch-mode: true; open: root.playlist-editor-open;
+                editing: root.playlist-editing; name <=> root.playlist-name;
+                candidates: root.playlist-candidates; draft: root.playlist-draft; message: I18n.tr(root.playlist-message);
+                persisted: root.playlist-persisted; library-loading: root.playlist-library-loading; saving: root.playlist-saving;
+                command(name, id) => { root.playlist-command(name, id); }
+            }
+            GeniusPreview {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; visible: root.genius-preview-open;
+                s: min(1.25, root.modal-scale); touch-mode: true;
+                seed-title: root.genius-seed-title; seed-artist: root.genius-seed-artist; seed-available: root.genius-seed-available;
+                songs: root.genius-songs; busy: root.genius-busy; message: root.genius-message;
+                stage <=> root.genius-stage; variation <=> root.genius-variation;
+                command(name) => { root.genius-command(name); }
+            }
+            if root.playlist-delete-open: Rectangle {
+                x: 0px; y: 0px; width: parent.width; height: parent.height; background: #f4f5f6;
+                Text { x: 16px; y: 24px; width: parent.width - 32px; height: 40px; text: I18n.tr("Delete Playlist"); font-size: 16px * root.modal-scale; font-weight: 600; color: #263441; wrap: word-wrap; }
+                Text { x: 16px; y: 82px; width: parent.width - 32px; height: max(0px, parent.height - 164px); text: root.playlist-delete-name; font-size: 14px * root.modal-scale; color: #52647a; wrap: word-wrap; }
+                NanoActionButton { x: 8px; y: parent.height - 54px; width: (parent.width - 24px) / 2; height: 44px; s: root.modal-scale; label: "Cancel"; clicked => { root.playlist-command("delete-cancel", ""); } }
+                NanoActionButton { x: (parent.width + 8px) / 2; y: parent.height - 54px; width: (parent.width - 24px) / 2; height: 44px; s: root.modal-scale; primary: true; label: "Delete"; clicked => { root.playlist-command("delete-confirm", root.playlist-delete-id); } }
+            }
+        }
+    }
+}
