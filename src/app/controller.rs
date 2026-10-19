@@ -2258,6 +2258,7 @@ impl Controller {
             }
             _ => self.text(screen.title()),
         });
+        ui.set_settings_root(*screen == Screen::Settings);
         ui.set_device_mode(self.state.device_mode);
         let rating_target = self.state.rating_target();
         ui.set_rating_visible(rating_target.is_some());
@@ -2320,6 +2321,28 @@ impl Controller {
         );
         ui.set_reference_open(self.state.reference_open);
         ui.set_lyrics_visible(self.state.lyrics_visible);
+        let lookup_status = self
+            .state
+            .current
+            .and_then(|id| self.state.tracks.get(id))
+            .and_then(|track| self.state.lyrics_lookup_status.get(&track.path));
+        let mut empty_lyrics_message = i18n::notice(
+            self.state.language,
+            lookup_status.map_or("No lyrics available", String::as_str),
+        );
+        if self.state.current.is_some()
+            && self.dispatcher.keymap.bindings.iter().any(|binding| {
+                binding.matches(&Key::Letter('f'), Modifiers::default())
+                    && matches!(
+                        binding.action,
+                        Action::JumpToLetter | Action::FindOnlineLyrics
+                    )
+            })
+        {
+            empty_lyrics_message.push_str("\n\n");
+            empty_lyrics_message.push_str(&self.text("Press F to find lyrics"));
+        }
+        ui.set_empty_lyrics_message(empty_lyrics_message.into());
         ui.set_romaji_visible(self.state.romaji_visible);
         ui.set_translation_visible(self.lyrics.visible());
         ui.set_overlay_visible(self.state.overlay_visible);
@@ -3102,6 +3125,7 @@ impl Controller {
                     self.directory.join("library.sqlite3"),
                     request.path,
                     found,
+                    (!request.previous_lyrics.is_empty()).then_some(request.previous_lyrics),
                 ));
                 self.state.notice = "Saving online lyrics…".into();
                 if let Some(path) = self.lyrics.lookup_path() {
@@ -4188,6 +4212,53 @@ mod ai_controller_tests {
             db.lyrics_association(&request.path).unwrap(),
             LyricsAssociation::Automatic
         ));
+    }
+
+    #[test]
+    fn downloaded_plain_lyrics_can_upgrade_without_overwriting_a_manual_edit() {
+        use crate::library::{
+            database::Database,
+            online_lyrics::{Found, Request},
+        };
+        i_slint_backend_testing::init_no_event_loop();
+        for manual_edit in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let db = Database::open(&directory.path().join("library.sqlite3")).unwrap();
+            let previous = Lyrics::plain_text("original first");
+            let track = make_track(directory.path().join("song.wav"), "Song", previous.clone());
+            db.set_online_lyrics(&track.path, "https://lrclib.net/api/get/1", &previous)
+                .unwrap();
+            let mut controller = Controller::new(directory.path().to_owned());
+            controller.state.tracks = vec![track.clone()];
+            controller.state.current = Some(0);
+            let synced = Lyrics::parse("[00:01]original first");
+            controller.lyrics.install_lookup_completion(
+                Request::new(&track),
+                Ok(Found {
+                    lyrics: synced.clone(),
+                    source_url: "https://lrclib.net/api/get/2".into(),
+                }),
+                crate::translation::Cancellation::default(),
+            );
+            if manual_edit {
+                db.set_manual_lyrics(&track.path, &directory.path().join("manual.txt"), &previous)
+                    .unwrap();
+            }
+            let ui = AppWindow::new().unwrap();
+            controller.poll_online_lyrics(&ui);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while controller.lyrics_edit.is_some() && std::time::Instant::now() < deadline {
+                controller.poll(&ui);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            assert!(controller.lyrics_edit.is_none());
+            let expected = if manual_edit { previous } else { synced };
+            assert_eq!(controller.state.tracks[0].lyrics, expected);
+            let mut reloaded = track;
+            db.apply_lyrics(&mut reloaded).unwrap();
+            assert_eq!(reloaded.lyrics, expected);
+            assert!(!controller.lyrics.translation_busy());
+        }
     }
 
     #[test]

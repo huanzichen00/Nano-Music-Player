@@ -24,7 +24,7 @@ fn fixture() -> State {
     }
 }
 #[test]
-fn settings_have_six_roots_and_flat_playback_preferences() {
+fn desktop_settings_include_current_song_translation_and_flat_playback_preferences() {
     let mut state = fixture();
     state.start(1);
     let queue = state.queue.order.clone();
@@ -41,7 +41,8 @@ fn settings_have_six_roots_and_flat_playback_preferences() {
             "Lyrics",
             "Language",
             "Keyboard Shortcuts",
-            "AI Services"
+            "AI Services",
+            "Translate Current Song"
         ]
     );
     state.navigation.select(1);

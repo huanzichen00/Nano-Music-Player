@@ -335,11 +335,16 @@ pub fn store_online_lyrics(
     database_path: PathBuf,
     path: PathBuf,
     found: super::online_lyrics::Found,
+    previous: Option<super::lyrics::Lyrics>,
 ) -> Receiver<Result<Option<LyricsUpdate>, String>> {
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {
         let result = Database::open(&database_path).and_then(|db| {
-            db.set_online_lyrics(&path, &found.source_url, &found.lyrics)?;
+            if let Some(previous) = previous {
+                db.upgrade_online_lyrics(&path, &previous, &found.source_url, &found.lyrics)?;
+            } else {
+                db.set_online_lyrics(&path, &found.source_url, &found.lyrics)?;
+            }
             Ok(Some(LyricsUpdate {
                 path,
                 lyrics: found.lyrics,

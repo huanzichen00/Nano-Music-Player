@@ -345,7 +345,7 @@ impl LyricsService {
             return Err("A lyric request is already running".into());
         }
         let track = track.ok_or("Choose a song first")?;
-        if !track.lyrics.is_empty() {
+        if !track.lyrics.timed.is_empty() {
             return Err("Lyrics are already available".into());
         }
         let request = online_lyrics::Request::new(track);
@@ -356,9 +356,29 @@ impl LyricsService {
         let cancellation = Cancellation::default();
         let worker_cancellation = cancellation.clone();
         let (sender, receiver) = mpsc::channel();
+        let database_path = self.directory.join("library.sqlite3");
         std::thread::spawn(move || {
-            let provider = crate::ai::DeepSeek::new(&settings).ok();
-            let result = online_lyrics::lookup(&request, provider.as_ref(), &worker_cancellation);
+            let result = (|| {
+                if !request.previous_lyrics.is_empty() {
+                    use crate::library::database::{Database, LyricsAssociation};
+                    let association =
+                        Database::open(&database_path)?.lyrics_association(&request.path)?;
+                    if !matches!(association, LyricsAssociation::Manual { source, lyrics }
+                        if online_lyrics::is_lrclib_source(&source) && lyrics == request.previous_lyrics)
+                    {
+                        return Err("Lyrics are already available".into());
+                    }
+                }
+                let provider = crate::ai::DeepSeek::new(&settings).ok();
+                let found =
+                    online_lyrics::lookup(&request, provider.as_ref(), &worker_cancellation)?;
+                if !request.previous_lyrics.is_empty() && found.lyrics.timed.is_empty() {
+                    return Err(
+                        "No matching synchronized lyrics found; existing lyrics kept".into(),
+                    );
+                }
+                Ok(found)
+            })();
             let _ = sender.send((request, result));
         });
         self.online_lyrics_request = Some(receiver);
@@ -881,6 +901,43 @@ mod tests {
         );
         assert!(!service.lookup_busy());
         assert_eq!(service.take_storage_context(), (None, None));
+    }
+
+    #[test]
+    fn manual_plain_lyrics_never_trigger_online_timestamp_discovery() {
+        let directory = tempfile::tempdir().unwrap();
+        let track = track(directory.path(), Lyrics::plain_text("my words"));
+        let db = Database::open(&directory.path().join("library.sqlite3")).unwrap();
+        db.set_manual_lyrics(
+            &track.path,
+            &directory.path().join("manual.txt"),
+            &track.lyrics,
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("deepseek.json"),
+            r#"{"api_key":"offline-test-key","model":"deepseek-flash"}"#,
+        )
+        .unwrap();
+        let mut service = LyricsService::new(directory.path().into(), false);
+        service.start_lookup(Some(&track), false).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let event = loop {
+            if let Some(event) = service.poll_lookup(
+                std::slice::from_ref(&track),
+                &BTreeSet::new(),
+                false,
+                Some(&track),
+            ) {
+                break event;
+            }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert!(
+            matches!(event, LookupEvent::Failed { notice, .. } if notice == "Lyrics are already available")
+        );
+        assert!(!service.lookup_busy());
     }
 
     #[test]

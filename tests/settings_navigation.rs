@@ -79,10 +79,11 @@ fn settings_controls_are_explicit_persist_and_keep_the_playback_context() {
     connect(&ui, &controller);
     controller.borrow_mut().initialize(&ui);
     ui.show().unwrap();
+    controller.borrow_mut().state.notice.clear();
     controller.borrow_mut().execute(&ui, Action::Settings);
-    assert_eq!(ui.get_rows().row_count(), 6);
+    assert_eq!(ui.get_rows().row_count(), 7);
     snapshot(&ui, "settings-en");
-    assert!(ui.get_list_row_height() * 6.0 <= ui.get_list_viewport_height());
+    assert!(ui.get_list_row_height() * 7.0 <= ui.get_list_viewport_height() + 0.01);
     // Real pointer events use the same row geometry as keyboard navigation.
     click(&ui, 90.0, 64.0 + 14.0);
     assert_eq!(ui.get_screen_title(), "Appearance");
@@ -141,6 +142,13 @@ fn settings_controls_are_explicit_persist_and_keep_the_playback_context() {
             c.execute(&ui, Action::Settings);
         }
         snapshot(&ui, &format!("settings-{}", language.code()));
+        ui.invoke_item_clicked(6);
+        assert_eq!(
+            controller.borrow().state.navigation.current().screen,
+            Screen::SettingsSection(SettingsSection::Translation)
+        );
+        snapshot(&ui, &format!("song-translation-{}", language.code()));
+        controller.borrow_mut().execute(&ui, Action::Back);
         for (index, name) in [(0, "appearance"), (1, "playback"), (2, "lyrics")] {
             ui.invoke_item_clicked(index);
             snapshot(&ui, &format!("{name}-{}", language.code()));

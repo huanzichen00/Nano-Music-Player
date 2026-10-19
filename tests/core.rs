@@ -128,6 +128,51 @@ fn all_default_shortcuts_resolve_to_their_semantic_actions() {
 }
 
 #[test]
+fn f_finds_lyrics_on_song_screens_and_respects_keyboard_context() {
+    let plain = Modifiers::default();
+    let key = Key::Letter('f');
+    for surface in [Surface::NowPlaying, Surface::NowPlayingVolume] {
+        assert_eq!(
+            dispatch(key.clone(), plain, false, surface),
+            Dispatch::Action(Action::FindOnlineLyrics)
+        );
+        assert_eq!(
+            dispatch(key.clone(), plain, true, surface),
+            Dispatch::Consumed
+        );
+        assert_eq!(
+            dispatch(key.clone(), primary(), false, surface),
+            Dispatch::Action(Action::Search)
+        );
+        let dispatcher = Dispatcher::new(Keymap::default());
+        let press = press(key.clone(), plain, false);
+        let mut ctx = context(surface);
+        ctx.text_input = true;
+        assert_eq!(dispatcher.dispatch(&press, ctx), Dispatch::Ignored);
+        ctx.text_input = false;
+        ctx.native_dialog = true;
+        assert_eq!(dispatcher.dispatch(&press, ctx), Dispatch::Ignored);
+        ctx.native_dialog = false;
+        ctx.reference_open = true;
+        assert_eq!(dispatcher.dispatch(&press, ctx), Dispatch::Consumed);
+    }
+    assert_eq!(
+        dispatch(key.clone(), plain, false, Surface::Library),
+        Dispatch::Action(Action::JumpToLetter)
+    );
+    let mut map = Keymap::default();
+    map.bindings
+        .iter_mut()
+        .find(|binding| binding.key == key && binding.modifiers == plain)
+        .unwrap()
+        .action = Action::TogglePlay;
+    assert_eq!(
+        Dispatcher::new(map).dispatch(&press(key, plain, false), context(Surface::NowPlaying)),
+        Dispatch::Action(Action::TogglePlay)
+    );
+}
+
+#[test]
 fn slint_key_text_is_normalized_without_accepting_unknown_or_multiple_characters() {
     use slint::platform::Key as SlintKey;
     let special = [

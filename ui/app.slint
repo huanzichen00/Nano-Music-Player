@@ -144,6 +144,7 @@ export component AppWindow inherits Window {
     in property <string> repeat-mode;
     in property <string> notice;
     in property <[LibraryRow]> rows;
+    in property <bool> settings-root;
     in property <[ShortcutRow]> shortcuts;
     in property <bool> reference-open;
     in property <bool> lyrics-visible;
@@ -155,6 +156,7 @@ export component AppWindow inherits Window {
     in property <string> shortcut-keys;
     in property <string> shortcut-message;
     in property <[string]> lyric-lines;
+    in property <string> empty-lyrics-message: I18n.tr("No lyrics available");
     in property <[string]> romaji-lines;
     in property <bool> romaji-visible;
     in property <[string]> translated-lines;
@@ -460,6 +462,7 @@ export component AppWindow inherits Window {
                 volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
                 shuffle: root.shuffle; repeat-mode: root.repeat-mode;
                 overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.displayed-lyric-lines; active-lyric: root.active-lyric;
+                empty-lyrics-message: root.empty-lyrics-message;
                 romaji-lines: root.romaji-lines; romaji-visible: root.romaji-displayed;
                 translated-lines: root.translated-lines; translation-visible: root.translation-visible;
                 lyric-scroll-y <=> root.previous-lyric-scroll-y;
@@ -519,6 +522,7 @@ export component AppWindow inherits Window {
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
                 y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
+                fit-settings: root.settings-root;
                 rating-visible: root.rating-visible; rating-enabled: root.rating-enabled;
                 rating-title: root.rating-title; rating: root.rating;
                 rating-changed(value) => { root.rating-changed(root.rating-target-path, value); keyboard.focus(); }
@@ -540,6 +544,7 @@ export component AppWindow inherits Window {
                 volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
                 shuffle: root.shuffle; repeat-mode: root.repeat-mode;
                 overlay-visible: root.overlay-visible; lyrics-visible: root.lyrics-visible; lyric-lines: root.displayed-lyric-lines; active-lyric: root.active-lyric;
+                empty-lyrics-message: root.empty-lyrics-message;
                 romaji-lines: root.romaji-lines; romaji-visible: root.romaji-displayed;
                 translated-lines: root.translated-lines; translation-visible: root.translation-visible;
                 lyric-scroll-y <=> root.lyric-scroll-y;

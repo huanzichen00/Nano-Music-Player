@@ -11,9 +11,32 @@ use nano_music_player::{
 use slint::{ComponentHandle, Model, platform::WindowEvent};
 use std::{cell::RefCell, rc::Rc};
 
+fn snapshot(ui: &AppWindow, name: &str) {
+    slint::platform::update_timers_and_animations();
+    let image = ui.window().take_snapshot().unwrap();
+    let directory =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/qa/desktop-lyrics");
+    std::fs::create_dir_all(&directory).unwrap();
+    image::save_buffer(
+        directory.join(format!("{name}.png")),
+        image.as_bytes(),
+        image.width(),
+        image.height(),
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+}
+
 #[test]
 fn ipod_translation_settings_share_menu_commands_and_persist_language() {
-    i_slint_backend_testing::init_no_event_loop();
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
+            mock_time: true,
+            ..Default::default()
+        },
+    )))
+    .unwrap();
     let directory = tempfile::tempdir().unwrap();
     Settings {
         smooth_slides: false,
@@ -25,7 +48,15 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
     let controller = Rc::new(RefCell::new(Controller::new(directory.path().to_owned())));
     connect(&ui, &controller);
     controller.borrow_mut().initialize(&ui);
+    ui.show().unwrap();
     controller.borrow_mut().execute(&ui, Action::Settings);
+    assert_eq!(
+        ui.get_rows().row_data(6).unwrap().title,
+        "Translate Current Song"
+    );
+    ui.invoke_item_clicked(6);
+    assert_eq!(ui.get_screen_title(), "Song Translation");
+    controller.borrow_mut().execute(&ui, Action::Back);
     ui.invoke_item_clicked(2);
     assert_eq!(ui.get_screen_title(), "Lyrics");
     assert_eq!(ui.get_rows().row_data(1).unwrap().value, "English");
@@ -153,7 +184,58 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
         "From audio tags and nearby files"
     );
     controller.borrow_mut().execute(&ui, Action::NowPlaying);
+    controller.borrow_mut().execute(&ui, Action::ToggleLyrics);
     ui.invoke_focus_screen();
+    let playing_path = controller.borrow().state.tracks[1].path.clone();
+    let translation_visible = ui.get_translation_visible();
+    assert!(
+        ui.get_empty_lyrics_message()
+            .contains("Press F to find lyrics")
+    );
+    snapshot(&ui, "missing-lyrics");
+    controller.borrow_mut().execute(&ui, Action::ToggleOverlay);
+    assert!(!ui.get_overlay_visible());
+    ui.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: "f".into() });
+    ui.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: "f".into() });
+    assert!(ui.get_notice().contains("Invalid DeepSeek API key"));
+    assert!(ui.get_overlay_visible());
+    assert!(ui.get_lyrics_visible());
+    assert!(
+        ui.get_empty_lyrics_message()
+            .contains("Invalid DeepSeek API key")
+    );
+    snapshot(&ui, "lookup-error");
+    assert!(
+        controller
+            .borrow()
+            .state
+            .lyrics_lookup_status
+            .contains_key(&playing_path)
+    );
+    assert_eq!(
+        ui.get_translation_visible(),
+        translation_visible,
+        "F only finds source lyrics"
+    );
+    assert_eq!(controller.borrow().state.current, Some(1));
+    assert_eq!(controller.borrow().state.queue.order, queue);
+    {
+        use nano_music_player::library::lyrics::Lyrics;
+        let mut c = controller.borrow_mut();
+        c.state.tracks[1].lyrics = Lyrics::parse("[00:01]Keep these lyrics");
+    }
+    ui.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: "f".into() });
+    ui.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: "f".into() });
+    assert_eq!(ui.get_notice(), "Lyrics are already available");
+    assert_eq!(
+        controller.borrow().state.tracks[1].lyrics.lines()[0],
+        "Keep these lyrics"
+    );
+    controller.borrow_mut().state.tracks[1].lyrics = Default::default();
     // Display is already On from the earlier Translate action, but this song
     // has no translation. Its first T requests generation; its second hides it.
     for shown in [true, false] {

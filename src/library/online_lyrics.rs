@@ -19,6 +19,7 @@ pub struct Request {
     pub artist: String,
     pub album: String,
     pub duration: f64,
+    pub previous_lyrics: Lyrics,
 }
 
 impl Request {
@@ -29,6 +30,7 @@ impl Request {
             artist: track.artist.clone(),
             album: track.album.clone(),
             duration: track.duration,
+            previous_lyrics: track.lyrics.clone(),
         }
     }
 
@@ -38,7 +40,7 @@ impl Request {
             && self.artist == track.artist
             && self.album == track.album
             && self.duration == track.duration
-            && track.lyrics.is_empty()
+            && track.lyrics == self.previous_lyrics
     }
 }
 
@@ -104,6 +106,10 @@ fn lrclib_id(source: &str) -> Option<u64> {
     url.path().strip_prefix("/api/get/")?.parse().ok()
 }
 
+pub(crate) fn is_lrclib_source(source: &str) -> bool {
+    lrclib_id(source).is_some()
+}
+
 fn source_ids(sources: &[String]) -> Vec<u64> {
     let mut seen = std::collections::HashSet::new();
     sources
@@ -124,8 +130,14 @@ pub fn lookup(
             || Ok(Vec::new()),
             |provider| {
                 provider.search(&format!(
-                    "{} {} {} lyrics LRCLIB",
-                    request.title, request.artist, request.album
+                    "Find an existing synchronized LRC lyric source on LRCLIB for this exact recording. \
+                     Title: {}; artist: {}; album: {}; duration: {:.3} seconds. \
+                     Check studio versus live, acoustic, remix and other recording versions. \
+                     For a live recording, verify the performance's venue/date and album when available; \
+                     never substitute studio timestamps. Find published timestamps only; do not generate \
+                     lyrics, estimate timing or align audio. Return original LRCLIB record URLs only \
+                     when the recording matches; if uncertain, return no sources.",
+                    request.title, request.artist, request.album, request.duration
                 ))
             },
         )
@@ -158,32 +170,43 @@ fn lookup_with_search(
     if cancellation.is_cancelled() {
         return Err("Online lyric search cancelled".into());
     }
-    if direct.is_ok() || direct.as_ref().is_err_and(|error| !candidate_miss(error)) {
+    if direct
+        .as_ref()
+        .is_ok_and(|found| !found.lyrics.timed.is_empty())
+        || direct.as_ref().is_err_and(|error| !candidate_miss(error))
+    {
         return direct;
     }
     let sources = search().unwrap_or_default();
     if cancellation.is_cancelled() {
         return Err("Online lyric search cancelled".into());
     }
-    let mut records = Vec::new();
-    for id in source_ids(&sources) {
-        if cancellation.is_cancelled() {
-            return Err("Online lyric search cancelled".into());
-        }
-        request_slot(endpoint, cancellation)?;
-        match fetch_record(&client, request, endpoint, Query::Record(id)) {
-            Ok(record) => records.push(record),
-            Err(FetchError::Candidate(_)) => {}
-            Err(FetchError::Service(error)) => return Err(error.into()),
-            Err(FetchError::RateLimited) => {
-                return Err("Online lyrics rate limit reached; try again later".into());
+    let discovered = (|| -> Result<Option<Found>, String> {
+        let mut records = Vec::new();
+        for id in source_ids(&sources) {
+            request_slot(endpoint, cancellation)?;
+            match fetch_record(&client, request, endpoint, Query::Record(id)) {
+                Ok(record) => records.push(record),
+                Err(FetchError::Candidate(_)) => {}
+                Err(FetchError::Service(error)) => return Err(error.into()),
+                Err(FetchError::RateLimited) => {
+                    return Err("Online lyrics rate limit reached; try again later".into());
+                }
             }
         }
-    }
-    let result = if records.is_empty() {
-        direct
-    } else {
-        select(request, records)
+        if records.is_empty() {
+            Ok(None)
+        } else {
+            select(request, records).map(Some)
+        }
+    })();
+    // Discovery can upgrade plain lyrics, but failed or mismatched searches
+    // must not discard the usable text we already retrieved.
+    let result = match discovered {
+        Ok(Some(found)) if !found.lyrics.timed.is_empty() => Ok(found),
+        Ok(Some(found)) => direct.or(Ok(found)),
+        Ok(None) => direct,
+        Err(error) => direct.or(Err(error)),
     };
     if cancellation.is_cancelled() {
         return Err("Online lyric search cancelled".into());
@@ -226,13 +249,17 @@ fn select(request: &Request, records: Vec<Record>) -> Result<Found, String> {
         }
     }
     candidates.sort_by(|a, b| {
-        a.0.cmp(&b.0)
+        // Same-album recordings with compatible title/artist/version/duration
+        // should not lose real timing just because a guest credit is omitted.
+        a.0.0
+            .cmp(&b.0.0)
             .then_with(|| {
                 a.2.lyrics
                     .timed
                     .is_empty()
                     .cmp(&b.2.lyrics.timed.is_empty())
             })
+            .then_with(|| a.0.1.cmp(&b.0.1))
             .then_with(|| a.1.total_cmp(&b.1))
     });
     let Some((rank, _, best)) = candidates.first() else {

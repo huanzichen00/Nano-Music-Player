@@ -116,7 +116,7 @@ fn photo_icons_toolbar_live_title_and_black_rating_screen_render() {
     c.borrow_mut().playlist_command(&ui, "cancel", "");
     ui.set_playlist_editor_open(false);
     c.borrow_mut().execute(&ui, Action::Settings);
-    assert_eq!(ui.get_rows().row_count(), 6);
+    assert_eq!(ui.get_rows().row_count(), 7);
     snapshot(&ui, "reference-settings.png");
     ui.invoke_item_clicked(0);
     snapshot(&ui, "reference-display-settings.png");

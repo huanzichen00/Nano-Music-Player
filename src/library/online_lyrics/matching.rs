@@ -84,24 +84,37 @@ pub(super) fn search_metadata(request: &Request) -> (String, String) {
 }
 
 fn performance_album(album: &str) -> bool {
-    album.split_whitespace().any(|word| {
-        matches!(
-            word,
-            "live"
-                | "acoustic"
-                | "unplugged"
-                | "demo"
-                | "demos"
-                | "remix"
-                | "remixes"
-                | "karaoke"
-                | "instrumental"
-                | "concert"
-                | "sessions"
-                | "session"
-                | "rehearsal"
-        )
-    })
+    [
+        "现场",
+        "現場",
+        "演唱会",
+        "演唱會",
+        "演奏会",
+        "演奏會",
+        "ライブ",
+        "ライヴ",
+        "라이브",
+    ]
+    .iter()
+    .any(|marker| album.contains(marker))
+        || album.split_whitespace().any(|word| {
+            matches!(
+                word,
+                "live"
+                    | "acoustic"
+                    | "unplugged"
+                    | "demo"
+                    | "demos"
+                    | "remix"
+                    | "remixes"
+                    | "karaoke"
+                    | "instrumental"
+                    | "concert"
+                    | "sessions"
+                    | "session"
+                    | "rehearsal"
+            )
+        })
 }
 
 /// Lower scores are better. Different performances never qualify, even when

@@ -184,6 +184,47 @@ impl Database {
         Ok(())
     }
 
+    /// Upgrade only the unchanged online plain-text association; manual edits win.
+    pub fn upgrade_online_lyrics(
+        &self,
+        audio: &Path,
+        previous: &Lyrics,
+        source: &str,
+        lyrics: &Lyrics,
+    ) -> Result<(), String> {
+        let discarded = "Lyrics were edited or removed; online result discarded";
+        if previous.is_empty()
+            || !previous.timed.is_empty()
+            || lyrics.timed.is_empty()
+            || !super::online_lyrics::is_lrclib_source(source)
+        {
+            return Err(discarded.into());
+        }
+        let row: Option<(String, Vec<u8>)> = self.0.query_row(
+            "SELECT source_path,lyrics FROM lyrics_override WHERE audio_path=? AND removed=0 AND source_path IS NOT NULL AND lyrics IS NOT NULL",
+            [audio.to_string_lossy()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().map_err(|error| error.to_string())?;
+        let Some((old_source, old_data)) = row else {
+            return Err(discarded.into());
+        };
+        if !super::online_lyrics::is_lrclib_source(&old_source)
+            || serde_json::from_slice::<Lyrics>(&old_data).map_err(|error| error.to_string())?
+                != *previous
+        {
+            return Err(discarded.into());
+        }
+        let data = serde_json::to_vec(lyrics).map_err(|error| error.to_string())?;
+        let changed = self.0.execute(
+            "UPDATE lyrics_override SET source_path=?,lyrics=? WHERE audio_path=? AND source_path=? AND lyrics=? AND removed=0",
+            params![source, data, audio.to_string_lossy(), old_source, old_data],
+        ).map_err(|error| error.to_string())?;
+        if changed != 1 {
+            return Err(discarded.into());
+        }
+        Ok(())
+    }
+
     pub fn lyrics_association(&self, audio: &Path) -> Result<LyricsAssociation, String> {
         let row: Option<(Option<String>, Option<Vec<u8>>, bool)> = self
             .0

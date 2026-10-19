@@ -1,5 +1,75 @@
 # iPod translation settings and online lyrics
 
+## Existing timestamps and recording versions, 2026-10-19
+
+The latest Firefly download was LRCLIB record 12038413: its synchronized field
+is null and its 20 plain lines have no timing. The file metadata includes the
+title, Blackfield, Blackfield IV and 166.909 seconds; nothing was missing from
+those matching fields. LRCLIB also has record 4038489 with 22 timed lines, the
+same album and a 167-second duration, but without the featured credit in its
+title. Same-album candidates now prefer real timing before guest-credit
+completeness, while conflicting guest identities remain rejected.
+
+When metadata lookup yields only plain text, configured DeepSeek discovery now
+continues searching for an existing synchronized LRCLIB source. Its query
+includes the title, artist, album and precise duration and explicitly asks it to
+verify studio/live, venue/date and other recording versions. It never supplies
+generated lyric timing. Only native search source URLs are accepted; retrieved
+records still pass local recording/version and duration validation. Live venue
+or year mismatches and English/Chinese/Japanese/Korean live-album labels are
+covered by offline regressions. Unlabelled or incorrect local metadata cannot
+identify an actual live recording by listening; matching cannot guarantee that
+case from text alone.
+
+F can retry an already downloaded plain-text association and upgrade it to a
+verified timed source. The request captures the original lyrics; the storage
+worker compares that snapshot and the remote association before its conditional
+update. Synchronized lyrics and local manual imports/removals are protected.
+If no timed source is found, the existing plain text remains. Discovery service
+errors also preserve usable text retrieved earlier in the same lookup.
+
+The offline lookup, storage and desktop regressions pass. A metadata-only live
+check selected record 4038489 and parsed 22 timed lines without DeepSeek. Later
+live verification received LRCLIB HTTP 503, so the user's saved Firefly override
+was not replaced during this pass. No live DeepSeek request or audible alignment
+verification is claimed. After updating/restarting the desktop app, F can retry
+that downloaded plain-text song when the source service is available.
+
+The optimized desktop build and the shared mobile-library compatibility check
+passed. The signed desktop bundle is installed at
+`~/Applications/Nano Music Player.app`; its previous version is retained at
+`~/Applications/.nano-lyric-timing-backup-2xmhjjw_/Nano Music Player.app`.
+The running session was left open and needs a restart to load this update.
+
+## Desktop shortcuts, 2026-10-19
+
+Desktop Settings also has a direct Translate Current Song entry. Plain F on
+Now Playing (including its volume selection) invokes Find Lyrics Online for the
+playing song without enabling or generating translation. Missing-lyric pages
+show the lookup status persistently and a localized F hint when F has its default
+binding. Existing lyrics, custom F assignments, list letter jumps, text editing
+and modal keyboard guards are preserved. Find Lyrics Online is independently
+customizable in Keyboard Shortcuts.
+
+Desktop verification, 2026-10-19: 318 tests passed with 8 intentional opt-in
+ignores across the library unit tests and the core, translation settings, settings
+navigation, reference library/UI, modal navigation, lyrics associations, paired
+lyric rendering and main UI regressions. Actual F key events verify the playing
+song target, unchanged queue and translation visibility, existing-lyric
+preservation, and opening the lyric overlay from the cover. Dispatcher coverage
+checks repeat suppression, custom F assignments, list prefixes, search modifiers,
+text inputs and modal guards. Lookup failures use deliberately invalid test
+credentials; successful lookup/storage uses existing offline fixtures. This pass
+does not make a live provider request. Rendered missing-lyric/error pages and
+English/Chinese/Japanese Settings menus were inspected; all seven desktop root
+entries fit the viewport. Formatting and whitespace checks pass.
+
+The optimized desktop build passed and was installed at
+`~/Applications/Nano Music Player.app` with a verified ad-hoc bundle signature.
+The previous app is retained at
+`~/Applications/.nano-desktop-lyrics-backup-18aj5axe/Nano Music Player.app`.
+The existing running session remains open; restarting loads this update.
+
 Settings → Lyrics exposes Show Translation, Translate To and Japanese Readings.
 Translate Current Song opens Translate, Regenerate, Cancel and Remove for the
 playing song; AI credentials live in Settings → AI Services. The native menu
@@ -30,7 +100,7 @@ Use Automatic Lyrics clears an imported/downloaded lyric association or removal
 and rediscovers embedded audio tags or nearby `.lrc`/`.txt` files. It does not make
 an online request; its row now explains these file sources.
 
-Existing lyrics always take precedence. If Translate is explicitly requested for a
+Manual imports and synchronized lyrics take precedence. If Translate is explicitly requested for a
 song without lyrics, it runs the following stages off the UI/audio path:
 
 1. Search LRCLIB directly using normalized title and artist fields. Compare all

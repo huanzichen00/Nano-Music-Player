@@ -45,6 +45,7 @@ pub enum Action {
     RestoreShortcuts,
     TrackList,
     ManageLyrics,
+    FindOnlineLyrics,
     ImportLyrics,
     RemoveLyrics,
     AutomaticLyrics,
@@ -120,6 +121,7 @@ impl Action {
             | Self::Shortcuts
             | Self::RestoreShortcuts
             | Self::ManageLyrics
+            | Self::FindOnlineLyrics
             | Self::ImportLyrics
             | Self::RemoveLyrics
             | Self::AutomaticLyrics => Category::Application,
@@ -197,6 +199,7 @@ impl Action {
             Self::Shortcuts => "Customize shortcuts",
             Self::RestoreShortcuts => "Restore default shortcuts",
             Self::ManageLyrics => "Lyrics for Track",
+            Self::FindOnlineLyrics => "Find Lyrics Online",
             Self::ImportLyrics => "Import / Replace Lyrics…",
             Self::RemoveLyrics => "Remove Lyrics",
             Self::AutomaticLyrics => "Use Automatic Lyrics",
@@ -243,6 +246,7 @@ impl Action {
         Self::JumpToLetter,
         Self::Settings,
         Self::ManageLyrics,
+        Self::FindOnlineLyrics,
         Self::ImportLyrics,
         Self::RemoveLyrics,
         Self::AutomaticLyrics,

@@ -88,6 +88,12 @@ impl Dispatcher {
             return Dispatch::Consumed;
         }
         let action = match (binding.action, context.surface) {
+            // F keeps its list prefix and finds the playing song's lyrics on the song screen.
+            (JumpToLetter, Surface::NowPlaying | Surface::NowPlayingVolume)
+                if press.key == Key::Letter('f') && press.modifiers == Modifiers::default() =>
+            {
+                FindOnlineLyrics
+            }
             // Plain R uses the existing repeat binding outside the song interface.
             // Customized bindings still win, and a remapped Repeat key stays Repeat.
             (CycleRepeat, Surface::NowPlaying | Surface::NowPlayingVolume)
@@ -112,7 +118,7 @@ impl Dispatcher {
             (Right, Surface::Placeholder) => return Dispatch::Consumed,
             (action, _) => action,
         };
-        if context.reference_open && action == ToggleRomaji {
+        if context.reference_open && matches!(action, ToggleRomaji | FindOnlineLyrics) {
             return Dispatch::Consumed;
         }
         // A held Right arrow in a list must not open several nested screens.

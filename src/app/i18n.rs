@@ -876,6 +876,16 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "ミュージックから曲を選択",
     ),
     ("No lyrics available", "没有可用歌词", "歌詞がありません"),
+    (
+        "No matching synchronized lyrics found; existing lyrics kept",
+        "未找到对应版本的同步歌词，已保留现有歌词",
+        "この録音に一致する同期歌詞が見つからないため、既存の歌詞を保持しました",
+    ),
+    (
+        "Press F to find lyrics",
+        "按 F 自动查找歌词",
+        "F キーで歌詞を検索",
+    ),
     ("No translation available", "暂无译文", "翻訳がありません"),
     (
         "Find Lyrics Online",

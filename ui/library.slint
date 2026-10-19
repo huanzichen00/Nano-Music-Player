@@ -62,6 +62,7 @@ export component LibraryView inherits Rectangle {
     in property <int> selected;
     in property <bool> search;
     in property <bool> compact-title;
+    in property <bool> fit-settings: false;
     in property <bool> keyboard-navigation;
     in property <bool> playlist-list: false;
     in property <bool> playlist-list-editing: false;
@@ -87,7 +88,11 @@ export component LibraryView inherits Rectangle {
     // Videos starts with an Import action, then artwork rows. Its action must
     // not force the thumbnails and two-line titles into 48-pixel text rows.
     private property <bool> video-list: root.rows.length > 1 && root.rows[1].icon == 9;
-    out property <length> row-height: (root.rows.length > 0 && root.rows[0].setting ? ListMetrics.setting-row-height : root.video-list || (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork) ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
+    // Keep all desktop Settings entry points visible beneath the title strip.
+    private property <float> setting-row-height: root.fit-settings
+        ? min(ListMetrics.setting-row-height, root.height / (1px * root.s * max(1, root.rows.length)))
+        : ListMetrics.setting-row-height;
+    out property <length> row-height: (root.rows.length > 0 && root.rows[0].setting ? root.setting-row-height : root.video-list || (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork) ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
     callback edited(string);
     public function focus-search() { input.focus(); }

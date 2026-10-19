@@ -63,6 +63,7 @@ export component NowPlayingView inherits Rectangle {
     in property <bool> overlay-visible;
     in property <bool> lyrics-visible;
     in property <[string]> lyric-lines;
+    in property <string> empty-lyrics-message: I18n.tr("No lyrics available");
     in property <[string]> romaji-lines;
     in property <bool> romaji-visible;
     in property <[string]> translated-lines;
@@ -174,7 +175,7 @@ export component NowPlayingView inherits Rectangle {
                         TouchArea { clicked => { root.toggle-overlay(); } }
                     }
                 }
-                if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: 110px * root.s; text: I18n.tr("No lyrics available"); font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
+                if root.lyric-lines.length == 0: Text { x: 10px * root.s; width: art.width - 20px * root.s; height: parent.height; text: root.empty-lyrics-message; wrap: word-wrap; font-size: 13px * root.s; color: #eef0f5; horizontal-alignment: center; vertical-alignment: center; }
             }
         }
     }

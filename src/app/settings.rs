@@ -70,6 +70,11 @@ impl State {
                     "DeepSeek key for lyrics and Genius",
                     Action::ConfigureDeepSeek,
                 ),
+                page(
+                    "Translate Current Song",
+                    "Generate or remove its translation",
+                    Section::Translation,
+                ),
             ],
             Screen::SettingsSection(Section::Display) => vec![
                 page(

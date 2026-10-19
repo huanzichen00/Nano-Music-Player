@@ -1553,6 +1553,18 @@ impl State {
                 self.navigation.open(Screen::NowPlaying);
             }
             ConfigureDeepSeek => return vec![Effect::ConfigureDeepSeek],
+            FindOnlineLyrics => {
+                if self.navigation.current().screen == Screen::NowPlaying
+                    && self
+                        .current
+                        .and_then(|id| self.tracks.get(id))
+                        .is_some_and(|track| track.lyrics.timed.is_empty())
+                {
+                    self.lyrics_visible = true;
+                    self.overlay_visible = true;
+                }
+                return vec![Effect::Translation(crate::translation::Command::FindLyrics)];
+            }
             ToggleTranslation => {
                 return vec![Effect::Translation(crate::translation::Command::Toggle)];
             }

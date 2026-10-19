@@ -168,6 +168,137 @@ fn candidate_search_chooses_matching_album_over_first_result_and_rejects_ambigui
 }
 
 #[test]
+fn same_album_synced_lyrics_outrank_more_complete_guest_credits() {
+    let request = Request {
+        title: "Song (feat. Guest)".into(),
+        ..request()
+    };
+    let mut plain = record();
+    plain["trackName"] = json!("Song (featuring Guest)");
+    plain["syncedLyrics"] = serde_json::Value::Null;
+    let synced = record();
+    for records in [
+        vec![as_record(plain.clone()), as_record(synced.clone())],
+        vec![as_record(synced.clone()), as_record(plain.clone())],
+    ] {
+        let found = select(&request, records).unwrap();
+        assert_eq!(found.lyrics.timed.len(), 2);
+        assert_eq!(found.lyrics.timed[1].at_ms, 2000);
+    }
+    let mut other_album = synced.clone();
+    other_album["albumName"] = json!("Compilation");
+    let found = select(
+        &request,
+        vec![as_record(other_album), as_record(plain.clone())],
+    )
+    .unwrap();
+    assert!(
+        found.lyrics.timed.is_empty(),
+        "album matching still takes priority"
+    );
+    let mut wrong_guest = synced;
+    wrong_guest["trackName"] = json!("Song (feat. Different Guest)");
+    let found = select(&request, vec![as_record(wrong_guest), as_record(plain)]).unwrap();
+    assert!(
+        found.lyrics.timed.is_empty(),
+        "conflicting credits must remain ineligible"
+    );
+}
+
+#[test]
+fn plain_lyrics_continue_discovery_for_existing_timestamps() {
+    let mut plain = record();
+    plain["syncedLyrics"] = serde_json::Value::Null;
+    let mut synced = record();
+    synced["id"] = json!(2);
+    let (endpoint, server) = mock_replies(
+        vec![
+            ("200 OK", json!([plain]).to_string()),
+            ("200 OK", synced.to_string()),
+        ],
+        None,
+    );
+    let found = lookup_with_search(&request(), &endpoint, &Cancellation::default(), || {
+        Ok(vec!["https://lrclib.net/api/get/2".into()])
+    })
+    .unwrap();
+    assert_eq!(found.source_url, "https://lrclib.net/api/get/2");
+    assert_eq!(found.lyrics.timed[1].at_ms, 2000);
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1].contains("/api/get/2"));
+}
+
+#[test]
+fn failed_timestamp_discovery_keeps_the_available_plain_lyrics() {
+    let mut plain = record();
+    plain["syncedLyrics"] = serde_json::Value::Null;
+    let (endpoint, server) = mock_replies(vec![("200 OK", json!([plain]).to_string())], None);
+    let found = lookup_with_search(&request(), &endpoint, &Cancellation::default(), || {
+        Err("DeepSeek search failed".into())
+    })
+    .unwrap();
+    assert_eq!(found.lyrics.plain, ["original first", "original second"]);
+    assert!(found.lyrics.timed.is_empty());
+    assert_eq!(server.join().unwrap().len(), 1);
+}
+
+#[test]
+fn live_recordings_never_take_discovered_studio_or_different_performance_timing() {
+    let live_request = Request {
+        title: "Song (Live)".into(),
+        album: "Live at Venue 2025".into(),
+        ..request()
+    };
+    let mut plain = record();
+    plain["trackName"] = json!(&live_request.title);
+    plain["albumName"] = json!(&live_request.album);
+    plain["syncedLyrics"] = serde_json::Value::Null;
+    for (title, album, duration) in [
+        ("Song", "Album", 60),
+        ("Song (Live)", "Live at Another Venue 2025", 60),
+        ("Song (Live)", "Live at Venue 2024", 60),
+        ("Song (Live)", "Live at Venue 2025", 70),
+    ] {
+        let mut different = record();
+        different["id"] = json!(2);
+        different["trackName"] = json!(title);
+        different["albumName"] = json!(album);
+        different["duration"] = json!(duration);
+        let (endpoint, server) = mock_replies(
+            vec![
+                ("200 OK", json!([plain.clone()]).to_string()),
+                ("200 OK", different.to_string()),
+            ],
+            None,
+        );
+        let found = lookup_with_search(&live_request, &endpoint, &Cancellation::default(), || {
+            Ok(vec!["https://lrclib.net/api/get/2".into()])
+        })
+        .unwrap();
+        assert!(found.lyrics.timed.is_empty(), "{title} / {album}");
+        assert_eq!(found.source_url, "https://lrclib.net/api/get/1");
+        server.join().unwrap();
+    }
+    for album in [
+        "東京演唱会2025",
+        "東京現場2025",
+        "東京ライブ2025",
+        "東京ライヴ2025",
+        "서울라이브2025",
+    ] {
+        let request = Request {
+            album: album.into(),
+            ..request()
+        };
+        assert!(
+            matching::rank(&request, &as_record(record())).is_none(),
+            "{album}"
+        );
+    }
+}
+
+#[test]
 fn lookup_uses_normalized_candidate_search_without_a_model_call_and_caches_misses() {
     let mut request = request();
     request.title = "Song (feat. Guest)".into();
@@ -233,6 +364,7 @@ fn request() -> Request {
         artist: "Artist".into(),
         album: "Album".into(),
         duration: 60.0,
+        previous_lyrics: Lyrics::default(),
     }
 }
 fn record() -> serde_json::Value {
@@ -546,6 +678,48 @@ fn downloaded_lyrics_survive_reload_and_never_replace_manual_imports_or_removals
         LyricsAssociation::Removed
     ));
 }
+#[test]
+fn online_plain_text_upgrades_to_timing_only_if_the_saved_association_is_unchanged() {
+    use super::super::database::{Database, LyricsAssociation};
+    let directory = tempfile::tempdir().unwrap();
+    let db = Database::open(&directory.path().join("library.sqlite3")).unwrap();
+    let audio = directory.path().join("song.wav");
+    let previous = Lyrics::plain_text("original first");
+    let synced = Lyrics::parse("[00:01]original first");
+    let first = "https://lrclib.net/api/get/1";
+    let second = "https://lrclib.net/api/get/2";
+    db.set_online_lyrics(&audio, first, &previous).unwrap();
+    assert!(
+        db.upgrade_online_lyrics(&audio, &previous, second, &previous)
+            .is_err()
+    );
+    db.upgrade_online_lyrics(&audio, &previous, second, &synced)
+        .unwrap();
+    assert!(matches!(db.lyrics_association(&audio).unwrap(),
+        LyricsAssociation::Manual {source, lyrics} if source == second && lyrics == synced));
+    assert!(
+        db.upgrade_online_lyrics(&audio, &previous, first, &synced)
+            .is_err()
+    );
+    db.set_manual_lyrics(&audio, &directory.path().join("manual.txt"), &previous)
+        .unwrap();
+    assert!(
+        db.upgrade_online_lyrics(&audio, &previous, second, &synced)
+            .is_err()
+    );
+    assert!(matches!(db.lyrics_association(&audio).unwrap(),
+        LyricsAssociation::Manual {lyrics, ..} if lyrics == previous));
+    db.remove_lyrics(&audio).unwrap();
+    assert!(
+        db.upgrade_online_lyrics(&audio, &previous, second, &synced)
+            .is_err()
+    );
+    assert!(matches!(
+        db.lyrics_association(&audio).unwrap(),
+        LyricsAssociation::Removed
+    ));
+}
+
 #[test]
 fn exact_record_keeps_real_timestamps_and_plain_fallback() {
     let found = validate_record(&request(), serde_json::from_value(record()).unwrap()).unwrap();
