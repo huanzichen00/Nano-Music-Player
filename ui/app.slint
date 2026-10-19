@@ -10,6 +10,7 @@ import "fonts/jetbrains-mono/JetBrainsMono-Regular.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf";
 import "fonts/jetbrains-mono/JetBrainsMono-Bold.ttf";
 import { LibraryView, LibraryRow, GeniusRow, ListMetrics } from "library.slint";
+import { PodcastSubscription } from "podcasts.slint";
 import { VideoView } from "video.slint";
 import { VideoDeviceFrame } from "video-device.slint";
 
@@ -39,6 +40,28 @@ export component AppWindow inherits Window {
     resize-border-width: device-mode ? 5px : 0px;
     background: device-mode ? transparent : #fff;
     always-on-top: root.keep-on-top;
+    in-out property <bool> podcast-subscribe-open;
+    in-out property <string> podcast-url;
+    in property <bool> podcast-busy;
+    in property <bool> podcast-preview-ready;
+    in property <string> podcast-message;
+    in property <string> podcast-preview-title;
+    in property <string> podcast-preview-description;
+    in property <image> podcast-preview-artwork;
+    in property <string> podcast-title;
+    in property <string> podcast-show;
+    in property <string> podcast-author;
+    in property <string> podcast-date;
+    in property <bool> podcast-overlay;
+    in property <bool> podcast-repeat;
+    in property <string> podcast-speed;
+    in property <bool> podcast-list;
+    in property <bool> previous-podcast-list;
+    callback podcast-details(int);
+    in property <image> podcast-artwork;
+    in property <bool> podcast-detail;
+    in property <string> podcast-description;
+    callback podcast-command(string);
     in property <bool> keep-on-top: true;
     default-font-family: root.ui-font-family;
     in property <string> ui-font-family: "Helvetica Neue";
@@ -79,7 +102,7 @@ export component AppWindow inherits Window {
             }
         }
     }
-    private property <bool> previous-artwork-list: root.previous-screen == 1 && ((root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork) || (root.previous-rows.length > 1 && root.previous-rows[1].icon == 9));
+    private property <bool> previous-artwork-list: root.previous-screen == 1 && (root.previous-podcast-list || (root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork) || (root.previous-rows.length > 1 && root.previous-rows[1].icon == 9));
     out property <length> transition-offset: root.transition-active ? root.current-screen-x : 0px;
     out property <length> previous-transition-offset: root.transition-active ? root.previous-screen-x : 0px;
     out property <length> home-transition-offset: home.page-slide-offset;
@@ -91,7 +114,7 @@ export component AppWindow inherits Window {
     changed screen-transition-generation => {
         root.reset-screen-motion();
         root.active-transition-generation = root.screen-transition-generation;
-        if !root.smooth-slides || root.screen == 9 || root.previous-screen == 9 {
+        if !root.smooth-slides || root.screen == 9 || root.previous-screen == 9 || root.screen == 10 || root.previous-screen == 10 {
             root.previous-rows = [];
             return;
         } else {
@@ -202,7 +225,7 @@ export component AppWindow inherits Window {
     out property <float> list-row-height: library.row-height / 1px;
     out property <float> list-viewport-height: library.height / 1px;
     out property <float> list-header-height: library.header-height / 1px;
-    private property <bool> artwork-list: root.screen == 1 && ((root.rows.length > (root.shuffle-list ? 1 : 0) && root.rows[root.shuffle-list ? 1 : 0].show-artwork) || (root.rows.length > 1 && root.rows[1].icon == 9));
+    private property <bool> artwork-list: root.screen == 1 && (root.podcast-list || (root.rows.length > (root.shuffle-list ? 1 : 0) && root.rows[root.shuffle-list ? 1 : 0].show-artwork) || (root.rows.length > 1 && root.rows[1].icon == 9));
     in-out property <length> lyric-scroll-y;
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
@@ -226,7 +249,8 @@ export component AppWindow inherits Window {
     callback seek-changed(float);
     callback home-swipe(bool);
     public function focus-screen() {
-        if root.deepseek-settings-open { deepseek-dialog.focus-editor(); }
+        if root.podcast-subscribe-open { podcast-dialog.focus-editor(); }
+        else if root.deepseek-settings-open { deepseek-dialog.focus-editor(); }
         else if root.playlist-editor-open && !playlist-editor.reviewing { playlist-editor.focus-name(); }
         else { keyboard.focus(); }
     }
@@ -340,10 +364,15 @@ export component AppWindow inherits Window {
         // The sole keyboard entry point for the entire application.
         capture-key-pressed(event) => {
             if root.modal-key-event(event, root.reference-open ? false
+                : root.podcast-subscribe-open ? podcast-dialog.editor-focused
                 : root.deepseek-settings-open ? deepseek-dialog.editor-focused
                 : root.playlist-editor-open ? (!root.playlist-saving && playlist-editor.name-focused)
                 : root.genius-preview-open || root.shortcut-editor-open ? false : library.search-focused) { return accept; }
             if root.reference-open { return root.key-event(event, false) ? accept : reject; }
+            if root.podcast-subscribe-open {
+                if event.text == Key.Escape { root.podcast-command("close"); return accept; }
+                return reject;
+            }
             if root.deepseek-settings-open {
                 if event.text == Key.Escape { root.deepseek-command("cancel"); return accept; }
                 if event.text == Key.Return { root.deepseek-command("save"); return accept; }
@@ -453,7 +482,7 @@ export component AppWindow inherits Window {
                 compact-title: root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8; rows: root.previous-rows; selected: root.previous-selected; search: root.previous-screen == 3;
                 text-font-family: root.ui-font-family; keyboard-navigation: root.keyboard-navigation;
                 search-text <=> root.search-text; scroll-y <=> root.previous-list-scroll-y;
-                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open { keyboard.focus(); } }
+                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open && !root.podcast-subscribe-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }
             }
             if root.previous-screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.previous-screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
@@ -483,32 +512,32 @@ export component AppWindow inherits Window {
                 x: root.transition-active ? root.current-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
             home := HomeView {
                 visible: root.screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
-                navigation-enabled: root.screen == 0 && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
+                navigation-enabled: root.screen == 0 && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 page: root.home-page; selected: root.selected; page-direction: root.home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
             }
             Rectangle {
                 x: 0px; y: 0px; height: 26px * root.s;
-                background: root.rating-visible ? black : root.screen == 0 || root.screen == 2 ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
-                if !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.rating-visible || root.screen == 0 || root.screen == 2 ? white : #333; horizontal-alignment: center; }
-                if root.screen == 2: Rectangle {
+                background: root.rating-visible ? black : (root.screen == 0 || root.screen == 2 || root.screen == 10) ? @linear-gradient(180deg, #50515d, #32343e) : @linear-gradient(180deg, #f8f8f8, #b4b7bb);
+                if !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list: Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.clock-text; font-size: 13px * root.s; font-weight: 700; color: root.rating-visible || (root.screen == 0 || root.screen == 2 || root.screen == 10) ? white : #333; horizontal-alignment: center; }
+                if root.screen == 2 || root.screen == 10: Rectangle {
                     x: 0px; y: 0px; width: 65px * root.s; height: parent.height;
                     Image { x: 6px * root.s; y: 7px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/chevron-left.svg"); colorize: white; }
                     Text { x: 17px * root.s; width: parent.width - self.x; text: I18n.tr("Back"); font-size: 11px * root.s; color: white; vertical-alignment: center; overflow: elide; }
-                    TouchArea { enabled: now-playing.navigation-enabled; clicked => { root.command("back"); keyboard.focus(); } }
+                    TouchArea { enabled: root.screen == 10 ? podcast-player.navigation-enabled : now-playing.navigation-enabled; clicked => { root.command("back"); keyboard.focus(); } }
                 }
                 if root.artwork-list || root.playlist-list || root.playlist-content || root.music-list: Text { x: 6px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
                 if root.artwork-list || root.playlist-list || root.playlist-content || root.music-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
-                if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.screen == 0 || root.screen == 2 ? #eee : #2a73be; }
+                if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: (root.screen == 0 || root.screen == 2 || root.screen == 10) ? #eee : #2a73be; }
                 Rectangle {
                     x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
                     border-color: #888; border-width: 1px * root.s; background: transparent;
-                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.rating-visible || root.screen == 0 || root.screen == 2 ? #e1e9f4 : #7a994c; }
+                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.rating-visible || (root.screen == 0 || root.screen == 2 || root.screen == 10) ? #e1e9f4 : #7a994c; }
                 }
             }
             Rectangle {
-                visible: root.screen != 0 && root.screen != 2 && !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list;
+                visible: root.screen != 0 && root.screen != 2 && root.screen != 10 && !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list;
                 y: 26px * root.s; height: 38px * root.s;
                 background: root.rating-visible ? black : @linear-gradient(180deg, #f1f2f3, #aeb3b8); border-width: 1px * root.s; border-color: root.rating-visible ? black : #969ca1;
                 Text { x: 51px * root.s; width: parent.width - 102px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: root.rating-visible ? white : #252a30; horizontal-alignment: center; overflow: elide; }
@@ -522,8 +551,10 @@ export component AppWindow inherits Window {
             library := LibraryView {
                 navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
-                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
-                y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                // A fresh Back gesture can interrupt the slide; the outgoing
+                // host remains shielded and BackScroll consumes momentum tails.
+                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
+                y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: root.podcast-detail ? min(192px * root.s, root.rows.length * ListMetrics.text-row-height * root.s * 1px) : 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
                 fit-settings: root.settings-root;
                 rating-visible: root.rating-visible; rating-enabled: root.rating-enabled;
@@ -534,14 +565,39 @@ export component AppWindow inherits Window {
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 text-font-family: root.ui-font-family; keyboard-navigation: root.keyboard-navigation;
                 search-text <=> root.search-text; scroll-y <=> root.list-scroll-y;
-                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open { keyboard.focus(); } }
+                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open && !root.podcast-subscribe-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }
+                details(index) => { root.podcast-details(index); }
             }
             if root.screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
+            if root.podcast-detail: Rectangle {
+                y: library.y + library.height; height: 432px * root.s - self.y; background: #f8f5fa;
+                Flickable {
+                    x: 10px * root.s; y: 8px * root.s; width: parent.width - 20px * root.s; height: parent.height - 16px * root.s;
+                    content-height: description-text.preferred-height;
+                    description-text := Text { width: parent.width; text: root.podcast-description; wrap: word-wrap; font-size: 12px * root.s; color: #51465a; }
+                }
+            }
+            podcast-player := NowPlayingView {
+                navigation-generation: root.screen-transition-generation;
+                visible: root.screen == 10; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                spoken-mode: true; spoken-speed: root.podcast-speed;
+                navigation-enabled: root.screen == 10 && !root.podcast-subscribe-open && !root.reference-open && !root.deepseek-settings-open && !root.playlist-editor-open;
+                title: root.podcast-title; artist: root.podcast-show; album: root.podcast-author; artwork: root.podcast-artwork;
+                has-track: true; playing: root.playing; muted: root.muted; volume: root.volume;
+                selected: root.selected; selection-visible: root.keyboard-navigation;
+                progress: root.progress; elapsed: root.elapsed; duration: root.remaining; track-count: root.podcast-date;
+                overlay-visible: root.podcast-overlay; lyrics-visible: false; repeat-mode: root.podcast-repeat ? "One" : "Off";
+                activated(index) => { root.item-clicked(index); keyboard.focus(); }
+                toggle-overlay => { root.command("toggle_overlay"); keyboard.focus(); }
+                seek-changed(value) => { root.seek-changed(value); }
+                volume-changed(value) => { root.volume-changed(value); }
+                back => { root.command("back"); keyboard.focus(); }
+            }
             now-playing := NowPlayingView {
                 navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 2; y: 26px * root.s; height: 406px * root.s; s: root.s;
-                navigation-enabled: root.screen == 2 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open;
+                navigation-enabled: root.screen == 2 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 selected: root.selected; selection-visible: root.keyboard-navigation; playing: root.playing; has-track: root.has-track;
                 title: root.track-title; artist: root.track-artist; album: root.track-album; artwork: root.artwork;
                 volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
@@ -645,6 +701,14 @@ export component AppWindow inherits Window {
             message: root.playlist-message;
             command(name, id) => { root.playlist-action(name, id); }
         }
+        podcast-dialog := PodcastSubscription {
+            x: display.x; y: display.y; width: display.width; height: display.height; s: root.s;
+            open: root.podcast-subscribe-open; url <=> root.podcast-url;
+            busy: root.podcast-busy; ready: root.podcast-preview-ready; message: root.podcast-message;
+            show-title: root.podcast-preview-title; show-description: root.podcast-preview-description;
+            artwork: root.podcast-preview-artwork;
+            command(name) => { root.podcast-command(name); }
+        }
         deepseek-dialog := DeepSeekSettings {
             x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y; width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; open: root.deepseek-settings-open; key-configured: root.deepseek-key-configured;
@@ -652,7 +716,7 @@ export component AppWindow inherits Window {
             command(name) => { root.deepseek-command(name); }
         }
         // Status stays inside the display; the window has no surrounding panel or footer.
-        if root.notice != "" && root.notice != "Ready" && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open: Rectangle {
+        if root.notice != "" && root.notice != "Ready" && !root.podcast-subscribe-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open: Rectangle {
             x: (root.screen == 9 ? video-device.display-x : display.x) + 4px * root.s; y: root.screen == 9 ? video-device.display-y + video-device.display-height - 24px * root.s : display.y + (root.screen == 2 ? 296px : 408px) * root.s;
             width: (root.screen == 9 ? video-device.display-width : display.width) - 8px * root.s; height: 20px * root.s; background: #222d;
             Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }

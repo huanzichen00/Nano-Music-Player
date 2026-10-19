@@ -19,6 +19,7 @@ pub enum Target {
     Screen(Screen),
     Play(usize),
     PlayVideo(usize),
+    Podcast(crate::podcast::Action),
     Action(Action),
     Shortcut(Action),
     Language(Language),
@@ -41,6 +42,7 @@ pub struct Row {
 }
 
 pub enum Effect {
+    Podcast(crate::podcast::Action),
     Audio(AudioCommand),
     Video(crate::video::engine::Command),
     ImportVideos,
@@ -78,6 +80,7 @@ pub enum Effect {
 }
 
 pub struct State {
+    pub podcasts: super::podcast_state::PodcastState,
     pub language: Language,
     pub font: Font,
     pub always_on_top: bool,
@@ -136,6 +139,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            podcasts: super::podcast_state::PodcastState::default(),
             language: Language::English,
             font: Font::Classic,
             always_on_top: true,
@@ -195,10 +199,16 @@ impl State {
     pub fn surface(&self) -> Surface {
         match &self.navigation.current().screen {
             Screen::Home => Surface::Home,
-            Screen::NowPlaying | Screen::VideoPlaying if self.navigation.selected() == 3 => {
+            Screen::NowPlaying
+            | Screen::VideoPlaying
+            | Screen::Podcasts(super::navigation::PodcastPage::Playing)
+                if self.navigation.selected() == 3 =>
+            {
                 Surface::NowPlayingVolume
             }
-            Screen::NowPlaying | Screen::VideoPlaying => Surface::NowPlaying,
+            Screen::NowPlaying
+            | Screen::VideoPlaying
+            | Screen::Podcasts(super::navigation::PodcastPage::Playing) => Surface::NowPlaying,
             Screen::Placeholder(_) => Surface::Placeholder,
             _ => Surface::Library,
         }
@@ -243,6 +253,9 @@ impl State {
     }
 
     fn list_rows(&self) -> Vec<Row> {
+        if let Some(rows) = self.podcast_rows() {
+            return rows;
+        }
         if let Some(rows) = self.settings_rows() {
             return rows;
         }
@@ -371,7 +384,9 @@ impl State {
             Screen::Music => vec![
                 Row {
                     title: "Now Playing".into(),
-                    subtitle: if self.video_active {
+                    subtitle: if let Some(episode) = self.podcasts.current() {
+                        episode.title.clone()
+                    } else if self.video_active {
                         self.video_current
                             .and_then(|id| self.videos.get(id))
                             .map(|track| track.title.clone())
@@ -728,6 +743,7 @@ impl State {
             }
             Screen::NowPlaying => 7,
             Screen::VideoPlaying => 5,
+            Screen::Podcasts(super::navigation::PodcastPage::Playing) => 8,
             Screen::Groups(Group::Playlists) => {
                 4 + crate::library::statistics::SmartPlaylist::ALL.len() + self.playlists.len()
             }
@@ -855,6 +871,9 @@ impl State {
         if self.muted { 0.0 } else { self.volume }
     }
     pub fn duration(&self) -> f64 {
+        if let Some(e) = self.podcasts.current() {
+            return e.duration;
+        }
         if self.video_active {
             return self
                 .video_current
@@ -867,6 +886,35 @@ impl State {
     }
 
     pub fn seek(&mut self, seconds: f64) -> Effect {
+        if self.podcasts.active.is_some() {
+            let seconds = if seconds.is_finite() {
+                seconds.max(0.0)
+            } else {
+                0.0
+            };
+            self.podcasts.position = if self.duration() > 0.0 {
+                seconds.min(self.duration())
+            } else {
+                seconds
+            };
+            if matches!(
+                self.podcasts.status,
+                PlaybackStatus::Stopped | PlaybackStatus::Error
+            ) && let Some(path) = self.podcasts.current().and_then(|e| e.local_path.clone())
+            {
+                self.podcasts.paused = true;
+                self.podcasts.status = PlaybackStatus::Loading;
+                return Effect::Audio(AudioCommand::LoadAt {
+                    id: crate::podcast::AUDIO_ID,
+                    path,
+                    volume: self.effective_volume(),
+                    paused: true,
+                    start: self.podcasts.position,
+                    speed: self.podcasts.speed,
+                });
+            }
+            return Effect::Audio(AudioCommand::Seek(self.podcasts.position));
+        }
         if self.video_active {
             let seconds = if seconds.is_finite() { seconds } else { 0.0 };
             if matches!(
@@ -959,6 +1007,9 @@ impl State {
     }
 
     pub fn active_position(&self) -> f64 {
+        if self.podcasts.active.is_some() {
+            return self.podcasts.position;
+        }
         if self.video_active {
             self.video_position
         } else {
@@ -1078,6 +1129,9 @@ impl State {
 
     pub fn apply(&mut self, action: Action) -> Vec<Effect> {
         use Action::*;
+        if let Some(effects) = self.apply_podcast(action) {
+            return effects;
+        }
         if matches!(action, Back | Home | Settings | Search | NowPlaying) {
             self.album_rating_path = None;
         }
@@ -1181,6 +1235,9 @@ impl State {
                             Screen::Music
                         } else if name == "Videos" {
                             Screen::Videos
+                        } else if name == "Podcasts" {
+                            self.notice.clear();
+                            Screen::Podcasts(super::navigation::PodcastPage::Home)
                         } else if name == "Settings" {
                             Screen::Settings
                         } else {
@@ -1224,23 +1281,27 @@ impl State {
                                         }
                                         return Vec::new();
                                     }
-                                    let screen =
-                                        if self.video_active && screen == Screen::NowPlaying {
-                                            Screen::VideoPlaying
-                                        } else {
-                                            screen
-                                        };
+                                    let screen = if self.podcasts.active.is_some()
+                                        && screen == Screen::NowPlaying
+                                    {
+                                        Screen::Podcasts(super::navigation::PodcastPage::Playing)
+                                    } else if self.video_active && screen == Screen::NowPlaying {
+                                        Screen::VideoPlaying
+                                    } else {
+                                        screen
+                                    };
                                     let languages = screen == Screen::Languages;
                                     let fonts = screen == Screen::Fonts;
                                     self.navigation.open(screen);
-                                    if self.is_settings_list() && !languages && !fonts {
-                                        if let Some(index) = self
+                                    if self.is_settings_list()
+                                        && !languages
+                                        && !fonts
+                                        && let Some(index) = self
                                             .rows()
                                             .iter()
                                             .position(|row| self.setting_selected(&row.target))
-                                        {
-                                            self.navigation.select(index);
-                                        }
+                                    {
+                                        self.navigation.select(index);
                                     }
                                     if languages {
                                         self.navigation.select(self.language.index());
@@ -1285,6 +1346,7 @@ impl State {
                                 Target::Shortcut(action) => {
                                     return vec![Effect::EditShortcut(action)];
                                 }
+                                Target::Podcast(command) => return vec![Effect::Podcast(command)],
                                 Target::PlayVideo(id) => {
                                     return self.start_video(id);
                                 }

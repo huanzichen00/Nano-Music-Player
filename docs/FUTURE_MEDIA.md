@@ -1,6 +1,6 @@
 # Future video and podcast support
 
-This is an architecture evaluation only. Video playback and podcast features are not implemented.
+This is the original architecture evaluation. Current desktop implementations are documented in [Video implementation](VIDEO_IMPLEMENTATION.md) and [Podcast implementation](PODCAST_IMPLEMENTATION.md); the proposals below are historical context.
 
 Both are feasible while preserving the reducer/controller architecture. Podcasts can extend the current audio worker and SQLite cache incrementally. Video has a larger integration cost because it requires a multimedia backend, an audio/video clock and a frame presentation path; prototype those boundaries before committing to a backend.
 
@@ -19,6 +19,8 @@ Preserve the existing reducer and semantic `Action` model as the source of playb
 Suggested first milestone: play one local MP4 with synchronized audio, pause/resume, seek, stop, and clean shutdown; test seek during playback, rapid source changes, decode errors, window resize, and repeated open/close. Defer playlists, subtitles, hardware acceleration, and broad codec claims until the baseline works on macOS and another target.
 
 ## Podcasts
+
+For the desktop-only scope, see [Podcast desktop plan](PODCAST_DESKTOP_PLAN.md); the first implementation and validation are recorded in [Podcast implementation](PODCAST_IMPLEMENTATION.md).
 
 Podcasts fit the existing music player more naturally, but need feed and episode domain objects rather than treating each episode as an ordinary local song. The import pipeline already performs filesystem work on a background thread and caches metadata in SQLite; it can remain the model for background feed refresh and download work, while the controller/reducer continues to own visible state and user actions.
 

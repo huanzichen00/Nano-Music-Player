@@ -23,6 +23,7 @@ pub(super) struct IntentState {
     pub(super) epoch: u64,
     pub(super) prefetch: Option<SourceTicket>,
     pub(super) playing: Option<SourceTicket>,
+    speed: Option<f32>,
 }
 
 #[derive(Default)]
@@ -37,6 +38,7 @@ pub(super) struct QueuedCommand {
     pub(super) generation: u64,
     pub(super) epoch: u64,
     pub(super) source: Option<SourceIdentity>,
+    pub(super) speed: f32,
 }
 
 /// A consistent view for the pure playback reducer. No sink or decoder access
@@ -56,6 +58,7 @@ impl PlaybackIntent {
             command,
             AudioCommand::Load { .. }
                 | AudioCommand::LoadWithGain { .. }
+                | AudioCommand::LoadAt { .. }
                 | AudioCommand::Stop { .. }
                 | AudioCommand::Shutdown
         );
@@ -67,13 +70,25 @@ impl PlaybackIntent {
             state.epoch = state.epoch.wrapping_add(1);
             state.prefetch = None;
         }
+        match &command {
+            AudioCommand::Load { .. } | AudioCommand::LoadWithGain { .. } => {
+                state.speed = Some(1.0)
+            }
+            AudioCommand::LoadAt { speed, .. } | AudioCommand::Speed(speed) => {
+                state.speed = Some(*speed);
+                state.prefetch = None;
+            }
+            _ => {}
+        }
         let generation = self.generation.load(Ordering::Acquire);
         let source = if matches!(
             command,
             AudioCommand::Load { .. }
                 | AudioCommand::LoadWithGain { .. }
+                | AudioCommand::LoadAt { .. }
                 | AudioCommand::AppendNext { .. }
                 | AudioCommand::Seek(_)
+                | AudioCommand::Speed(_)
         ) {
             state.serial = state.serial.wrapping_add(1);
             Some(SourceIdentity {
@@ -104,6 +119,7 @@ impl PlaybackIntent {
             generation,
             epoch: state.epoch,
             source,
+            speed: state.speed.unwrap_or(1.0),
         }
     }
 

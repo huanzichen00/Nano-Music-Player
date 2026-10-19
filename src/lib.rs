@@ -9,6 +9,8 @@ pub mod library;
 #[cfg(any(target_os = "ios", feature = "mobile"))]
 pub mod mobile;
 pub mod platform;
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+pub mod podcast;
 pub mod shared;
 pub mod translation;
 #[cfg(not(any(target_os = "ios", feature = "mobile")))]

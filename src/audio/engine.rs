@@ -26,6 +26,15 @@ pub enum AudioCommand {
         volume: f32,
         paused: bool,
     },
+    /// Load a local spoken-word source at its saved media position, before output.
+    LoadAt {
+        id: usize,
+        path: PathBuf,
+        volume: f32,
+        paused: bool,
+        start: f64,
+        speed: f32,
+    },
     /// Load using the current persisted ReplayGain settings.
     LoadWithGain {
         id: usize,
@@ -49,6 +58,7 @@ pub enum AudioCommand {
     Pause(bool),
     Volume(f32),
     Seek(f64),
+    Speed(f32),
     Stop {
         handoff: u64,
     },
@@ -151,7 +161,13 @@ impl Engine {
     }
 
     pub fn send(&self, command: AudioCommand) -> Result<(), String> {
-        if let AudioCommand::Seek(seconds) = &command {
+        if let AudioCommand::Speed(speed) | AudioCommand::LoadAt { speed, .. } = &command
+            && (!speed.is_finite() || !(0.5..=2.0).contains(speed))
+        {
+            return Err("Playback speed must be between 0.5 and 2".into());
+        }
+        if let AudioCommand::Seek(seconds) | AudioCommand::LoadAt { start: seconds, .. } = &command
+        {
             Duration::try_from_secs_f64(seconds.max(0.0))
                 .map_err(|_| "Seek position must be finite and representable".to_owned())?;
             if !seconds.is_finite() {

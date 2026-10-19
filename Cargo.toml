@@ -42,6 +42,8 @@ sha2 = "0.10"
 libc = "0.2"
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
+rss = { version = "2", default-features = false }
+html-escape = "0.2"
 slint = { version = "=1.18.1", default-features = false, features = ["renderer-femtovg"] }
 rfd = "0.15.4"
 directories = "6"

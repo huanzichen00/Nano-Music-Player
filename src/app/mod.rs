@@ -5,6 +5,7 @@ pub mod geometry;
 mod iphone_sync;
 mod settings;
 pub mod state;
+mod podcast_state;
 mod thumbnails;
 mod video_thumbnails;
 

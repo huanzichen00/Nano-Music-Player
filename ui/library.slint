@@ -103,6 +103,7 @@ export component LibraryView inherits Rectangle {
     out property <length> row-height: (root.rows.length > 0 && root.rows[0].setting ? root.setting-row-height : root.video-list || (root.rows.length > root.prefix-count && root.rows[root.prefix-count].show-artwork) ? ListMetrics.artwork-row-height : ListMetrics.text-row-height) * 1px * root.s;
     callback activated(int);
     callback edited(string);
+    callback details(int);
     public function focus-search() { input.focus(); }
     background: root.rating-visible ? black : #fff;
     RatingControl {
@@ -215,7 +216,7 @@ export component LibraryView inherits Rectangle {
                 y: (parent.height - self.height) / 2;
                 background: row-item.row-data.artwork.width > 0 ? #e0e3e6 : @linear-gradient(180deg, #455b71, #101d2b);
                 Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: row-item.row-data.artwork; image-fit: contain; }
-                if row-item.row-data.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row-item.row-data.icon == 9 ? @image-url("../assets/generated/videos.png") : @image-url("../assets/icons/nano/songs.png"); colorize: row-item.row-data.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
+                if row-item.row-data.artwork.width == 0: Image { x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6; source: row-item.row-data.icon == 9 ? @image-url("../assets/generated/videos.png") : row-item.row-data.icon >= 10 ? @image-url("../assets/icons/podcast.svg") : @image-url("../assets/icons/nano/songs.png"); colorize: row-item.row-data.icon == 9 ? transparent : #dce6ee; image-fit: contain; }
             }
             if !row-item.row-data.setting: Text {
                 x: row-item.row-data.show-artwork ? (row-item.row-data.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row-item.row-data.icon > 0 && row-item.row-data.icon < 8 ? 38px : 8px) * root.s;
@@ -225,8 +226,13 @@ export component LibraryView inherits Rectangle {
                 font-family: row-item.row-data.font-family == "" ? root.text-font-family : row-item.row-data.font-family;
                 font-size: (root.compact-title ? 13px : 16px) * root.s; font-weight: 600; overflow: elide; vertical-alignment: center;
             }
+            if row-item.row-data.icon == 11: Rectangle {
+                x: row-item.row-data.show-artwork ? root.row-height + 6px * root.s : 8px * root.s;
+                y: (parent.height - 40px * root.s) / 2 + 28px * root.s;
+                width: 7px * root.s; height: self.width; border-radius: self.width / 2; background: #0785c6;
+            }
             if !row-item.row-data.setting && row-item.row-data.subtitle != "": Text {
-                x: row-item.row-data.show-artwork ? (row-item.row-data.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row-item.row-data.icon > 0 && row-item.row-data.icon < 8 ? 38px : 8px) * root.s;
+                x: (row-item.row-data.icon == 11 ? 12px * root.s : 0px) + (row-item.row-data.show-artwork ? (row-item.row-data.icon == 9 ? (ListMetrics.video-thumbnail-width + 2 * ListMetrics.video-thumbnail-padding) * 1px * root.s : root.row-height + 6px * root.s) : (row-item.row-data.icon > 0 && row-item.row-data.icon < 8 ? 38px : 8px) * root.s);
                 y: (parent.height - 40px * root.s) / 2 + 23px * root.s;
                 width: parent.width - self.x - 25px * root.s; height: 17px * root.s;
                 text: row-item.row-data.subtitle; color: (root.selected == row-item.row-index && root.keyboard-navigation) ? #e1efff : #929292; font-size: (row-item.row-data.show-artwork || root.music-list || root.playlist-list ? 14px : 11px) * root.s; overflow: elide;
@@ -286,7 +292,16 @@ export component LibraryView inherits Rectangle {
                 x: parent.width - 18px * root.s; y: (parent.height - self.height) / 2; width: 7px * root.s; height: 12px * root.s;
                 source: @image-url("../assets/icons/chevron-right.svg"); colorize: (root.selected == row-item.row-index && root.keyboard-navigation) ? #fff : #aaa;
             }
-            TouchArea { clicked => { root.activated(row-item.row-index); } }
+            row-touch := TouchArea {
+                width: parent.width - (row-item.row-data.icon >= 10 && !row-item.row-data.show-artwork ? 30px * root.s : 0px);
+                clicked => { root.activated(row-item.row-index); }
+            }
+            if row-item.row-data.icon >= 10 && !row-item.row-data.show-artwork: Rectangle {
+                x: parent.width - 26px * root.s; y: (parent.height - self.height) / 2; width: 20px * root.s; height: 20px * root.s;
+                border-radius: 10px * root.s; border-width: 1px * root.s; border-color: #7b858f; background: transparent;
+                Text { text: "i"; color: #677a8b; font-size: 14px * root.s; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                TouchArea { x: 0px; y: 0px; width: parent.width; height: parent.height; enabled: root.enabled; clicked => { root.details(row-item.row-index); } }
+            }
         }
         if root.rows.length <= root.prefix-count: Text {
             width: root.width; height: 160px * root.s;

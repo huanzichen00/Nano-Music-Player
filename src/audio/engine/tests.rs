@@ -534,6 +534,105 @@ fn fixture(format: &str) -> PathBuf {
 }
 
 #[test]
+fn load_at_seeks_before_output_preserves_pause_and_invalidates_old_events() {
+    let mut h = WorkerHarness::new();
+    h.fixture_load(1, false);
+    h.worker.poll(); // An undelivered predecessor progress event is pending.
+    h.send(AudioCommand::LoadAt {
+        id: usize::MAX,
+        path: fixture("wav"),
+        volume: 0.3,
+        paused: true,
+        start: 0.1,
+        speed: 1.0,
+    });
+    assert!(h.worker.backend.sink.as_ref().unwrap().is_paused());
+    assert_eq!(h.worker.backend.sink.as_ref().unwrap().volume(), 0.3);
+    let events = h.poll();
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, AudioEvent::Progress { id: 1, .. }))
+    );
+    assert!(events.iter().any(|e| matches!(e, AudioEvent::Progress { id, position, status: PlaybackStatus::Paused, .. } if *id == usize::MAX && (*position - 0.1).abs() < 0.0001)));
+    h.send(AudioCommand::Pause(false));
+    h.output.by_ref().take(2000).for_each(drop);
+    assert!(
+        h.poll()
+            .iter()
+            .any(|e| matches!(e, AudioEvent::Progress { position, .. } if *position >= 0.1))
+    );
+}
+
+#[test]
+fn spoken_speed_preserves_media_time_on_changes_and_seeks_and_resets_for_music() {
+    let mut h = WorkerHarness::new();
+    h.send(AudioCommand::LoadAt {
+        id: usize::MAX,
+        path: fixture("wav"),
+        volume: 0.5,
+        paused: false,
+        start: 0.05,
+        speed: 2.0,
+    });
+    h.output.by_ref().take(1000).for_each(drop);
+    let position = h
+        .poll()
+        .iter()
+        .find_map(|e| {
+            if let AudioEvent::Progress { position, .. } = e {
+                Some(*position)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    // Rodio updates its clock in buffered control callbacks, so its sampled
+    // position can lag the output iterator; it must advance from the resume point.
+    assert!(
+        position > 0.05 && position < 0.11,
+        "media position at 2x: {position}"
+    );
+    h.send(AudioCommand::Pause(true));
+    h.send(AudioCommand::Speed(0.5));
+    let current = h
+        .poll()
+        .iter()
+        .find_map(|e| {
+            if let AudioEvent::Progress { position, .. } = e {
+                Some(*position)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert!((current - position).abs() < 0.005);
+    assert!(h.worker.backend.sink.as_ref().unwrap().is_paused());
+    assert_eq!(h.worker.backend.sink.as_ref().unwrap().speed(), 0.5);
+    h.send(AudioCommand::Seek(0.12));
+    assert_eq!(h.worker.backend.sink.as_ref().unwrap().speed(), 0.5);
+    h.fixture_load(0, true);
+    assert_eq!(h.worker.backend.sink.as_ref().unwrap().speed(), 1.0);
+    // A rapid seek must retain the preceding speed intent even before it ran.
+    let speed = h.intent.prepare(AudioCommand::Speed(2.0));
+    let seek = h.intent.prepare(AudioCommand::Seek(0.1));
+    h.worker.process(speed);
+    h.worker.process(seek);
+    assert_eq!(h.worker.backend.sink.as_ref().unwrap().speed(), 2.0);
+    // Conversely a speed change must not invalidate a seek waiting in the queue.
+    let seek = h.intent.prepare(AudioCommand::Seek(0.15));
+    let speed = h.intent.prepare(AudioCommand::Speed(0.5));
+    h.worker.process(seek);
+    h.worker.process(speed);
+    assert_eq!(h.worker.backend.sink.as_ref().unwrap().speed(), 0.5);
+    assert!(
+        h.poll()
+            .iter()
+            .any(|e| matches!(e,AudioEvent::Progress{position,..} if (*position-0.15).abs()<0.005))
+    );
+}
+
+#[test]
 fn worker_seek_without_output_callbacks_preserves_pause_volume_and_accepts_stop() {
     let (done_tx, done_rx) = mpsc::channel();
     let handle = thread::spawn(move || {

@@ -23,6 +23,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+struct LoadOptions {
+    volume: f32,
+    paused: bool,
+    start: f64,
+    speed: f32,
+}
+
 type DecodedSource = GainSource<Decoder<std::io::BufReader<File>>>;
 
 struct TrackRecord {
@@ -47,6 +54,7 @@ pub(super) struct AudioWorker {
     // Rodio reports elapsed time in the replacement source. Keep the seek
     // offset here, and reset it on a genuine successor transition.
     position_offset: Duration,
+    speed: f32,
 }
 
 impl AudioWorker {
@@ -65,6 +73,7 @@ impl AudioWorker {
             events,
             intent,
             position_offset: Duration::ZERO,
+            speed: 1.0,
         }
     }
 
@@ -160,9 +169,14 @@ impl AudioWorker {
         current: ActiveSource,
         path: PathBuf,
         gain: GainConfig,
-        volume: f32,
-        paused: bool,
+        options: LoadOptions,
     ) -> Result<(), String> {
+        let LoadOptions {
+            volume,
+            paused,
+            start,
+            speed,
+        } = options;
         crate::shared::diagnostics::record(
             "audio_load_begin",
             serde_json::json!({"session": current.id, "paused": paused}),
@@ -182,7 +196,13 @@ impl AudioWorker {
             current: Some(current),
             phase: PlaybackPhase::Failed,
         };
-        let source = open_source(&path, gain)?;
+        let mut source = open_source(&path, gain)?;
+        let target = Duration::from_secs_f64(start.max(0.0));
+        if !target.is_zero() {
+            source.try_seek(target).map_err(|e| e.to_string())?;
+        }
+        self.position_offset = target;
+        self.speed = speed;
         crate::shared::diagnostics::record(
             "audio_decode_ready",
             serde_json::json!({"session": current.id}),
@@ -191,6 +211,7 @@ impl AudioWorker {
             return Ok(());
         }
         let next = self.backend.new_sink(volume, paused)?;
+        next.set_speed(speed);
         crate::shared::diagnostics::record(
             "audio_sink_ready",
             serde_json::json!({"session": current.id}),
@@ -240,7 +261,13 @@ impl AudioWorker {
         }
     }
 
-    fn seek(&mut self, source_id: SourceIdentity, epoch: u64, seconds: f64) -> Result<(), String> {
+    fn seek(
+        &mut self,
+        source_id: SourceIdentity,
+        epoch: u64,
+        seconds: f64,
+        speed: Option<f32>,
+    ) -> Result<(), String> {
         if !self.intent.seek_is_live(source_id.generation, epoch) {
             return Ok(());
         }
@@ -284,6 +311,8 @@ impl AudioWorker {
             }
         };
         let next = self.backend.new_sink(volume, paused)?;
+        let speed = speed.unwrap_or(self.speed);
+        next.set_speed(speed);
         if !self.intent.replace_playing(
             source_id,
             epoch,
@@ -302,6 +331,7 @@ impl AudioWorker {
         self.backend.stop_sink();
         self.playback = WorkerPlayback::loaded(current);
         self.position_offset = target;
+        self.speed = speed;
         next.append(source);
         self.backend.sink = Some(next);
         Ok(())
@@ -322,7 +352,9 @@ impl AudioWorker {
         }
         let loading = matches!(
             queued.command,
-            AudioCommand::Load { .. } | AudioCommand::LoadWithGain { .. }
+            AudioCommand::Load { .. }
+                | AudioCommand::LoadWithGain { .. }
+                | AudioCommand::LoadAt { .. }
         );
         let current = |id| ActiveSource {
             source: queued.source.unwrap(),
@@ -335,14 +367,52 @@ impl AudioWorker {
                 path,
                 volume,
                 paused,
-            } => self.load(current(id), path, GainConfig::default(), volume, paused),
+            } => self.load(
+                current(id),
+                path,
+                GainConfig::default(),
+                LoadOptions {
+                    volume,
+                    paused,
+                    start: 0.0,
+                    speed: 1.0,
+                },
+            ),
             AudioCommand::LoadWithGain {
                 id,
                 path,
                 volume,
                 paused,
                 gain,
-            } => self.load(current(id), path, gain, volume, paused),
+            } => self.load(
+                current(id),
+                path,
+                gain,
+                LoadOptions {
+                    volume,
+                    paused,
+                    start: 0.0,
+                    speed: 1.0,
+                },
+            ),
+            AudioCommand::LoadAt {
+                id,
+                path,
+                volume,
+                paused,
+                start,
+                speed,
+            } => self.load(
+                current(id),
+                path,
+                GainConfig::default(),
+                LoadOptions {
+                    volume,
+                    paused,
+                    start,
+                    speed,
+                },
+            ),
             AudioCommand::AppendNext {
                 token,
                 id,
@@ -369,7 +439,21 @@ impl AudioWorker {
                 }
                 Ok(())
             }
-            AudioCommand::Seek(seconds) => self.seek(queued.source.unwrap(), queued.epoch, seconds),
+            AudioCommand::Seek(seconds) => self.seek(
+                queued.source.unwrap(),
+                queued.epoch,
+                seconds,
+                Some(queued.speed),
+            ),
+            AudioCommand::Speed(speed) => {
+                let seconds = self.position_offset.as_secs_f64()
+                    + self
+                        .backend
+                        .sink
+                        .as_ref()
+                        .map_or(0.0, |s| s.get_pos().as_secs_f64() * self.speed as f64);
+                self.seek(queued.source.unwrap(), queued.epoch, seconds, Some(speed))
+            }
             AudioCommand::Stop { handoff } => {
                 self.backend.stop();
                 self.playback = WorkerPlayback::default();
@@ -415,7 +499,7 @@ impl AudioWorker {
         {
             let position = self
                 .position_offset
-                .saturating_add(sink.get_pos())
+                .saturating_add(sink.get_pos().mul_f64(self.speed as f64))
                 .as_secs_f64();
             // The callback can switch sources while get_pos runs. Recheck the
             // source latch so successor positions never get labeled as predecessor progress.

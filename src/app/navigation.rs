@@ -35,8 +35,22 @@ pub enum SettingsSection {
     TranslationLanguage,
 }
 
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PodcastPage {
+    Home,
+    Feed(i64),
+    Latest,
+    Downloads,
+    Continue,
+    Episode(i64),
+    Playing,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    Podcasts(PodcastPage),
     Home,
     Music,
     Videos,
@@ -62,6 +76,15 @@ impl Screen {
         match self {
             Self::Home => "iPod",
             Self::Music => "Music",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::Podcasts(page) => match page {
+                PodcastPage::Home | PodcastPage::Feed(_) => "Podcasts",
+                PodcastPage::Latest => "Latest Episodes",
+                PodcastPage::Downloads => "Downloaded Episodes",
+                PodcastPage::Continue => "Continue Listening",
+                PodcastPage::Episode(_) => "Episode Details",
+                PodcastPage::Playing => "Now Playing",
+            },
             Self::Videos => "Videos",
             Self::VideoPlaying => "Now Playing",
             Self::Groups(Group::Artists) => "Artists",

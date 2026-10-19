@@ -3,6 +3,7 @@ mod library;
 mod lyrics;
 #[path = "controller/playlists.rs"]
 mod playlist_service;
+mod podcasts;
 mod statistics;
 mod video;
 
@@ -59,6 +60,7 @@ pub struct Controller {
     pub state: State,
     pub dispatcher: Dispatcher,
     engine: Engine,
+    podcasts: podcasts::Podcasts,
     video_engine: crate::video::engine::Engine,
     video_tasks: video::VideoTasks,
     video_thumbnails: super::video_thumbnails::VideoThumbnails,
@@ -166,6 +168,7 @@ impl Controller {
             state,
             dispatcher: Dispatcher::new(keymap),
             engine: Engine::default(),
+            podcasts: podcasts::Podcasts::new(directory.clone()),
             video_engine: crate::video::engine::Engine::default(),
             video_tasks,
             video_thumbnails: super::video_thumbnails::VideoThumbnails::default(),
@@ -417,6 +420,9 @@ impl Controller {
     }
 
     fn dismiss_overlays_for_home(&mut self, ui: &AppWindow) {
+        if ui.get_podcast_subscribe_open() {
+            self.podcast_command(ui, "close");
+        }
         ui.set_subtitle_menu_open(false);
         if ui.get_genius_preview_open() {
             self.genius_command(ui, "close");
@@ -610,6 +616,7 @@ impl Controller {
     fn effects(&mut self, ui: &AppWindow, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::Podcast(action) => self.podcast_action(ui, action),
                 Effect::Audio(command) => self.send_music(command),
                 Effect::Video(command) => self.send_video(command),
                 Effect::ImportVideos => {
@@ -735,6 +742,8 @@ impl Controller {
         self.pending_seek = None;
         if self.state.video_active {
             self.state.video_status = crate::video::Status::Error;
+        } else if self.state.podcasts.active.is_some() {
+            self.state.podcasts.status = PlaybackStatus::Error;
         } else {
             self.state.status = PlaybackStatus::Error;
         }
@@ -742,6 +751,13 @@ impl Controller {
     }
 
     fn send_music(&mut self, command: AudioCommand) {
+        if matches!(
+            command,
+            AudioCommand::Load { .. } | AudioCommand::LoadWithGain { .. }
+        ) {
+            self.leave_podcast();
+        }
+        self.podcast_transport(&command);
         let command = match command {
             AudioCommand::Load {
                 id,
@@ -793,7 +809,9 @@ impl Controller {
         };
         if matches!(
             command,
-            AudioCommand::LoadWithGain { .. } | AudioCommand::Load { .. }
+            AudioCommand::LoadWithGain { .. }
+                | AudioCommand::Load { .. }
+                | AudioCommand::LoadAt { .. }
         ) {
             self.handoff += 1;
             self.pending_seek = None;
@@ -802,6 +820,9 @@ impl Controller {
                 handoff: self.handoff,
                 command,
             });
+            if self.podcast_deletion_pending() {
+                return;
+            }
             if let Err(error) = self.video_engine.send(crate::video::engine::Command::Stop {
                 handoff: self.handoff,
             }) {
@@ -885,7 +906,9 @@ impl Controller {
     }
 
     fn schedule_gapless_prefetch(&mut self) {
-        if self.pending_media.is_some()
+        if self.podcast_deletion_pending()
+            || self.state.podcasts.active.is_some()
+            || self.pending_media.is_some()
             || self.state.video_active
             || !self.state.gapless_playback
             || matches!(
@@ -942,6 +965,7 @@ impl Controller {
     fn send_video(&mut self, command: crate::video::engine::Command) {
         use crate::video::engine::Command;
         if let Command::Load { video, .. } = &command {
+            self.leave_podcast();
             self.playback_session = None;
             self.media_marker = None;
             self.media_bridge.publish(None);
@@ -954,6 +978,9 @@ impl Controller {
                 handoff: self.handoff,
                 command,
             });
+            if self.podcast_deletion_pending() {
+                return;
+            }
             if let Err(error) = self.engine.send(AudioCommand::Stop {
                 handoff: self.handoff,
             }) {
@@ -1018,10 +1045,21 @@ impl Controller {
             return;
         };
         if let AudioCommand::Load { volume, paused, .. }
-        | AudioCommand::LoadWithGain { volume, paused, .. } = &mut command
+        | AudioCommand::LoadWithGain { volume, paused, .. }
+        | AudioCommand::LoadAt { volume, paused, .. } = &mut command
         {
             *volume = self.state.effective_volume();
-            *paused = self.state.paused;
+            *paused = if self.state.podcasts.active.is_some() {
+                self.state.podcasts.paused
+            } else {
+                self.state.paused
+            };
+        }
+        if let AudioCommand::LoadAt { start, speed, .. } = &mut command {
+            *speed = self.state.podcasts.speed;
+            if let Some(seconds) = self.pending_seek.take() {
+                *start = seconds;
+            }
         }
         if let Err(error) = self.engine.send(command) {
             self.media_error(error);
@@ -1367,6 +1405,7 @@ impl Controller {
     }
 
     pub fn save_settings(&mut self, ui: &AppWindow) {
+        self.save_podcast_progress();
         let size = ui.window().size().to_logical(ui.window().scale_factor());
         let (saved_width, saved_height) = if self.state.landscape_video() {
             crate::video::orientation::saved_size(
@@ -1547,6 +1586,7 @@ impl Controller {
             }
         }
         self.poll_romaji(ui);
+        self.poll_podcasts(ui);
         self.poll_statistics();
         self.poll_deletions();
         self.poll_library_monitor();
@@ -1556,6 +1596,9 @@ impl Controller {
         self.poll_playlists(ui);
         self.poll_videos(ui);
         while let Ok(event) = self.engine.events.try_recv() {
+            if self.podcast_audio_event(&event) {
+                continue;
+            }
             match event {
                 AudioEvent::Stopped { handoff } => self.finish_video_handoff(handoff),
                 AudioEvent::Progress {
@@ -1653,19 +1696,23 @@ impl Controller {
 
     fn poll_media_commands(&mut self, ui: &AppWindow) {
         while let Some(command) = self.media_bridge.poll_command() {
+            let (paused, status) = if self.state.podcasts.active.is_some() {
+                (self.state.podcasts.paused, self.state.podcasts.status)
+            } else {
+                (self.state.paused, self.state.status)
+            };
             match command {
                 crate::platform::macos_media::RemoteCommand::Play => {
-                    if self.state.paused
-                        || matches!(
-                            self.state.status,
-                            PlaybackStatus::Stopped | PlaybackStatus::Error
-                        )
-                    {
+                    if paused || matches!(status, PlaybackStatus::Stopped | PlaybackStatus::Error) {
                         self.execute(ui, Action::TogglePlay);
                     }
                 }
                 crate::platform::macos_media::RemoteCommand::Pause => {
-                    if !self.state.paused && self.state.status == PlaybackStatus::Playing {
+                    if (self.state.podcasts.active.is_some() && !self.state.podcasts.paused)
+                        || (self.state.podcasts.active.is_none()
+                            && !self.state.paused
+                            && self.state.status == PlaybackStatus::Playing)
+                    {
                         self.execute(ui, Action::TogglePlay);
                     }
                 }
@@ -1687,6 +1734,9 @@ impl Controller {
     }
 
     fn publish_media_snapshot(&mut self) {
+        if self.publish_podcast_snapshot() {
+            return;
+        }
         let current = self.state.current;
         let position = self.state.position.floor().max(0.0) as i64;
         let marker = (current, self.state.status, position);
@@ -2209,6 +2259,7 @@ impl Controller {
             ui.set_previous_rows(ui.get_rows());
             ui.set_previous_playlist_list(ui.get_playlist_list());
             ui.set_previous_music_list(ui.get_music_list());
+            ui.set_previous_podcast_list(ui.get_podcast_list());
             ui.set_previous_playlist_content(ui.get_playlist_content());
             ui.set_previous_shuffle_list(ui.get_shuffle_list());
             ui.set_previous_rating_visible(ui.get_rating_visible());
@@ -2245,6 +2296,7 @@ impl Controller {
         ui.set_screen(match screen {
             Screen::Home => 0,
             Screen::NowPlaying => 2,
+            Screen::Podcasts(super::navigation::PodcastPage::Playing) => 10,
             Screen::VideoPlaying => 9,
             Screen::Search => 3,
             Screen::Placeholder(_) => 4,
@@ -2390,16 +2442,18 @@ impl Controller {
             );
             let source_rows = self.state.rows();
             self.row_artwork = source_rows.iter().map(|row| row.artwork_id).collect();
-            let rows = source_rows
-                .into_iter()
-                .map(|row| LibraryRow {
-                    setting: self.state.is_settings_list(),
-                    toggle: self.state.is_settings_list()
-                        && self.state.setting_toggle(&row.target).is_some(),
-                    checked: self.state.setting_selected(&row.target)
-                        || self.state.setting_toggle(&row.target).unwrap_or(false),
-                    value: self.text(&self.state.setting_value(&row.target)),
-                    icon: match (&row.target, screen) {
+            let rows =
+                source_rows
+                    .into_iter()
+                    .map(|row| LibraryRow {
+                        setting: self.state.is_settings_list(),
+                        toggle: self.state.is_settings_list()
+                            && self.state.setting_toggle(&row.target).is_some(),
+                        checked: self.state.setting_selected(&row.target)
+                            || self.state.setting_toggle(&row.target).unwrap_or(false),
+                        value: self.text(&self.state.setting_value(&row.target)),
+                        icon: self.podcast_row_icon(&row.target).unwrap_or({
+                            match (&row.target, screen) {
                         (Target::PlayVideo(_), _) => 9,
                         (Target::GeniusPreview, _) => 1,
                         (Target::Screen(Screen::NowPlaying), Screen::Music) => 8,
@@ -2421,62 +2475,77 @@ impl Controller {
                         ) => 7,
                         (Target::Screen(Screen::Songs(_)), Screen::Groups(Group::Playlists)) => 2,
                         _ => 0,
-                    },
-                    title: if *screen == Screen::LyricSongs
-                        || (matches!(screen, Screen::LyricsSearch(_))
-                            && matches!(&row.target, Target::Screen(Screen::LyricSongs)))
-                        || matches!(&row.target, Target::PlayVideo(_))
-                        || (metadata_rows && !matches!(&row.target, Target::Action(_)))
-                        || matches!(
-                            &row.target,
-                            Target::Screen(Screen::Songs(Filter::Playlist { .. }))
-                        ) {
-                        row.title.into()
-                    } else {
-                        self.text(&row.title)
-                    },
-                    subtitle: if matches!(row.target, Target::FindLyrics(_)) {
-                        i18n::notice(self.state.language, &row.subtitle).into()
-                    } else if matches!(row.target, Target::Action(Action::AutomaticLyrics)) {
-                        self.text(&row.subtitle)
-                    } else if let Target::Shortcut(action) = row.target {
-                        self.text(&self.dispatcher.keymap.labels(action))
-                    } else if matches!(screen, Screen::Groups(Group::Playlists)) {
-                        i18n::notice(self.state.language, &row.subtitle).into()
-                    } else {
-                        if metadata_rows
-                            || *screen == Screen::LyricSongs
+                    }
+                        }),
+                        title: if *screen == Screen::LyricSongs
                             || (matches!(screen, Screen::LyricsSearch(_))
-                                && matches!(row.target, Target::Screen(Screen::LyricSongs)))
+                                && matches!(&row.target, Target::Screen(Screen::LyricSongs)))
                             || matches!(
-                                row.target,
-                                Target::Translation(crate::translation::Command::Translate)
-                            ) && self.state.current.is_some()
-                            || (*screen == Screen::Music
-                                && matches!(row.target, Target::Screen(Screen::NowPlaying)))
-                            || matches!(
-                                screen,
-                                Screen::Lyrics(_) | Screen::Languages | Screen::Fonts
+                                &row.target,
+                                Target::PlayVideo(_)
+                                    | Target::Podcast(crate::podcast::Action::Play(..))
+                                    | Target::Screen(Screen::Podcasts(
+                                        super::navigation::PodcastPage::Feed(_)
+                                    ))
                             )
-                        {
-                            row.subtitle.into()
+                            || (metadata_rows && !matches!(&row.target, Target::Action(_)))
+                            || matches!(
+                                &row.target,
+                                Target::Screen(Screen::Songs(Filter::Playlist { .. }))
+                            ) {
+                            row.title.into()
                         } else {
+                            self.text(&row.title)
+                        },
+                        subtitle: if matches!(row.target, Target::FindLyrics(_)) {
+                            i18n::notice(self.state.language, &row.subtitle).into()
+                        } else if matches!(row.target, Target::Action(Action::AutomaticLyrics)) {
                             self.text(&row.subtitle)
-                        }
-                    },
-                    artwork: if let Target::PlayVideo(id) = row.target {
-                        self.state
-                            .videos
-                            .get(id)
-                            .and_then(|video| self.video_thumbnails.cached(&video.path))
-                            .unwrap_or_default()
-                    } else {
-                        row.artwork_id
-                            .and_then(|id| self.thumbnails.cached(id))
-                            .unwrap_or_default()
-                    },
-                    show_artwork: matches!(row.target, Target::PlayVideo(_))
-                        || (!matches!(row.target, Target::Action(_))
+                        } else if let Target::Shortcut(action) = row.target {
+                            self.text(&self.dispatcher.keymap.labels(action))
+                        } else if matches!(screen, Screen::Groups(Group::Playlists)) {
+                            i18n::notice(self.state.language, &row.subtitle).into()
+                        } else {
+                            if metadata_rows
+                                || *screen == Screen::LyricSongs
+                                || (matches!(screen, Screen::LyricsSearch(_))
+                                    && matches!(row.target, Target::Screen(Screen::LyricSongs)))
+                                || matches!(
+                                    row.target,
+                                    Target::Translation(crate::translation::Command::Translate)
+                                ) && self.state.current.is_some()
+                                || (*screen == Screen::Music
+                                    && matches!(row.target, Target::Screen(Screen::NowPlaying)))
+                                || matches!(
+                                    screen,
+                                    Screen::Lyrics(_) | Screen::Languages | Screen::Fonts
+                                )
+                            {
+                                row.subtitle.into()
+                            } else {
+                                self.text(&row.subtitle)
+                            }
+                        },
+                        artwork: if let Some(image) = self.podcast_row_artwork(&row.target) {
+                            image
+                        } else if let Target::PlayVideo(id) = row.target {
+                            self.state
+                                .videos
+                                .get(id)
+                                .and_then(|video| self.video_thumbnails.cached(&video.path))
+                                .unwrap_or_default()
+                        } else {
+                            row.artwork_id
+                                .and_then(|id| self.thumbnails.cached(id))
+                                .unwrap_or_default()
+                        },
+                        show_artwork: matches!(
+                            row.target,
+                            Target::PlayVideo(_)
+                                | Target::Screen(Screen::Podcasts(
+                                    super::navigation::PodcastPage::Feed(_)
+                                ))
+                        ) || (!matches!(row.target, Target::Action(_))
                             && matches!(
                                 screen,
                                 Screen::Groups(
@@ -2484,30 +2553,30 @@ impl Controller {
                                         | super::navigation::Group::Albums
                                 ) | Screen::Artist(_)
                             )),
-                    chevron: matches!(
-                        row.target,
-                        Target::Screen(_)
-                            | Target::Shortcut(_)
-                            | Target::GeniusPreview
-                            | Target::Action(
-                                Action::ConfigureDeepSeek
-                                    | Action::ManageLyrics
-                                    | Action::ImportLyrics
-                                    | Action::ImportFolder
-                                    | Action::ImportVideos
-                                    | Action::NewPlaylist
-                                    | Action::EditPlaylist
-                                    | Action::Search
-                            )
-                    ) && !(*screen == Screen::Music
-                        && matches!(row.target, Target::Screen(Screen::NowPlaying))),
-                    font_family: if let Target::Font(font) = row.target {
-                        font.family().into()
-                    } else {
-                        "".into()
-                    },
-                })
-                .collect::<Vec<_>>();
+                        chevron: matches!(
+                            row.target,
+                            Target::Screen(_)
+                                | Target::Shortcut(_)
+                                | Target::GeniusPreview
+                                | Target::Action(
+                                    Action::ConfigureDeepSeek
+                                        | Action::ManageLyrics
+                                        | Action::ImportLyrics
+                                        | Action::ImportFolder
+                                        | Action::ImportVideos
+                                        | Action::NewPlaylist
+                                        | Action::EditPlaylist
+                                        | Action::Search
+                                )
+                        ) && !(*screen == Screen::Music
+                            && matches!(row.target, Target::Screen(Screen::NowPlaying))),
+                        font_family: if let Target::Font(font) = row.target {
+                            font.family().into()
+                        } else {
+                            "".into()
+                        },
+                    })
+                    .collect::<Vec<_>>();
             self.library_rows = Rc::new(VecModel::from(rows));
             ui.set_rows(self.library_rows.clone().into());
             self.last_query.clone_from(&self.state.query);
@@ -2537,6 +2606,7 @@ impl Controller {
                     | Screen::LyricSongs
                     | Screen::Languages
                     | Screen::Fonts
+                    | Screen::Podcasts(_)
             ) {
                 let row_height = ui.get_list_row_height();
                 let playlist_list = *screen == Screen::Groups(Group::Playlists);
@@ -2658,6 +2728,7 @@ impl Controller {
             self.last_lyric = active;
         }
         self.last_scale = scale;
+        self.sync_podcasts(ui);
     }
 
     fn refresh_video_thumbnails(&mut self, ui: &AppWindow, screen: &Screen) {
@@ -3555,6 +3626,7 @@ impl Controller {
 
 impl Drop for Controller {
     fn drop(&mut self) {
+        self.save_podcast_progress();
         self.cancel_online_lyrics();
         // Drain queued user ratings/statistics before process exit.
         self.statistics.shutdown();
@@ -3655,6 +3727,22 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     ui.on_playlist_command(move |command, id| {
         if let Some(ui) = weak.upgrade() {
             state.borrow_mut().playlist_command(&ui, &command, &id);
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_podcast_details(move |index| {
+        if let Some(ui) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .podcast_details(&ui, index.max(0) as usize);
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_podcast_command(move |command| {
+        if let Some(ui) = weak.upgrade() {
+            state.borrow_mut().podcast_command(&ui, &command);
         }
     });
     let weak = ui.as_weak();

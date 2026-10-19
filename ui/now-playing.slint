@@ -42,6 +42,8 @@ component PlaybackBackArea inherits SwipeGestureHandler {
 
 export component NowPlayingView inherits Rectangle {
     in property <int> navigation-generation;
+    in property <bool> spoken-mode: false;
+    in property <string> spoken-speed: "1X";
     in property <float> s;
     in property <bool> touch-mode: false;
     in property <bool> navigation-enabled: true;
@@ -118,7 +120,7 @@ export component NowPlayingView inherits Rectangle {
         if root.artwork.width == 0: Image {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 116px * root.s; height: 128px * root.s;
-            source: @image-url("../assets/icons/music.svg"); colorize: #dce8f3;
+            source: root.spoken-mode ? @image-url("../assets/icons/podcast.svg") : @image-url("../assets/icons/music.svg"); colorize: #dce8f3;
         }
         PlaybackBackArea {
             s: root.s; enabled: root.navigation-enabled;
@@ -144,13 +146,34 @@ export component NowPlayingView inherits Rectangle {
                     {icon: @image-url("../assets/icons/shuffle.svg"), action: 4, active: root.shuffle},
                     {icon: @image-url("../assets/icons/track-list.svg"), action: 6, active: false},
                 ]: IconButton {
+                    visible: !root.spoken-mode;
                     x: index * parent.width / 4; width: parent.width / 4; height: parent.height;
                     s: root.s; flat: true; icon-size: 27px * root.s;
                     selected: root.selection-visible && root.selected == control.action;
                     active: control.active; icon: control.icon;
                     clicked => { if control.action == 7 { root.genius-requested(); } else { root.activated(control.action); } }
                 }
-                if root.repeat-mode == "One": Text { x: 15px * root.s; y: 12px * root.s; width: 10px * root.s; height: 12px * root.s; text: "1"; color: #94eeff; font-size: 8px * root.s; font-weight: 700; horizontal-alignment: center; }
+                if root.spoken-mode: Rectangle {
+                    for control[index] in [
+                        {icon: @image-url("../assets/icons/repeat.svg"), action: 4},
+                        {icon: @image-url("../assets/icons/rewind-30.svg"), action: 5},
+                        {icon: @image-url("../assets/icons/track-list.svg"), action: 7},
+                    ]: IconButton {
+                        x: (index == 2 ? 3 : index) * parent.width / 4; width: parent.width / 4; height: parent.height;
+                        s: root.s; flat: true; icon-size: 27px * root.s; icon: control.icon;
+                        selected: root.selection-visible && root.selected == control.action;
+                        active: control.action == 4 && root.repeat-mode != "Off";
+                        clicked => { root.activated(control.action); }
+                    }
+                    Rectangle {
+                        x: parent.width / 2 + 17px * root.s; y: 10px * root.s; width: 27px * root.s; height: 21px * root.s;
+                        background: @linear-gradient(180deg, #fff, #d5d5d5); border-radius: 4px * root.s;
+                        border-width: root.selection-visible && root.selected == 6 ? 2px * root.s : 0px; border-color: #65b9ff;
+                        Text { text: root.spoken-speed; color: #222; font-size: 13px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        TouchArea { clicked => { root.activated(6); } }
+                    }
+                }
+                if !root.spoken-mode && root.repeat-mode == "One": Text { x: 15px * root.s; y: 12px * root.s; width: 10px * root.s; height: 12px * root.s; text: "1"; color: #94eeff; font-size: 8px * root.s; font-weight: 700; horizontal-alignment: center; }
             }
             if root.lyrics-visible: lyrics-scroll := ElasticFlickable {
                 y: 102px * root.s; height: parent.height - self.y;
