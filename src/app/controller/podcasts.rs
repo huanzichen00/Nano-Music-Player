@@ -645,9 +645,6 @@ impl Controller {
             );
             self.podcasts.artwork = artwork;
         }
-        if self.state.podcasts.active.is_some() {
-            ui.set_playing(self.state.podcasts.status == PlaybackStatus::Playing);
-        }
     }
     pub(super) fn publish_podcast_snapshot(&mut self) -> bool {
         let Some(e) = self.state.podcasts.current() else {

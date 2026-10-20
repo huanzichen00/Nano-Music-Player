@@ -2340,7 +2340,11 @@ impl Controller {
         ui.set_selected(self.state.navigation.selected() as i32);
         ui.set_home_page(self.state.home_page as i32);
         ui.set_clock_text(chrono::Local::now().format("%-I:%M %p").to_string().into());
-        ui.set_playing(if self.state.video_active {
+        // Publish only the active owner's state. Transient music/podcast flips
+        // rebuild the transport buttons and discard an in-progress mouse click.
+        ui.set_playing(if self.state.podcasts.active.is_some() {
+            self.state.podcasts.status == PlaybackStatus::Playing
+        } else if self.state.video_active {
             self.state.video_status == crate::video::Status::Playing
         } else {
             self.state.status == PlaybackStatus::Playing

@@ -113,6 +113,10 @@ fn display_point(ui: &AppWindow, x: f32, y: f32) -> slint::LogicalPosition {
 }
 
 fn click(ui: &AppWindow, x: f32, y: f32) {
+    click_with_update(ui, x, y, || {});
+}
+
+fn click_with_update(ui: &AppWindow, x: f32, y: f32, update: impl FnOnce()) {
     use slint::platform::{PointerEventButton, WindowEvent};
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
     let position = display_point(ui, x, y);
@@ -122,6 +126,7 @@ fn click(ui: &AppWindow, x: f32, y: f32) {
         position,
         button: PointerEventButton::Left,
     });
+    update();
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(120));
     ui.window().dispatch_event(WindowEvent::PointerReleased {
         position,
@@ -317,6 +322,30 @@ fn desktop_rss_preview_subscription_navigation_and_player_render() {
     assert_eq!(ui.get_podcast_title(), "Finding a little space to listen");
     assert!(c.borrow().state.current.is_none());
     snapshot(&ui, "podcast-playing.png");
+    // Space works without a pointer grab. A normal click must also survive
+    // the controller's background UI refreshes between mouse-down and mouse-up.
+    use slint::platform::WindowEvent;
+    ui.window()
+        .dispatch_event(WindowEvent::KeyPressed { text: " ".into() });
+    ui.window()
+        .dispatch_event(WindowEvent::KeyReleased { text: " ".into() });
+    assert!(!c.borrow().state.podcasts.paused);
+    assert!(ui.get_playing());
+    for paused in [true, false, true, false] {
+        click_with_update(&ui, 120.0, 365.0, || {
+            for _ in 0..3 {
+                i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(40));
+                c.borrow_mut().poll(&ui);
+                ui.window().take_snapshot().unwrap();
+            }
+        });
+        assert_eq!(
+            c.borrow().state.podcasts.paused,
+            paused,
+            "the podcast play/pause click must survive polling while held"
+        );
+        assert_eq!(ui.get_playing(), !paused);
+    }
     click(&ui, 25.0, 13.0);
     assert!(ui.get_podcast_detail());
     c.borrow_mut().execute(&ui, Action::NowPlaying);
