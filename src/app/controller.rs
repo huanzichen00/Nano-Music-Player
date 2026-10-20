@@ -1242,7 +1242,7 @@ impl Controller {
         else {
             return;
         };
-        let title = self.text("Import / Replace…").to_string();
+        let title = self.text("Import ASS/SSA…").to_string();
         self.video_tasks
             .start_subtitle_import(generation, video_path, title);
         self.dialog_open = true;

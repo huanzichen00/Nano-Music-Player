@@ -1173,7 +1173,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("Subtitles…", "字幕…", "字幕…"),
     ("Subtitles", "字幕", "字幕"),
-    ("Import / Replace…", "导入 / 替换…", "インポート / 置換…"),
+    ("Import ASS/SSA…", "导入 ASS/SSA…", "ASS/SSA をインポート…"),
     ("Remove External Subtitle", "移除外部字幕", "外部字幕を削除"),
     ("External", "外部", "外部"),
     ("Track", "轨道", "トラック"),

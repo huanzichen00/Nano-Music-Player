@@ -355,7 +355,8 @@ fn subtitle_menu_pointer_selection_persists_per_video() {
         audio_codec: None,
     }]);
     open_video(&ui, &controller, 1);
-    ui.invoke_subtitle_command("open".into());
+    // Enter through the playback button, as a user would without the File menu.
+    click_body(&ui, 78.0, 249.5);
     assert!(ui.get_subtitle_menu_open());
     // The second row is Off. Click the rendered row rather than invoking the
     // selection callback so the hit target and controller wiring are covered.

@@ -18,6 +18,7 @@ export component VideoView inherits Rectangle {
     in property <int> selected: 1;
     private property <bool> landscape: root.width > root.height;
     callback command(string);
+    callback subtitles-requested;
     callback seek-changed(float);
     callback volume-changed(float);
     background: black;
@@ -53,7 +54,8 @@ export component VideoView inherits Rectangle {
                     clicked => { root.command(item.action); }
                 }
             }
-            NanoSlider { x: root.landscape ? transport.x + 4px * root.s : 17px * root.s; y: (root.landscape ? 60px : 66px) * root.s; width: root.landscape ? transport.width - 36px * root.s : parent.width - 58px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
+            NanoActionButton { x: 6px * root.s; y: parent.height - 31px * root.s; width: 72px * root.s; height: 25px * root.s; s: root.s; label: "Subtitles"; clicked => { root.subtitles-requested(); } }
+            NanoSlider { x: root.landscape ? transport.x + 4px * root.s : 90px * root.s; y: (root.landscape ? 60px : 66px) * root.s; width: root.landscape ? transport.width - 36px * root.s : parent.width - 131px * root.s; s: root.s; value: root.muted ? 0 : root.volume; selected: root.selection-visible && root.selected == 3; changed(value) => { root.volume-changed(value); } }
             Image { x: root.landscape ? transport.x + transport.width - 22px * root.s : parent.width - 32px * root.s; y: (root.landscape ? 64px : 70px) * root.s; width: 18px * root.s; height: 18px * root.s; source: root.muted ? @image-url("../assets/icons/volume-xmark.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: white; image-fit: contain; TouchArea { clicked => { root.command("toggle_mute"); } } }
         }
     }

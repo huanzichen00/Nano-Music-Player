@@ -15,6 +15,10 @@ Desktop volume is also visible. Frames fit the available display without croppin
 Landscape playback rotates the whole device, as described below.
 ASS/SSA sidecars, embedded subtitle tracks, selection/Off and per-video preferences
 are supported; see [subtitle implementation](SUBTITLES_IMPLEMENTATION_PLAN.md).
+During playback, tap the image to reveal the controls, then choose **Subtitles →
+Import ASS/SSA…** to attach or replace a subtitle file for that video. The Subtitles
+button is at the bottom left in portrait/landscape and Device/Screen Mode. Desktop
+users can also choose **File → Import ASS/SSA…** while the video screen is open.
 Chapter selection, rentals and video playlists are outside this milestone.
 
 ## Watch progress
