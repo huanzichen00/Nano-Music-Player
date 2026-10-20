@@ -674,3 +674,77 @@ fn actual_video_import_frames_rotation_and_music_handoff() {
     assert_size(&ui, true, false, 1.25);
     assert_eq!(controller.borrow().state.queue.current(), Some(0));
 }
+
+#[test]
+fn missing_rows_are_kept_until_clicked_then_removed_from_list_and_disk() {
+    let directory = tempfile::tempdir().unwrap();
+    let deleted = directory.path().join("deleted.mp4");
+    let moved = directory.path().join("moved.mp4");
+    let new_path = directory.path().join("new-location.mp4");
+    std::fs::write(&deleted, b"unclicked fixture").unwrap();
+    std::fs::write(&moved, b"unclicked fixture").unwrap();
+    let videos: Vec<_> = [deleted.clone(), moved.clone()]
+        .into_iter()
+        .map(|path| Video {
+            title: path.file_stem().unwrap().to_string_lossy().into_owned(),
+            path,
+            duration: 120.0,
+            width: 320,
+            height: 180,
+            display_aspect: 16.0 / 9.0,
+            video_codec: "h264".into(),
+            audio_codec: None,
+        })
+        .collect();
+    let database = directory.path().join("videos.json");
+    let original_bytes = serde_json::to_vec(&videos).unwrap();
+    std::fs::write(&database, &original_bytes).unwrap();
+    let (ui, controller) = setup(directory.path());
+    wait_for(&ui, &controller, |c, _| c.state.videos.len() == 2);
+    std::fs::remove_file(&deleted).unwrap();
+    std::fs::rename(&moved, &new_path).unwrap();
+    {
+        let mut c = controller.borrow_mut();
+        c.state.navigation.open(Screen::Videos);
+        c.state.video_progress.record(&deleted, 42.5, 120.0);
+        c.execute(&ui, Action::FinishSearchEditing);
+        for _ in 0..5 {
+            c.poll(&ui);
+        }
+        assert_eq!(
+            c.state.videos.len(),
+            2,
+            "unclicked missing rows must remain"
+        );
+    }
+    assert_eq!(std::fs::read(&database).unwrap(), original_bytes);
+    open_video(&ui, &controller, 1);
+    wait_for(&ui, &controller, |c, _| c.state.videos.len() == 1);
+    {
+        let c = controller.borrow();
+        assert_eq!(c.state.videos[0].path, moved);
+        assert!(!c.state.video_active);
+        assert_eq!(c.state.navigation.current().screen, Screen::Videos);
+        assert_eq!(c.state.video_progress.resume(&deleted, 120.0), 42.5);
+    }
+    assert_eq!(
+        nano_music_player::video::library::load(&database)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(ui.get_rows().row_count(), 2);
+    open_video(&ui, &controller, 1);
+    wait_for(&ui, &controller, |c, _| c.state.videos.is_empty());
+    assert!(
+        nano_music_player::video::library::load(&database)
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(ui.get_rows().row_count(), 1);
+    assert!(
+        new_path.is_file(),
+        "removing an entry never deletes the moved file"
+    );
+    assert!(ui.get_video_frame().size().width == 0);
+}

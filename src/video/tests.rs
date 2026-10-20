@@ -277,7 +277,7 @@ fn native_import_transport_generations_and_errors() {
         .unwrap();
     let start = Instant::now();
     loop {
-        if let Ok(Event::Error { generation, .. }) = engine.events.try_recv() {
+        if let Ok(Event::MissingFile { generation, .. }) = engine.events.try_recv() {
             assert_eq!(generation, 5);
             let progress = engine.take_progress().unwrap();
             assert_eq!((progress.generation, progress.status), (5, Status::Error));

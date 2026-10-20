@@ -114,17 +114,46 @@ pub fn import(paths: &[PathBuf], database: &Path) -> Result<ImportResult, String
         }
     }
     result.videos = sorted_unique(result.videos);
+    save(&result.videos, database)?;
+    Ok(result)
+}
+
+fn save(videos: &[Video], database: &Path) -> Result<(), String> {
     if let Some(parent) = database.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let temporary = database.with_extension("json.tmp");
     fs::write(
         &temporary,
-        serde_json::to_vec(&result.videos).map_err(|e| e.to_string())?,
+        serde_json::to_vec(videos).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    fs::rename(&temporary, database).map_err(|e| e.to_string())?;
-    Ok(result)
+    fs::rename(temporary, database).map_err(|e| e.to_string())
+}
+
+/// Metadata checks do not retain an open file or create a filesystem watch.
+/// Permission and other I/O errors must not be interpreted as a deleted file.
+pub fn path_missing(path: &Path) -> Result<bool, String> {
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(!metadata.is_file()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Run on the library worker, serialized with imports. Recheck after the playback
+/// worker's report so a file restored in the meantime is not removed.
+pub fn remove_missing(database: &Path, path: &Path) -> Result<bool, String> {
+    if !path_missing(path)? {
+        return Ok(false);
+    }
+    let mut videos = load(database)?;
+    let count = videos.len();
+    videos.retain(|video| video.path != path);
+    if videos.len() != count {
+        save(&videos, database)?;
+    }
+    Ok(true)
 }
 
 pub fn is_video(path: &Path) -> bool {

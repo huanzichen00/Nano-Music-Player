@@ -1286,6 +1286,32 @@ impl Controller {
         while let Some(event) = self.video_tasks.poll_import() {
             match event {
                 crate::video::import::Event::SelectionClosed => self.dialog_open = false,
+                crate::video::import::Event::RemovedMissing { path, result } => match result {
+                    Ok(true) => {
+                        let active_removed = self.state.video_active
+                            && self
+                                .state
+                                .video_current
+                                .and_then(|id| self.state.videos.get(id))
+                                .is_some_and(|video| video.path == path);
+                        self.save_video_progress(true);
+                        self.state.remove_video(&path);
+                        if active_removed {
+                            self.pending_media = None;
+                            self.pending_subtitle = None;
+                            self.pending_seek = None;
+                            let _ = self
+                                .video_engine
+                                .send(crate::video::engine::Command::Stop { handoff: 0 });
+                            ui.set_video_frame(slint::Image::default());
+                        }
+                        self.video_thumbnails.clear();
+                        self.rows_dirty = true;
+                        self.state.notice = "Removed missing video".into();
+                    }
+                    Ok(false) => self.state.notice.clear(),
+                    Err(error) => self.state.notice = format!("Video library error: {error}"),
+                },
                 crate::video::import::Event::Completed(result) => {
                     self.state.video_importing = false;
                     match result {
@@ -1313,6 +1339,14 @@ impl Controller {
         }
         while let Ok(event) = self.video_engine.events.try_recv() {
             match event {
+                crate::video::engine::Event::MissingFile { generation, path }
+                    if self.state.video_active && generation == self.state.video_generation =>
+                {
+                    self.state.video_status = crate::video::Status::Error;
+                    self.state.video_paused = true;
+                    ui.set_video_frame(slint::Image::default());
+                    self.video_tasks.remove_missing(path);
+                }
                 crate::video::engine::Event::SubtitleTracks { generation, tracks }
                     if self.state.video_active && generation == self.state.video_generation =>
                 {

@@ -29,6 +29,21 @@ handoff, settings save and normal shutdown. Abrupt process termination can lose 
 to the latest five seconds. Writes atomically replace the progress file; failures
 report an error and retain dirty history for retry.
 
+## Missing files
+
+The library retains imported rows until playback is requested. Clicking a video
+checks its original path on the playback worker before creating a libmpv session.
+A moved/deleted file (or a path replaced by a directory) is removed from
+`videos.json` and the visible list. The library worker rechecks the path before
+removal, serializes removals with imports, and reports persistence failures.
+Permission and other I/O errors preserve the row. Unclicked rows are not checked
+or removed; no per-video filesystem watchers or persistent file handles are added.
+Existing thumbnail extraction behavior is unchanged.
+
+Removing a row retains its watch progress and subtitle preferences. Reimporting a
+video at the same path can resume its previous position. Moving a file to another
+path does not automatically transfer its history or locate its new location.
+
 ## Whole-device landscape orientation
 
 The user requested that landscape playback turn the entire nano 90 degrees.

@@ -53,6 +53,10 @@ pub enum Event {
         handoff: u64,
     },
     Finished(Generation),
+    MissingFile {
+        generation: Generation,
+        path: std::path::PathBuf,
+    },
     SubtitleTracks {
         generation: Generation,
         tracks: Vec<SubtitleTrack>,
@@ -130,7 +134,27 @@ impl Engine {
                         // Destroy before opening: native events and callbacks cannot cross sessions.
                         session = None;
                         *output.lock().unwrap() = Latest::default();
-                        match Session::open(generation, &video, start, volume, paused, silent) {
+                        let opened = match super::library::path_missing(&video.path) {
+                            Ok(true) => {
+                                output.lock().unwrap().progress = Some(Progress {
+                                    generation,
+                                    status: Status::Error,
+                                    position: start,
+                                    duration: video.duration,
+                                    audio_output: None,
+                                });
+                                let _ = events.send(Event::MissingFile {
+                                    generation,
+                                    path: video.path,
+                                });
+                                continue;
+                            }
+                            Ok(false) => {
+                                Session::open(generation, &video, start, volume, paused, silent)
+                            }
+                            Err(message) => Err(message),
+                        };
+                        match opened {
                             Ok(next) => session = Some(next),
                             Err(message) => publish_error(
                                 &output,

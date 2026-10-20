@@ -1043,6 +1043,35 @@ impl State {
         }
     }
 
+    /// Remove one confirmed missing path, retaining progress and remapping the
+    /// active index by path so deletion cannot retarget another video's session.
+    pub fn remove_video(&mut self, path: &std::path::Path) {
+        self.remember_video_progress();
+        let current = self
+            .video_current
+            .and_then(|id| self.videos.get(id))
+            .map(|v| v.path.clone());
+        self.videos.retain(|video| video.path != path);
+        self.video_current = current
+            .as_ref()
+            .and_then(|path| self.videos.iter().position(|v| &v.path == path));
+        if self.video_active && self.video_current.is_none() {
+            self.video_active = false;
+            self.video_paused = true;
+            self.video_status = crate::video::Status::Finished;
+            self.video_generation += 1;
+            self.video_position = 0.0;
+            if self.navigation.current().screen == Screen::VideoPlaying {
+                self.navigation.back();
+                self.navigation.open(Screen::Videos);
+            }
+        }
+        if self.navigation.current().screen == Screen::Videos {
+            self.navigation
+                .select(self.navigation.selected().min(self.videos.len()));
+        }
+    }
+
     fn volume_effect(&self) -> Effect {
         if self.video_active {
             Effect::Video(crate::video::engine::Command::Volume {

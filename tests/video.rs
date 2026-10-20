@@ -257,3 +257,34 @@ fn switching_videos_retains_independent_positions_and_replay_starts_over() {
         "explicit rewind replaces the saved position"
     );
 }
+
+#[test]
+fn removing_a_missing_video_remaps_active_index_without_retargeting_playback() {
+    let mut state = State::default();
+    let first = video("First", 1.0);
+    let second = video("Second", 1.0);
+    state.merge_videos(vec![first.clone(), second.clone()]);
+    state.start_video(1);
+    state.video_status = Status::Paused;
+    state.video_position = 5.5;
+    let generation = state.video_generation;
+    state.remove_video(&first.path);
+    assert_eq!(state.video_current, Some(0));
+    assert_eq!(state.videos[0].path, second.path);
+    assert_eq!(state.video_generation, generation);
+    assert_eq!(state.video_position, 5.5);
+    assert!(state.video_active);
+
+    state.remove_video(&second.path);
+    assert_eq!(state.video_current, None);
+    assert!(!state.video_active);
+    assert!(state.video_generation > generation);
+    assert_eq!(state.navigation.current().screen, Screen::Videos);
+    assert_eq!(
+        state.video_progress.resume(&second.path, second.duration),
+        5.5
+    );
+    state.merge_videos(vec![second]);
+    state.start_video(0);
+    assert_eq!(state.video_position, 5.5);
+}

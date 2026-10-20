@@ -698,6 +698,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "视频进度保存错误：",
         "ビデオ再生位置のエラー：",
     ),
+    (
+        "Removed missing video",
+        "已移除失效视频",
+        "見つからないビデオを削除しました",
+    ),
     ("Next track", "下一首", "次の曲"),
     ("Previous track", "上一首", "前の曲"),
     (

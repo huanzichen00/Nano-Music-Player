@@ -20,29 +20,34 @@ pub(super) struct SubtitleSelection {
 /// Workers keep their existing detached lifetime: dropping a receiver never
 /// blocks the UI waiting for file probing or a native picker to finish.
 pub(super) struct VideoTasks {
-    directory: PathBuf,
     loading: Option<Receiver<Result<Vec<Video>, String>>>,
-    importing: Option<Receiver<Event>>,
+    importing: bool,
+    library: import::Worker,
     subtitle_picker: Option<Receiver<SubtitleSelection>>,
 }
 
 impl VideoTasks {
     pub(super) fn new(directory: PathBuf) -> Self {
         let loading = Some(import::load(directory.join("videos.json")));
+        let library = import::Worker::new(directory.join("videos.json"));
         Self {
-            directory,
             loading,
-            importing: None,
+            importing: false,
+            library,
             subtitle_picker: None,
         }
     }
 
     pub(super) fn start_import(&mut self, title: String, paths: Option<Vec<PathBuf>>) {
-        self.importing = Some(import::start(
-            self.directory.join("videos.json"),
-            title,
-            paths,
-        ));
+        if self.importing {
+            return;
+        }
+        self.importing = true;
+        self.library.start_import(title, paths);
+    }
+
+    pub(super) fn remove_missing(&self, path: PathBuf) {
+        self.library.remove_missing(path);
     }
 
     pub(super) fn subtitle_pending(&self) -> bool {
@@ -93,9 +98,9 @@ impl VideoTasks {
     }
 
     pub(super) fn poll_import(&mut self) -> Option<Event> {
-        let event = self.importing.as_ref()?.try_recv().ok()?;
+        let event = self.library.events.try_recv().ok()?;
         if matches!(&event, Event::Completed(_)) {
-            self.importing = None;
+            self.importing = false;
         }
         Some(event)
     }
@@ -119,9 +124,9 @@ mod tests {
 
     fn empty_tasks(directory: &Path) -> VideoTasks {
         VideoTasks {
-            directory: directory.to_owned(),
             loading: None,
-            importing: None,
+            importing: false,
+            library: import::Worker::new(directory.join("videos.json")),
             subtitle_picker: None,
         }
     }
@@ -190,14 +195,14 @@ mod tests {
             wait_for(|| tasks.poll_import()),
             Event::SelectionClosed
         ));
-        assert!(tasks.importing.is_some());
+        assert!(tasks.importing);
         let Event::Completed(Ok(Some(result))) = wait_for(|| tasks.poll_import()) else {
             panic!("expected successful import completion");
         };
         assert_eq!(result.videos, videos);
         assert_eq!(result.imported, 0);
         assert!(result.errors.is_empty());
-        assert!(tasks.importing.is_none());
+        assert!(!tasks.importing);
         assert!(tasks.poll_import().is_none());
         assert_eq!(crate::video::library::load(&database).unwrap(), videos);
     }
@@ -218,7 +223,7 @@ mod tests {
             wait_for(|| tasks.poll_import()),
             Event::Completed(Err(_))
         ));
-        assert!(tasks.importing.is_none());
+        assert!(!tasks.importing);
         assert_eq!(std::fs::read(database).unwrap(), b"broken");
     }
 
@@ -270,16 +275,13 @@ mod tests {
         tasks.loading = Some(receiver);
         drop(sender);
         let (sender, receiver) = mpsc::channel();
-        tasks.importing = Some(receiver);
-        drop(sender);
-        let (sender, receiver) = mpsc::channel();
         tasks.subtitle_picker = Some(receiver);
         drop(sender);
 
         assert!(tasks.poll_loading().is_none());
         assert!(tasks.loading.is_some());
         assert!(tasks.poll_import().is_none());
-        assert!(tasks.importing.is_some());
+        assert!(!tasks.importing);
         assert!(tasks.poll_subtitle().is_none());
         assert!(tasks.subtitle_pending());
     }
