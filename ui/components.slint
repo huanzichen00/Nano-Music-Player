@@ -17,22 +17,53 @@ export component NanoActionButton inherits Rectangle {
     touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
 }
 
+// Scale the rounded caps with the UI, stretching only the straight center.
+// SVG skins also preserve rounded gradients in the software renderer.
+component SliderRail inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> filled;
+    private property <image> skin: root.filled ? @image-url("../assets/icons/slider-track-filled.svg") : @image-url("../assets/icons/slider-track.svg");
+    height: 8px * root.s;
+    background: transparent;
+    Rectangle {
+        x: 4px * root.s; width: max(0px, root.width - 8px * root.s); height: root.height;
+        background: root.filled ? @linear-gradient(180deg, #484c51, #9a9da2 62%, #d4d6d9) : @linear-gradient(180deg, #08090b, #292c30 62%, #73767b);
+        Rectangle {
+            y: 1px * root.s; height: parent.height - 2px * root.s; width: parent.width;
+            background: root.filled ? @linear-gradient(180deg, #acafb3, #d9dbde 30%, #bfc2c6 68%, #93979c) : @linear-gradient(180deg, #111316, #292c30 48%, #4e5155);
+        }
+    }
+    // Clip whole SVGs rather than source pixels to keep fractional UI scales safe.
+    Rectangle {
+        x: 0px; width: 4px * root.s; height: root.height; clip: true; background: transparent;
+        Image { x: 0px; width: 16px * root.s; height: root.height; source: root.skin; image-fit: fill; }
+    }
+    Rectangle {
+        x: root.width - 4px * root.s; width: 4px * root.s; height: root.height; clip: true; background: transparent;
+        Image { x: -12px * root.s; width: 16px * root.s; height: root.height; source: root.skin; image-fit: fill; }
+    }
+}
+
 export component NanoSlider inherits Rectangle {
     in property <float> s: 1;
     in property <float> value;
     in property <bool> selected;
     in property <bool> enabled: true;
     in property <bool> touch-mode: false;
-    in property <length> handle-size: 18px * root.s;
+    in property <length> handle-size: 22px * root.s;
     callback changed(float);
     height: 22px * s;
     background: transparent;
-    Rectangle {
+    opacity: root.enabled ? 1 : 0.5;
+    // Dark recessed groove and silver fill follow the original nano controls.
+    SliderRail {
         x: 0px; width: root.width;
-        y: (parent.height - self.height) / 2; height: 5px * root.s;
-        border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #080808;
-        background: @linear-gradient(180deg, #101010, #666);
-        Rectangle { x: 0px; y: 0px; height: parent.height; width: parent.width * clamp(root.value, 0, 1); border-radius: parent.border-radius; background: @linear-gradient(180deg, #f1f6fc, #b8d4e4); }
+        y: (parent.height - self.height) / 2; s: root.s;
+    }
+    if root.value > 0: SliderRail {
+        x: 0px; y: (parent.height - self.height) / 2;
+        width: root.value >= 1 ? root.width : handle.x + handle.width / 2;
+        s: root.s; filled: true;
     }
     handle := Rectangle {
         width: root.handle-size; height: self.width;
@@ -41,8 +72,13 @@ export component NanoSlider inherits Rectangle {
         border-radius: self.width / 2;
         background: transparent;
         Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: @image-url("../assets/icons/slider-knob.svg"); image-fit: contain; }
-        border-width: (root.selected ? 2px : 1px) * root.s;
-        border-color: root.selected ? #65b9ff : transparent;
+        if touch.pressed: Rectangle { x: 1px * root.s; y: 1px * root.s; width: parent.width - 2px * root.s; height: self.width; border-radius: self.width / 2; background: #0001; }
+        if root.selected && root.enabled: Rectangle {
+            x: -2px * root.s; y: -2px * root.s;
+            width: parent.width + 4px * root.s; height: self.width;
+            border-radius: self.width / 2; border-width: 1.5px * root.s;
+            border-color: #65b9ff; background: transparent;
+        }
     }
     touch := TouchArea {
         x: 0px; y: root.touch-mode ? (root.height - max(root.height, 44px)) / 2 : 0px;

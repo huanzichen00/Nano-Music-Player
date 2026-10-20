@@ -135,7 +135,7 @@ export component NowPlayingView inherits Rectangle {
                 Text { x: 9px * root.s; y: 7px * root.s; width: 54px * root.s; height: 18px * root.s; text: root.elapsed; font-size: 12px * root.s; font-weight: 700; color: white; }
                 Text { x: 60px * root.s; y: 3px * root.s; width: parent.width - 120px * root.s; height: 18px * root.s; text: root.track-count; font-size: 11px * root.s; font-weight: 600; horizontal-alignment: center; color: white; }
                 Text { x: parent.width - 63px * root.s; y: 7px * root.s; width: 54px * root.s; height: 18px * root.s; text: root.duration; horizontal-alignment: right; font-size: 12px * root.s; font-weight: 700; color: white; }
-                NanoSlider { x: 11px * root.s; y: 28px * root.s; width: parent.width - 22px * root.s; s: root.s; touch-mode: root.touch-mode; handle-size: 13px * root.s; value: root.progress; enabled: root.has-track; changed(value) => { root.seek-changed(value); } }
+                NanoSlider { x: 11px * root.s; y: 28px * root.s; width: parent.width - 22px * root.s; s: root.s; touch-mode: root.touch-mode; handle-size: 20px * root.s; value: root.progress; enabled: root.has-track; changed(value) => { root.seek-changed(value); } }
             }
             Rectangle {
                 x: 0px; y: 60px * root.s; width: parent.width; height: 42px * root.s;

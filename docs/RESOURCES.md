@@ -32,3 +32,9 @@ Sharper, transparent icon reconstructions are generated with the built-in imageg
 - The original 112×112 Settings icon was recovered directly from Apple's firmware; see [source and extraction details](SETTINGS_ICON_SOURCE.md). The user's generated Home icons are retained.
 - [Yazi Quick Start](https://yazi-rs.github.io/docs/quick-start/): H leaves the current level, L enters, J/K move the cursor. Letters keep those meanings in lists, while Home uses H/L for horizontal icon navigation; seek and volume controls use separate actions or arrow context.
 - `previous.svg`, `next.svg`, `track-list.svg` and `slider-knob.svg` are small vector assets authored for this project. The unused legacy `lyrics.svg` remains in the asset directory; the redundant lyrics button has been removed.
+- The shared playback slider's recessed track, silver fill and spun-metal thumb
+  approximate the original controls shown on pages 18 and 27 of the supplied 2012
+  Apple guide. The thumb remains an original vector asset with angular reflections,
+  a fine bevel and contact shadow. The two `slider-track*.svg` skins keep rounded
+  end caps proportional at every zoom, including software rendering. No slider
+  artwork is extracted from the guide.
