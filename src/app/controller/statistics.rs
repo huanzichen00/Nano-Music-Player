@@ -20,10 +20,6 @@ enum Command {
         request: u64,
     },
     Shutdown,
-    Renamed {
-        from: PathBuf,
-        to: PathBuf,
-    },
     Played {
         path: PathBuf,
         played_at: i64,
@@ -76,10 +72,6 @@ impl StatisticsService {
         let _ = self.commands.send(Command::Library(paths));
     }
 
-    pub(super) fn rename(&self, from: PathBuf, to: PathBuf) {
-        let _ = self.commands.send(Command::Renamed { from, to });
-    }
-
     pub(super) fn record_play(&self, play: QualifiedPlay) {
         let _ = self.commands.send(Command::Played {
             path: play.path,
@@ -117,7 +109,7 @@ impl StatisticsService {
 
     /// Consume acknowledgements internally and expose only UI-relevant changes.
     /// Pending paths overlay snapshots only while they remain in the controller's
-    /// projection; confirmed renames may already have removed an old path there.
+    /// projection; a refresh may already have removed a path there.
     pub(super) fn poll(&mut self, current_ratings: &HashMap<PathBuf, u8>) -> Option<Event> {
         while let Ok(event) = self.events.try_recv() {
             match event {
@@ -215,11 +207,6 @@ fn run_worker(database: PathBuf, receiver: Receiver<Command>, events: Sender<Wor
                 current_paths = paths;
                 store.register_library_paths(&current_paths, chrono::Utc::now().timestamp())
             }
-            Command::Renamed { from, to } => store.rename_path(&from, &to).and_then(|_| {
-                let ratings = store.ratings()?;
-                let _ = events.send(WorkerEvent::RatingsLoaded(ratings));
-                Ok(())
-            }),
             Command::Played {
                 path,
                 played_at,
@@ -398,11 +385,10 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_and_drop_drain_ratings_listening_records_and_renames() {
+    fn shutdown_and_drop_drain_ratings_and_listening_records() {
         let tmp = tempfile::tempdir().unwrap();
         let database = tmp.path().join("library.sqlite3");
         let old = tmp.path().join("old.wav");
-        let renamed = tmp.path().join("renamed.wav");
         {
             let mut service = StatisticsService::new(database.clone());
             service.set_library(vec![old.clone()]);
@@ -411,34 +397,25 @@ mod tests {
                 path: old.clone(),
                 listened: Duration::from_secs(42),
             });
-            service.rename(old.clone(), renamed.clone());
             service.shutdown();
             service.shutdown();
         }
         let store = StatisticsStore::open(&database).unwrap();
-        assert_eq!(store.ratings().unwrap()[&renamed], 4);
-        assert!(!store.ratings().unwrap().contains_key(&old));
-        assert_eq!(
-            store
-                .track_statistics(&renamed)
-                .unwrap()
-                .unwrap()
-                .play_count,
-            1
-        );
+        assert_eq!(store.ratings().unwrap()[&old], 4);
+        assert_eq!(store.track_statistics(&old).unwrap().unwrap().play_count, 1);
         let history = store.listening_history(10).unwrap();
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].path, renamed);
+        assert_eq!(history[0].path, old);
         assert_eq!(history[0].listened_seconds, 42);
         drop(store);
 
         // RAII must also drain writes when no explicit controller shutdown runs.
         {
             let mut service = StatisticsService::new(database.clone());
-            service.rate(&renamed, 3, 4).unwrap();
+            service.rate(&old, 3, 4).unwrap();
         }
         assert_eq!(
-            StatisticsStore::open(&database).unwrap().ratings().unwrap()[&renamed],
+            StatisticsStore::open(&database).unwrap().ratings().unwrap()[&old],
             3
         );
     }

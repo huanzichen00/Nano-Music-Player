@@ -214,6 +214,27 @@ pub enum CachedLoadEvent {
     Error(String),
 }
 
+pub fn load_cached_metadata(database_path: PathBuf) -> Receiver<CachedLoadEvent> {
+    let (sender, receiver) = mpsc::sync_channel(2);
+    thread::spawn(move || {
+        let result = (|| {
+            let database = Database::open(&database_path)?;
+            let mut tracks = database.load()?;
+            for track in &mut tracks {
+                database.apply_lyrics(track)?;
+            }
+            if sender.send(CachedLoadEvent::Cached(tracks)).is_ok() {
+                let _ = sender.send(CachedLoadEvent::Complete);
+            }
+            Ok::<_, String>(())
+        })();
+        if let Err(message) = result {
+            let _ = sender.send(CachedLoadEvent::Error(message));
+        }
+    });
+    receiver
+}
+
 pub fn load_cached(database_path: PathBuf) -> Receiver<CachedLoadEvent> {
     let (sender, receiver) = mpsc::sync_channel(2);
     thread::spawn(move || {

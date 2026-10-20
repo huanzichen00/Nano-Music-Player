@@ -67,7 +67,6 @@ fn home_dismisses_overlays_genius_respects_bindings_and_playlist_drafts_survive(
     // The absent source path below tests Genius validation and modal navigation,
     // rather than watcher reconciliation.
     nano_music_player::app::config::Settings {
-        monitor_deleted_files: false,
         ..Default::default()
     }
     .save(&directory.path().join("settings.json"))

@@ -283,7 +283,6 @@ fn native_controller_legacy_monitor_setting_does_not_block_playback() {
         .expect("set NANO_PLAYBACK_DB_COPY to an isolated SQLite snapshot");
     std::fs::copy(source, tmp.path().join("library.sqlite3")).unwrap();
     Settings {
-        monitor_deleted_files: true,
         gapless_playback: false,
         replay_gain_mode: Default::default(),
         ..Default::default()

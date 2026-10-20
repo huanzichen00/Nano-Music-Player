@@ -143,7 +143,7 @@ fn native_playback_gapless_statistics_and_artwork_do_not_crash() {
             .all(|t| t.duration > 3.9 && t.duration < 4.1)
     );
     nano_music_player::app::config::Settings {
-        monitor_roots: vec![music],
+        library_roots: vec![music],
         ..Default::default()
     }
     .save(&tmp.path().join("settings.json"))

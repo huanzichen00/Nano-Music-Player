@@ -110,7 +110,6 @@ fn local_video_ass_pipeline_and_optional_library_import() {
     let subtitle_before = fs::read(&subtitle).unwrap();
     let directory = tempfile::tempdir().unwrap();
     Settings {
-        monitor_deleted_files: false,
         ..Default::default()
     }
     .save(&directory.path().join("settings.json"))

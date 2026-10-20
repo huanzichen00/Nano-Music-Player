@@ -149,7 +149,6 @@ fn repeated_library_slides_settle_and_leave_home_controls_and_pages_usable() {
     .unwrap();
     let directory = tempfile::tempdir().unwrap();
     Settings {
-        monitor_deleted_files: false,
         device_mode: false,
         ..Default::default()
     }

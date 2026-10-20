@@ -43,7 +43,6 @@ fn one_trackpad_scroll_burst_goes_back_once_across_screen_transitions() {
     .unwrap();
     let tmp = tempfile::tempdir().unwrap();
     Settings {
-        monitor_deleted_files: false,
         device_mode: false,
         ..Default::default()
     }

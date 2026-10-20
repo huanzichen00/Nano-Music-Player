@@ -79,10 +79,6 @@ pub struct Controller {
     media_bridge: crate::platform::macos_media::MediaBridge,
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
     statistics: StatisticsService,
-    library_monitor: Option<crate::library::library_monitor::Monitor>,
-    library_scan_generation: u64,
-    root_generations: HashMap<PathBuf, u64>,
-    discovered_paths: std::collections::VecDeque<PathBuf>,
     playback_session: Option<crate::library::statistics::ListeningSession>,
     prefetched: Option<(usize, usize, u64)>,
     prefetch_token: u64,
@@ -91,10 +87,6 @@ pub struct Controller {
     library_tasks: LibraryTasks,
     playlists: PlaylistsService,
     playlist_candidates: Vec<PlaylistCandidate>,
-    deletion_events: Option<crate::library::deletion_monitor::Monitor>,
-    deletion_worker: Option<thumbnails::FileWorker>,
-    deletion_track_ids: HashMap<PathBuf, usize>,
-    deletion_generations: HashMap<PathBuf, u64>,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
     lyrics: LyricsService,
     genius: GeniusService,
@@ -126,17 +118,10 @@ pub struct Controller {
 impl Controller {
     pub fn new(directory: PathBuf) -> Self {
         let mut state = State::default();
-        let mut settings =
-            Settings::load(&directory.join("settings.json")).unwrap_or_else(|message| {
-                state.notice = message;
-                Settings::default()
-            });
-        // Suspend automatic filesystem monitoring for the recovery release.
-        // Recursive kqueue watches retain descriptors for every library file;
-        // the two overlapping watchers can prevent decoders/output from opening.
-        // Honor this suspension for existing settings too, while retaining roots
-        // and the watcher code for comparison. Startup refresh/import still work.
-        settings.monitor_deleted_files = false;
+        let settings = Settings::load(&directory.join("settings.json")).unwrap_or_else(|message| {
+            state.notice = message;
+            Settings::default()
+        });
         state.language = settings.language;
         state.font = settings.font;
         state.always_on_top = settings.always_on_top;
@@ -192,10 +177,6 @@ impl Controller {
             media_bridge: crate::platform::macos_media::MediaBridge::default(),
             media_marker: None,
             statistics,
-            library_monitor: None,
-            library_scan_generation: 0,
-            root_generations: HashMap::new(),
-            discovered_paths: std::collections::VecDeque::new(),
             playback_session: None,
             prefetched: None,
             prefetch_token: 0,
@@ -204,10 +185,6 @@ impl Controller {
             library_tasks,
             playlists: PlaylistsService::new(receiver),
             playlist_candidates: Vec::new(),
-            deletion_events: None,
-            deletion_worker: None,
-            deletion_track_ids: HashMap::new(),
-            deletion_generations: HashMap::new(),
             lyrics_edit: None,
             lyrics,
             genius: GeniusService::default(),
@@ -569,6 +546,22 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if action == Action::ImportFolder
+            && !matches!(
+                self.state.navigation.current().screen,
+                Screen::Videos | Screen::VideoPlaying
+            )
+            && self.library_tasks.busy()
+        {
+            self.state.notice = if self.library_tasks.is_importing() {
+                "Scanning music folders…"
+            } else {
+                "Refreshing library…"
+            }
+            .into();
+            self.sync(ui);
+            return;
+        }
         if action == Action::ImportFolder && self.lyrics_edit.is_some() {
             self.state.notice = "A lyric request is already running".into();
             self.sync(ui);
@@ -1498,8 +1491,8 @@ impl Controller {
             lyrics_visible: self.settings.lyrics_visible,
             zoom: self.state.zoom,
             device_mode: self.state.device_mode,
-            monitor_deleted_files: self.settings.monitor_deleted_files,
-            monitor_roots: self.settings.monitor_roots.clone(),
+            legacy_monitor_setting: None,
+            library_roots: self.settings.library_roots.clone(),
             gapless_playback: self.state.gapless_playback,
             replay_gain_mode: self.state.replay_gain_mode,
             replay_gain_preamp_db: self.state.replay_gain_preamp_db,
@@ -1528,8 +1521,7 @@ impl Controller {
                     });
                     prepared.previews.retain_tracks(&prepared.value);
                     self.state.merge_library(prepared.value);
-                    self.start_deletion_monitor();
-                    self.start_library_monitor();
+                    self.start_library_refresh();
                     self.update_smart_playlist_library();
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
@@ -1577,14 +1569,13 @@ impl Controller {
                 Ok(Some(prepared)) => {
                     let result = prepared.value;
                     for root in result.roots {
-                        if !self.settings.monitor_roots.contains(&root) {
-                            self.settings.monitor_roots.push(root);
+                        if !self.settings.library_roots.contains(&root) {
+                            self.settings.library_roots.push(root);
                         }
                     }
                     let _ = self.settings.save(&self.directory.join("settings.json"));
                     self.state.merge_library(result.tracks);
-                    self.start_deletion_monitor();
-                    self.start_library_monitor();
+
                     self.update_smart_playlist_library();
                     self.lyrics_dirty = true;
                     self.thumbnails.clear();
@@ -1659,8 +1650,7 @@ impl Controller {
         self.poll_romaji(ui);
         self.poll_podcasts(ui);
         self.poll_statistics();
-        self.poll_deletions();
-        self.poll_library_monitor();
+        self.poll_library_refresh();
         self.poll_translation(ui);
         self.poll_online_lyrics(ui);
         self.poll_genius(ui);
@@ -1843,104 +1833,6 @@ impl Controller {
         self.media_bridge.publish(snapshot);
     }
 
-    fn start_deletion_monitor(&mut self) {
-        self.deletion_track_ids = self
-            .state
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(id, track)| (track.path.clone(), id))
-            .collect();
-        if !self.settings.monitor_deleted_files {
-            return;
-        }
-        if self.deletion_worker.is_none() {
-            self.deletion_worker = Some(thumbnails::FileWorker::new(
-                self.directory.join("library.sqlite3"),
-                self.directory.join("cover-previews-v1"),
-            ));
-        }
-        let mut roots: Vec<_> = self
-            .state
-            .tracks
-            .iter()
-            .filter_map(|track| track.path.parent().map(PathBuf::from))
-            .collect::<HashSet<_>>()
-            .into_iter()
-            .collect();
-        roots.extend(self.settings.monitor_roots.iter().cloned());
-        roots.sort_by_key(|root| root.components().count());
-        let mut minimal = Vec::<PathBuf>::new();
-        for root in roots {
-            if !minimal.iter().any(|parent| root.starts_with(parent)) {
-                minimal.push(root);
-            }
-        }
-        let roots = minimal;
-        for root in &roots {
-            if !self.settings.monitor_roots.contains(root) {
-                self.settings.monitor_roots.push(root.clone());
-            }
-        }
-        self.deletion_track_ids.clear();
-        let tracks: Vec<_> = self
-            .state
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(id, track)| {
-                let normalized = track.path.clone();
-                self.deletion_track_ids.insert(normalized, id);
-                (track.path.clone(), self.state.track_available(track))
-            })
-            .collect();
-        if let Some(monitor) = &self.deletion_events {
-            monitor.add_roots(roots);
-            monitor.set_tracks(tracks);
-        } else if !self.state.tracks.is_empty() {
-            let monitor = crate::library::deletion_monitor::watch(roots);
-            monitor.set_tracks(tracks);
-            self.deletion_events = Some(monitor);
-        }
-        let _ = self.settings.save(&self.directory.join("settings.json"));
-    }
-
-    fn start_library_monitor(&mut self) {
-        // Respect the existing opt-out for watcher and background reconciliation jobs.
-        if !self.settings.monitor_deleted_files {
-            return;
-        }
-        if self.deletion_worker.is_none() {
-            self.deletion_worker = Some(thumbnails::FileWorker::new(
-                self.directory.join("library.sqlite3"),
-                self.directory.join("cover-previews-v1"),
-            ));
-        }
-        let mut roots: Vec<_> = self
-            .state
-            .tracks
-            .iter()
-            .filter_map(|track| track.path.parent().map(PathBuf::from))
-            .collect();
-        roots.extend(self.settings.monitor_roots.iter().cloned());
-        roots.sort_by_key(|root| root.components().count());
-        let mut minimal = Vec::<PathBuf>::new();
-        for root in roots {
-            if !minimal.iter().any(|parent| root.starts_with(parent)) {
-                minimal.push(root);
-            }
-        }
-        let roots = minimal;
-        if roots.is_empty() {
-            return;
-        }
-        if let Some(monitor) = &self.library_monitor {
-            monitor.add_roots(roots);
-        } else {
-            self.library_monitor = Some(crate::library::library_monitor::watch(roots));
-        }
-    }
-
     fn update_smart_playlist_library(&self) {
         let paths = self
             .state
@@ -2011,281 +1903,103 @@ impl Controller {
         }
     }
 
-    fn poll_library_monitor(&mut self) {
-        let mut events = Vec::new();
-        if let Some(monitor) = &self.library_monitor {
-            for _ in 0..256 {
-                let Ok(event) = monitor.events.try_recv() else {
-                    break;
-                };
-                events.push(event);
-            }
-        }
-        for event in events {
-            match event {
-                crate::library::library_monitor::LibraryEvent::Added(path)
-                | crate::library::library_monitor::LibraryEvent::Modified(path) => {
-                    self.queue_library_scan(path);
-                }
-                crate::library::library_monitor::LibraryEvent::Renamed { from, to } => {
-                    if let Some(stars) = self.state.ratings.remove(&from) {
-                        self.state.ratings.insert(to.clone(), stars);
-                    }
-                    if self.state.album_rating_path.as_ref() == Some(&from) {
-                        self.state.album_rating_path = Some(to.clone());
-                    }
-                    self.statistics.rename(from.clone(), to.clone());
-                    self.mark_library_missing(&from);
-                    if let Some(worker) = self.deletion_worker.as_mut() {
-                        worker.evict(from);
-                    }
-                    self.queue_library_scan(to);
-                }
-                crate::library::library_monitor::LibraryEvent::Removed(path) => {
-                    self.mark_library_missing(&path);
-                }
-                crate::library::library_monitor::LibraryEvent::RefreshRoot(root) => {
-                    self.queue_root_refresh(root);
-                }
-                crate::library::library_monitor::LibraryEvent::Error(error) => {
-                    self.state.notice = format!("Library monitoring warning: {error}");
-                }
-            }
+    fn start_library_refresh(&mut self) {
+        self.library_tasks
+            .start_refresh(self.settings.library_roots.clone());
+    }
+
+    fn poll_library_refresh(&mut self) {
+        let Some(result) = self.library_tasks.poll_refresh() else {
+            return;
+        };
+        match result {
+            Ok(prepared) => self.apply_library_refresh(prepared),
+            Err(error) => self.state.notice = format!("Library refresh failed: {error}"),
         }
     }
 
-    fn queue_root_refresh(&mut self, root: PathBuf) {
-        self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
-        let generation = self.library_scan_generation;
-        self.root_generations.insert(root.clone(), generation);
-        let known = self
+    fn apply_library_refresh(&mut self, mut prepared: Prepared<crate::library::refresh::Snapshot>) {
+        let snapshot = &mut prepared.value;
+        // User lyric edits may finish during a refresh. Preserve newer values;
+        // stable vector slots keep queued and currently playing IDs unchanged.
+        snapshot.tracks.retain(|track| {
+            let current = self
+                .state
+                .tracks
+                .iter()
+                .find(|current| current.path == track.path);
+            let original = snapshot
+                .original
+                .iter()
+                .find(|original| original.path == track.path);
+            current.is_none()
+                || current == original
+                || (original.is_none() && self.state.unavailable_tracks.contains(&track.path))
+        });
+        prepared.previews.retain_tracks(&snapshot.tracks);
+        let artwork_changed = snapshot.tracks.iter().any(|track| {
+            self.state
+                .tracks
+                .iter()
+                .find(|old| old.path == track.path)
+                .is_none_or(|old| old.artwork != track.artwork)
+        });
+        self.state
+            .merge_library(std::mem::take(&mut snapshot.tracks));
+        for path in &snapshot.missing {
+            self.mark_library_missing(path);
+        }
+        if artwork_changed {
+            self.thumbnails.clear();
+            self.artwork.clear();
+            self.last_track = None;
+        }
+        self.thumbnails.seed(&self.state.tracks, prepared.previews);
+        self.update_smart_playlist_library();
+        self.lyrics_dirty = true;
+        self.media_marker = None;
+        self.rows_dirty = true;
+        let count = self
             .state
             .tracks
             .iter()
-            .map(|track| track.path.clone())
-            .collect();
-        if let Some(worker) = &mut self.deletion_worker {
-            worker.reconcile(root, generation, known);
-        }
+            .filter(|track| self.state.track_available(track))
+            .count();
+        self.state.notice = format!(
+            "{count} songs in library{}",
+            if snapshot.warnings.is_empty() {
+                String::new()
+            } else {
+                format!(" · {} files skipped", snapshot.warnings.len())
+            }
+        );
     }
 
     fn mark_library_missing(&mut self, path: &std::path::Path) {
-        if !self.settings.monitor_deleted_files {
-            return;
-        }
-        let identity = path.to_path_buf();
-        self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
-        self.deletion_generations
-            .insert(identity.clone(), self.library_scan_generation);
-        let id = self
+        let Some(id) = self
             .state
             .tracks
             .iter()
-            .position(|t| t.path.clone() == identity);
-        if let Some(id) = id {
-            let path = self.state.tracks[id].path.clone();
-            self.state.mark_track_available(&path, false);
-            self.cancel_gapless_prefetch();
-            if self.state.current == Some(id) {
-                self.handoff += 1;
-                let _ = self.engine.send(AudioCommand::Stop {
-                    handoff: self.handoff,
-                });
-                self.state.current = None;
-                self.state.status = PlaybackStatus::Stopped;
-                self.state.position = 0.0;
-                self.playback_session = None;
-                self.last_track = None;
-                self.lyrics_dirty = true;
+            .position(|track| track.path == path)
+        else {
+            return;
+        };
+        self.state.mark_track_available(path, false);
+        self.cancel_gapless_prefetch();
+        if self.state.current == Some(id) {
+            self.handoff += 1;
+            if matches!(self.pending_media, Some(PendingMedia::Music { .. })) {
+                self.pending_media = None;
+                self.pending_seek = None;
             }
-            self.rows_dirty = true;
-            self.update_smart_playlist_library();
-            if let Some(worker) = &mut self.deletion_worker {
-                worker.evict(path);
-            }
-        }
-    }
-
-    fn queue_library_scan(&mut self, path: PathBuf) {
-        self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
-        let identity = path.clone();
-        self.deletion_generations
-            .insert(identity, self.library_scan_generation);
-        if let Some(worker) = self.deletion_worker.as_mut() {
-            worker.scan(path, self.library_scan_generation);
-        }
-    }
-
-    fn poll_deletions(&mut self) {
-        let mut changes = std::collections::BTreeMap::<PathBuf, bool>::new();
-        let mut errors = Vec::new();
-        if let Some(monitor) = self.deletion_events.as_ref() {
-            while let Ok(event) = monitor.events.try_recv() {
-                match event {
-                    crate::library::deletion_monitor::EventMessage::Removed(path) => {
-                        changes.insert(path, false);
-                    }
-                    crate::library::deletion_monitor::EventMessage::Restored(path) => {
-                        changes.insert(path, true);
-                    }
-                    crate::library::deletion_monitor::EventMessage::Error(error) => {
-                        errors.push(error)
-                    }
-                }
-            }
-        }
-        for (identity, available) in changes {
-            let Some(id) = self.deletion_track_ids.get(&identity).copied() else {
-                continue;
-            };
-            let Some(track) = self.state.tracks.get(id) else {
-                continue;
-            };
-            let path = track.path.clone();
-            self.library_scan_generation = self.library_scan_generation.wrapping_add(1);
-            let current_generation = self.library_scan_generation;
-            self.deletion_generations
-                .insert(identity.clone(), current_generation);
-            if available {
-                if !self.state.track_available(&self.state.tracks[id])
-                    && let Some(worker) = self.deletion_worker.as_mut()
-                {
-                    worker.refresh(path, current_generation);
-                }
-            } else {
-                if self.state.track_available(&self.state.tracks[id]) {
-                    self.state.mark_track_available(&path, false);
-                    if self.state.current == Some(id) {
-                        self.handoff += 1;
-                        let _ = self.engine.send(AudioCommand::Stop {
-                            handoff: self.handoff,
-                        });
-                        self.state.current = None;
-                        self.state.status = PlaybackStatus::Stopped;
-                        self.state.position = 0.0;
-                        self.last_track = None;
-                        self.lyrics_dirty = true;
-                    }
-                    self.rows_dirty = true;
-                    self.cancel_gapless_prefetch();
-                    self.update_smart_playlist_library();
-                }
-                if let Some(worker) = self.deletion_worker.as_mut() {
-                    worker.evict(path);
-                }
-            }
-        }
-        let mut worker_events = Vec::new();
-        if let Some(worker) = self.deletion_worker.as_ref() {
-            while let Ok(event) = worker.try_event() {
-                worker_events.push(event);
-            }
-        }
-        for event in worker_events {
-            match event {
-                thumbnails::FileWorkEvent::Reconciled {
-                    root,
-                    generation,
-                    snapshot,
-                } => {
-                    if self.root_generations.get(&root).copied() == Some(generation) {
-                        for missing in snapshot.missing {
-                            if self
-                                .deletion_generations
-                                .get(&missing)
-                                .is_none_or(|latest| *latest <= generation)
-                            {
-                                self.mark_library_missing(&missing);
-                            }
-                        }
-                        self.discovered_paths.extend(snapshot.paths);
-                    }
-                }
-                thumbnails::FileWorkEvent::Restored {
-                    generation,
-                    prepared,
-                } => {
-                    let thumbnails::Prepared { value, previews } = *prepared;
-                    let identity = value.path.clone();
-                    let current_generation = self.deletion_generations.get(&identity).copied();
-                    let id = self.deletion_track_ids.get(&identity).copied();
-                    if current_generation == Some(generation)
-                        && id.is_some_and(|id| {
-                            self.state
-                                .tracks
-                                .get(id)
-                                .is_some_and(|track| !self.state.track_available(track))
-                        })
-                    {
-                        self.state.merge_library(vec![value]);
-                        self.thumbnails.clear();
-                        self.thumbnails.seed(&self.state.tracks, previews);
-                        self.rows_dirty = true;
-                        self.last_track = None;
-                        self.lyrics_dirty = true;
-                        self.media_marker = None;
-                        self.start_deletion_monitor();
-                        self.start_library_monitor();
-                        self.update_smart_playlist_library();
-                    }
-                }
-                thumbnails::FileWorkEvent::Scanned {
-                    generation,
-                    prepared,
-                } => {
-                    let thumbnails::Prepared { value, previews } = *prepared;
-                    let identity = value.path.clone();
-                    if self.deletion_generations.get(&identity).copied() == Some(generation) {
-                        if self
-                            .deletion_track_ids
-                            .get(&identity)
-                            .and_then(|id| self.state.tracks.get(*id))
-                            .is_some_and(|track| {
-                                *track == value && self.state.track_available(track)
-                            })
-                        {
-                            continue;
-                        }
-                        self.state.merge_library(vec![value]);
-                        self.thumbnails.clear();
-                        self.thumbnails.seed(&self.state.tracks, previews);
-                        self.rows_dirty = true;
-                        self.last_track = None;
-                        self.lyrics_dirty = true;
-                        self.media_marker = None;
-                        self.start_deletion_monitor();
-                        self.start_library_monitor();
-                        self.update_smart_playlist_library();
-                    }
-                }
-                thumbnails::FileWorkEvent::Error {
-                    path,
-                    generation,
-                    message,
-                } => {
-                    let identity = path.clone();
-                    if self.deletion_generations.get(&identity).copied() == Some(generation)
-                        || self.root_generations.get(&path).copied() == Some(generation)
-                    {
-                        self.state.notice = format!(
-                            "Could not refresh restored file {}: {message}",
-                            path.display()
-                        );
-                    }
-                }
-            }
-        }
-        for _ in 0..64 {
-            let Some(path) = self.discovered_paths.pop_front() else {
-                break;
-            };
-            self.queue_library_scan(path);
-        }
-        if let Some(worker) = self.deletion_worker.as_mut() {
-            worker.flush();
-        }
-        if let Some(error) = errors.first() {
-            self.state.notice = format!("File monitoring warning: {error}");
+            let _ = self.engine.send(AudioCommand::Stop {
+                handoff: self.handoff,
+            });
+            self.state.current = None;
+            self.state.status = PlaybackStatus::Stopped;
+            self.state.position = 0.0;
+            self.playback_session = None;
+            self.last_track = None;
         }
     }
 
@@ -4773,299 +4487,5 @@ mod ai_controller_tests {
 }
 
 #[cfg(test)]
-mod deletion_controller_tests {
-    use super::*;
-    use crate::{
-        audio::queue::Queue,
-        library::{Track, deletion_monitor::EventMessage, lyrics::Lyrics},
-    };
-    use std::{fs, thread, time::Instant};
-
-    #[test]
-    fn recovery_disables_existing_watchers_without_discarding_roots_or_gain_preferences() {
-        let directory = tempfile::tempdir().unwrap();
-        let roots = vec![directory.path().join("music")];
-        Settings {
-            monitor_deleted_files: true,
-            monitor_roots: roots.clone(),
-            gapless_playback: true,
-            replay_gain_mode: crate::audio::gain::GainMode::Album,
-            ..Default::default()
-        }
-        .save(&directory.path().join("settings.json"))
-        .unwrap();
-        let mut controller = Controller::new(directory.path().to_path_buf());
-        controller.start_deletion_monitor();
-        controller.start_library_monitor();
-        assert!(!controller.settings.monitor_deleted_files);
-        assert!(controller.deletion_events.is_none());
-        assert!(controller.library_monitor.is_none());
-        assert!(controller.deletion_worker.is_none());
-        assert_eq!(controller.settings.monitor_roots, roots);
-        assert!(controller.state.gapless_playback);
-        assert_eq!(
-            controller.state.replay_gain_mode,
-            crate::audio::gain::GainMode::Album
-        );
-    }
-
-    fn fixture_track(path: PathBuf, title: &str) -> Track {
-        Track {
-            path,
-            title: title.into(),
-            artist: "Fixture artist".into(),
-            album: "Fixture album".into(),
-            genre: "Fixture genre".into(),
-            number: 1,
-            duration: 1.0,
-            artwork: Vec::new(),
-            lyrics: Lyrics::default(),
-        }
-    }
-
-    fn fixture_controller(
-        directory: &std::path::Path,
-        tracks: Vec<Track>,
-    ) -> (Controller, std::sync::mpsc::Sender<EventMessage>) {
-        let mut controller = Controller::new(directory.to_path_buf());
-        controller.settings.monitor_deleted_files = true;
-        controller.state.tracks = tracks;
-        controller
-            .state
-            .navigation
-            .open(Screen::Songs(crate::app::navigation::Filter::All));
-        controller.deletion_worker = Some(thumbnails::FileWorker::new(
-            directory.join("library.sqlite3"),
-            directory.join("cover-previews-v1"),
-        ));
-        controller.deletion_track_ids = controller
-            .state
-            .tracks
-            .iter()
-            .enumerate()
-            .map(|(id, track)| (track.path.clone(), id))
-            .collect();
-        let (monitor, events) = crate::library::deletion_monitor::Monitor::testing_channel();
-        controller.deletion_events = Some(monitor);
-        (controller, events)
-    }
-
-    fn wait_until(controller: &mut Controller, mut condition: impl FnMut(&Controller) -> bool) {
-        let deadline = Instant::now() + std::time::Duration::from_secs(4);
-        while Instant::now() < deadline {
-            controller.poll_deletions();
-            if condition(controller) {
-                return;
-            }
-            thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert!(
-            condition(controller),
-            "timed out waiting for deletion worker"
-        );
-    }
-
-    #[test]
-    fn controller_stops_current_skips_removed_queue_slot_and_restores_cached_track() {
-        let directory = tempfile::tempdir().unwrap();
-        let paths: Vec<_> = (0..3)
-            .map(|id| directory.path().join(format!("track-{id}.wav")))
-            .collect();
-        for path in &paths {
-            fs::copy(
-                concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/quiet.wav"),
-                path,
-            )
-            .unwrap();
-        }
-        let mut tracks: Vec<_> = paths
-            .iter()
-            .enumerate()
-            .map(|(id, path)| fixture_track(path.clone(), &format!("Cached {id}")))
-            .collect();
-        tracks[1].lyrics = Lyrics::plain_text("manual lyrics survive eviction");
-        let database_path = directory.path().join("library.sqlite3");
-        {
-            let database = crate::library::database::Database::open(&database_path).unwrap();
-            for track in &tracks {
-                database.save(track, 1).unwrap();
-            }
-            let source = directory.path().join("manual.lrc");
-            fs::write(&source, "[00:01]manual lyrics survive eviction").unwrap();
-            database
-                .set_manual_lyrics(&paths[1], &source, &tracks[1].lyrics)
-                .unwrap();
-        }
-        let (mut controller, events) = fixture_controller(directory.path(), tracks);
-        controller.state.queue = Queue::default();
-        controller.state.queue.set(vec![0, 1, 2], 0, false);
-        controller.state.start(0);
-        controller.state.status = PlaybackStatus::Playing;
-        let selected_path = paths[2].clone();
-        let selected_row = controller
-            .state
-            .rows()
-            .iter()
-            .position(|row| {
-                matches!(row.target, Target::Play(id) if controller.state.tracks[id].path == selected_path)
-            })
-            .unwrap();
-        controller.state.navigation.select(selected_row);
-
-        fs::remove_file(&paths[1]).unwrap();
-        events
-            .send(EventMessage::Removed(
-                crate::library::deletion_monitor::normalize(&paths[1]),
-            ))
-            .unwrap();
-        controller.poll_deletions();
-        assert_eq!(controller.state.current, Some(0));
-        assert_eq!(controller.state.queue.order, [0, 1, 2]);
-        let selected_after = controller
-            .state
-            .rows()
-            .iter()
-            .position(|row| {
-                matches!(row.target, Target::Play(id) if controller.state.tracks[id].path == selected_path)
-            })
-            .unwrap();
-        assert_eq!(controller.state.navigation.selected(), selected_after);
-        assert!(
-            controller
-                .state
-                .advance(false)
-                .iter()
-                .any(|effect| matches!(effect, Effect::Audio(AudioCommand::Load { id: 2, .. })))
-        );
-
-        // Deleting the active file stops it without changing its stable slot.
-        fs::remove_file(&paths[0]).unwrap();
-        events
-            .send(EventMessage::Removed(
-                crate::library::deletion_monitor::normalize(&paths[0]),
-            ))
-            .unwrap();
-        controller.state.current = Some(0);
-        controller.state.status = PlaybackStatus::Playing;
-        controller.poll_deletions();
-        assert_eq!(controller.state.current, None);
-        assert_eq!(controller.state.status, PlaybackStatus::Stopped);
-        assert_eq!(controller.state.tracks[0].path, paths[0]);
-        assert_eq!(controller.state.queue.order, [0, 1, 2]);
-
-        wait_until(&mut controller, |_| {
-            crate::library::database::Database::open(&database_path)
-                .unwrap()
-                .load()
-                .unwrap()
-                .iter()
-                .all(|track| track.path != paths[0] && track.path != paths[1])
-        });
-        fs::copy(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/quiet.wav"),
-            &paths[1],
-        )
-        .unwrap();
-        events
-            .send(EventMessage::Restored(
-                crate::library::deletion_monitor::normalize(&paths[1]),
-            ))
-            .unwrap();
-        wait_until(&mut controller, |controller| {
-            controller
-                .state
-                .track_available(&controller.state.tracks[1])
-                && crate::library::database::Database::open(&database_path)
-                    .unwrap()
-                    .load()
-                    .unwrap()
-                    .iter()
-                    .any(|track| track.path == paths[1])
-        });
-        let database = crate::library::database::Database::open(&database_path).unwrap();
-        assert!(matches!(
-            database.lyrics_association(&paths[1]).unwrap(),
-            crate::library::database::LyricsAssociation::Manual { .. }
-        ));
-        assert_eq!(
-            database
-                .load()
-                .unwrap()
-                .into_iter()
-                .find(|track| track.path == paths[1])
-                .unwrap()
-                .lyrics
-                .lines(),
-            ["manual lyrics survive eviction"]
-        );
-        let restarted = scanner::load(database_path).recv().unwrap().unwrap();
-        assert!(restarted.iter().any(|track| track.path == paths[1]));
-    }
-
-    #[test]
-    fn coalesced_stale_remove_then_restore_does_not_hide_existing_file() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("still-here.wav");
-        fs::copy(
-            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/quiet.wav"),
-            &path,
-        )
-        .unwrap();
-        let track = fixture_track(path.clone(), "Still here");
-        let database_path = directory.path().join("library.sqlite3");
-        crate::library::database::Database::open(&database_path)
-            .unwrap()
-            .save(&track, 1)
-            .unwrap();
-        let (mut controller, events) = fixture_controller(directory.path(), vec![track]);
-        let identity = path.clone();
-        events
-            .send(EventMessage::Removed(identity.clone()))
-            .unwrap();
-        events.send(EventMessage::Restored(identity)).unwrap();
-        controller.poll_deletions();
-        assert!(
-            controller
-                .state
-                .track_available(&controller.state.tracks[0])
-        );
-        wait_until(&mut controller, |_| {
-            crate::library::database::Database::open(&database_path)
-                .unwrap()
-                .load()
-                .unwrap()
-                .iter()
-                .any(|track| track.path == path)
-        });
-
-        // An older successful refresh may finish after a newer removal event.
-        // Its generation must not re-enable the slot.
-        let identity = path.clone();
-        controller.state.mark_track_available(&path, false);
-        controller.deletion_generations.insert(identity.clone(), 10);
-        controller
-            .deletion_worker
-            .as_mut()
-            .unwrap()
-            .refresh(path.clone(), 10);
-        fs::remove_file(&path).unwrap();
-        events.send(EventMessage::Removed(identity)).unwrap();
-        controller.poll_deletions();
-        wait_until(&mut controller, |controller| {
-            !controller
-                .state
-                .track_available(&controller.state.tracks[0])
-                && crate::library::database::Database::open(&database_path)
-                    .unwrap()
-                    .load()
-                    .unwrap()
-                    .is_empty()
-        });
-        controller.poll_deletions();
-        assert!(
-            !controller
-                .state
-                .track_available(&controller.state.tracks[0])
-        );
-    }
-}
+#[path = "controller/library_refresh_tests.rs"]
+mod library_refresh_tests;

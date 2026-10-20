@@ -47,7 +47,6 @@ html-escape = "0.2"
 slint = { version = "=1.18.1", default-features = false, features = ["renderer-femtovg"] }
 rfd = "0.15.4"
 directories = "6"
-notify = { version = "8.2", features = ["macos_kqueue"] }
 libloading = "0.8.9"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]

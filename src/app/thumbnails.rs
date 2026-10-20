@@ -1,13 +1,13 @@
 use super::artwork::decode_thumbnail;
 use crate::library::{Track, scanner};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     hash::{Hash, Hasher},
     io::{Cursor, Read},
     path::PathBuf,
     sync::{
         Arc, Condvar, Mutex,
-        mpsc::{self, Receiver, SyncSender, TrySendError},
+        mpsc::{self, Receiver},
     },
     thread,
 };
@@ -39,257 +39,6 @@ pub(super) enum ImportEvent {
     Completed(Result<Option<Prepared<scanner::ScanResult>>, String>),
 }
 
-struct FileWorkBatch {
-    evict: BTreeSet<PathBuf>,
-    refresh: BTreeMap<PathBuf, u64>,
-    scan: BTreeMap<PathBuf, u64>,
-    roots: BTreeMap<PathBuf, (u64, Vec<PathBuf>)>,
-}
-
-pub(super) enum FileWorkEvent {
-    Reconciled {
-        root: PathBuf,
-        generation: u64,
-        snapshot: scanner::RootReconciliation,
-    },
-    Restored {
-        generation: u64,
-        prepared: Box<Prepared<Track>>,
-    },
-    Scanned {
-        generation: u64,
-        prepared: Box<Prepared<Track>>,
-    },
-    Error {
-        path: PathBuf,
-        generation: u64,
-        message: String,
-    },
-}
-
-/// A bounded, coalescing worker for scanner-cache evictions and restored files.
-/// Pending work is deduplicated by path and remains local if the worker queue is full.
-pub(super) struct FileWorker {
-    requests: SyncSender<FileWorkBatch>,
-    events: Receiver<FileWorkEvent>,
-    pending_evict: BTreeSet<PathBuf>,
-    pending_refresh: BTreeMap<PathBuf, u64>,
-    pending_scan: BTreeMap<PathBuf, u64>,
-    pending_roots: BTreeMap<PathBuf, (u64, Vec<PathBuf>)>,
-}
-
-impl FileWorker {
-    pub(super) fn new(database: PathBuf, previews: PathBuf) -> Self {
-        let (request_sender, request_receiver) = mpsc::sync_channel::<FileWorkBatch>(4);
-        let (event_sender, events) = mpsc::sync_channel::<FileWorkEvent>(32);
-        thread::spawn(move || {
-            while let Ok(mut batch) = request_receiver.recv() {
-                while let Ok(next) = request_receiver.try_recv() {
-                    batch.evict.extend(next.evict);
-                    batch.refresh.extend(next.refresh);
-                    batch.scan.extend(next.scan);
-                    batch.roots.extend(next.roots);
-                }
-                for (root, (generation, known)) in batch.roots {
-                    let event = match scanner::reconcile_root(&root, &known) {
-                        Ok(snapshot) => FileWorkEvent::Reconciled {
-                            root,
-                            generation,
-                            snapshot,
-                        },
-                        Err(message) => FileWorkEvent::Error {
-                            path: root,
-                            generation,
-                            message,
-                        },
-                    };
-                    if event_sender.send(event).is_err() {
-                        return;
-                    }
-                }
-                let database_handle = match crate::library::database::Database::open(&database) {
-                    Ok(database_handle) => Some(database_handle),
-                    Err(error) => {
-                        for (path, generation) in &batch.refresh {
-                            let _ = event_sender.send(FileWorkEvent::Error {
-                                path: path.clone(),
-                                generation: *generation,
-                                message: error.clone(),
-                            });
-                        }
-                        for (path, generation) in &batch.scan {
-                            let _ = event_sender.send(FileWorkEvent::Error {
-                                path: path.clone(),
-                                generation: *generation,
-                                message: error.clone(),
-                            });
-                        }
-                        None
-                    }
-                };
-                if let Some(database_handle) = database_handle {
-                    for path in batch.evict {
-                        let _ = database_handle.evict_track(&path);
-                    }
-                    for (path, generation) in batch.refresh {
-                        match scanner::refresh_track(&database_handle, &path) {
-                            Ok(track) => {
-                                let prepared = Prepared {
-                                    previews: prepare(std::slice::from_ref(&track), &previews),
-                                    value: track,
-                                };
-                                if event_sender
-                                    .send(FileWorkEvent::Restored {
-                                        generation,
-                                        prepared: Box::new(prepared),
-                                    })
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            Err(message) => {
-                                if event_sender
-                                    .send(FileWorkEvent::Error {
-                                        path,
-                                        generation,
-                                        message,
-                                    })
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    for (path, generation) in batch.scan {
-                        match scanner::refresh_track(&database_handle, &path) {
-                            Ok(track) => {
-                                let prepared = Prepared {
-                                    previews: prepare(std::slice::from_ref(&track), &previews),
-                                    value: track,
-                                };
-                                if event_sender
-                                    .send(FileWorkEvent::Scanned {
-                                        generation,
-                                        prepared: Box::new(prepared),
-                                    })
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            Err(message) => {
-                                if event_sender
-                                    .send(FileWorkEvent::Error {
-                                        path,
-                                        generation,
-                                        message,
-                                    })
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        Self {
-            requests: request_sender,
-            events,
-            pending_evict: BTreeSet::new(),
-            pending_refresh: BTreeMap::new(),
-            pending_scan: BTreeMap::new(),
-            pending_roots: BTreeMap::new(),
-        }
-    }
-
-    pub(super) fn reconcile(&mut self, root: PathBuf, generation: u64, known: Vec<PathBuf>) {
-        self.pending_roots.insert(root, (generation, known));
-        self.flush();
-    }
-
-    pub(super) fn evict(&mut self, path: PathBuf) {
-        self.pending_evict.insert(path);
-        self.flush();
-    }
-
-    pub(super) fn refresh(&mut self, path: PathBuf, generation: u64) {
-        self.pending_refresh.insert(path, generation);
-        self.flush();
-    }
-
-    pub(super) fn scan(&mut self, path: PathBuf, generation: u64) {
-        self.pending_scan.insert(path, generation);
-        self.flush();
-    }
-
-    pub(super) fn flush(&mut self) {
-        const BATCH_LIMIT: usize = 128;
-        if self.pending_evict.is_empty()
-            && self.pending_refresh.is_empty()
-            && self.pending_scan.is_empty()
-            && self.pending_roots.is_empty()
-        {
-            return;
-        }
-        let evict: BTreeSet<_> = self
-            .pending_evict
-            .iter()
-            .take(BATCH_LIMIT)
-            .cloned()
-            .collect();
-        let refresh: BTreeMap<_, _> = self
-            .pending_refresh
-            .iter()
-            .take(BATCH_LIMIT)
-            .map(|(path, generation)| (path.clone(), *generation))
-            .collect();
-        let scan: BTreeMap<_, _> = self
-            .pending_scan
-            .iter()
-            .take(BATCH_LIMIT)
-            .map(|(path, generation)| (path.clone(), *generation))
-            .collect();
-        for path in &evict {
-            self.pending_evict.remove(path);
-        }
-        for path in refresh.keys() {
-            self.pending_refresh.remove(path);
-        }
-        for path in scan.keys() {
-            self.pending_scan.remove(path);
-        }
-        let roots = std::mem::take(&mut self.pending_roots);
-        match self.requests.try_send(FileWorkBatch {
-            evict,
-            refresh,
-            scan,
-            roots,
-        }) {
-            Ok(()) => {}
-            Err(TrySendError::Full(batch)) => {
-                self.pending_roots.extend(batch.roots);
-                self.pending_evict.extend(batch.evict);
-                self.pending_refresh.extend(batch.refresh);
-                self.pending_scan.extend(batch.scan);
-            }
-            Err(TrySendError::Disconnected(batch)) => {
-                self.pending_roots.extend(batch.roots);
-                self.pending_evict.extend(batch.evict);
-                self.pending_refresh.extend(batch.refresh);
-                self.pending_scan.extend(batch.scan);
-            }
-        }
-    }
-
-    pub(super) fn try_event(&self) -> Result<FileWorkEvent, mpsc::TryRecvError> {
-        self.events.try_recv()
-    }
-}
-
 pub(super) enum LoadEvent {
     Cached(Prepared<Vec<Track>>),
     Refreshed {
@@ -303,7 +52,7 @@ pub(super) enum LoadEvent {
 // Publish cached metadata and tiny covers before opening any audio source.
 pub(super) fn load(database_path: PathBuf) -> Receiver<LoadEvent> {
     let cache = database_path.with_file_name("cover-previews-v1");
-    let loading = scanner::load_cached(database_path);
+    let loading = scanner::load_cached_metadata(database_path);
     let (sender, receiver) = mpsc::sync_channel(2);
     thread::spawn(move || {
         while let Ok(event) = loading.recv() {
@@ -352,6 +101,22 @@ pub(super) fn import(database_path: PathBuf, title: String) -> Receiver<ImportEv
                 break;
             }
         }
+    });
+    receiver
+}
+
+pub(super) fn refresh(
+    database: PathBuf,
+    roots: Vec<PathBuf>,
+) -> Receiver<Result<Prepared<crate::library::refresh::Snapshot>, String>> {
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let previews = database.with_file_name("cover-previews-v1");
+        let result = crate::library::refresh::run(&database, &roots).map(|snapshot| Prepared {
+            previews: prepare(&snapshot.tracks, &previews),
+            value: snapshot,
+        });
+        let _ = sender.send(result);
     });
     receiver
 }

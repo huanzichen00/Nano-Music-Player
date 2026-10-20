@@ -98,7 +98,6 @@ fn pdf_rating_strip_tap_drag_clear_persistence_and_keyboard_guards() {
     .unwrap();
     let tmp = tempfile::tempdir().unwrap();
     Settings {
-        monitor_deleted_files: false,
         smooth_slides: false,
         ..Default::default()
     }

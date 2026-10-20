@@ -17,10 +17,10 @@ pub struct Settings {
     pub translation_visible: bool,
     pub zoom: f32,
     pub device_mode: bool,
-    #[serde(default = "monitor_default")]
-    pub monitor_deleted_files: bool,
-    #[serde(default)]
-    pub monitor_roots: Vec<PathBuf>,
+    #[serde(default, skip_serializing, rename = "monitor_deleted_files")]
+    pub legacy_monitor_setting: Option<serde::de::IgnoredAny>,
+    #[serde(default, alias = "monitor_roots")]
+    pub library_roots: Vec<PathBuf>,
     #[serde(default = "gapless_default")]
     pub gapless_playback: bool,
     #[serde(default)]
@@ -46,8 +46,8 @@ impl Default for Settings {
             translation_visible: false,
             zoom: 1.25,
             device_mode: true,
-            monitor_deleted_files: false,
-            monitor_roots: Vec::new(),
+            legacy_monitor_setting: None,
+            library_roots: Vec::new(),
             gapless_playback: true,
             replay_gain_mode: crate::audio::gain::GainMode::Off,
             replay_gain_preamp_db: 0.0,
@@ -64,10 +64,6 @@ fn smooth_slides_default() -> bool {
 
 fn lyrics_default() -> bool {
     true
-}
-
-fn monitor_default() -> bool {
-    false
 }
 
 fn gapless_default() -> bool {

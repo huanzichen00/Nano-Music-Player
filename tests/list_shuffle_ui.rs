@@ -36,7 +36,6 @@ fn shuffle_header_pointer_keyboard_and_cover_geometry_use_the_same_model() {
     // Deliberately missing fixture files must remain in this geometry test.
     // The background watcher would otherwise race the assertions and remove them.
     Settings {
-        monitor_deleted_files: false,
         ..Default::default()
     }
     .save(&directory.path().join("settings.json"))

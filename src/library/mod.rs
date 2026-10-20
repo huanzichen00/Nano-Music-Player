@@ -1,9 +1,5 @@
 pub mod database;
-#[cfg(not(any(target_os = "ios", feature = "mobile")))]
-pub mod deletion_monitor;
 pub mod desktop_sync;
-#[cfg(not(any(target_os = "ios", feature = "mobile")))]
-pub mod library_monitor;
 pub mod lyrics;
 pub mod online_lyrics;
 pub mod paths;

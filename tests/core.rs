@@ -1431,8 +1431,8 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         translation_target: nano_music_player::translation::TargetLanguage::Japanese,
         zoom: 2.0,
         device_mode: false,
-        monitor_deleted_files: true,
-        monitor_roots: vec![directory.path().join("music")],
+        legacy_monitor_setting: None,
+        library_roots: vec![directory.path().join("music")],
         window_width: Some(750.0),
         window_height: Some(900.0),
         gapless_playback: false,
@@ -1458,8 +1458,8 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     assert_eq!(loaded.replay_gain_preamp_db, 3.0);
     assert!(!loaded.replay_gain_prevent_clipping);
     assert!(!loaded.device_mode);
-    assert!(loaded.monitor_deleted_files);
-    assert_eq!(loaded.monitor_roots, vec![directory.path().join("music")]);
+    assert!(loaded.legacy_monitor_setting.is_none());
+    assert_eq!(loaded.library_roots, vec![directory.path().join("music")]);
     assert_eq!(loaded.window_width, Some(750.0));
     assert_eq!(loaded.window_height, Some(900.0));
     assert!(!path.with_extension("json.tmp").exists());
@@ -1880,4 +1880,29 @@ fn playlist_creation_and_all_songs_share_keyboard_selection() {
         state.navigation.current().screen,
         Screen::Songs(Filter::All)
     );
+}
+
+#[test]
+fn retired_monitor_settings_migrate_roots_without_enabling_or_saving_a_watcher() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.json");
+    let roots = vec![directory.path().join("music")];
+    fs::write(
+        &path,
+        serde_json::to_vec(&serde_json::json!({
+            "monitor_deleted_files": true, "monitor_roots": roots,
+            "gapless_playback": false, "replay_gain_preamp_db": 3.0
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let settings = Settings::load(&path).unwrap();
+    assert_eq!(settings.library_roots, roots);
+    assert!(!settings.gapless_playback);
+    assert_eq!(settings.replay_gain_preamp_db, 3.0);
+    settings.save(&path).unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert!(saved.get("monitor_deleted_files").is_none());
+    assert!(saved.get("monitor_roots").is_none());
+    assert_eq!(saved["library_roots"], serde_json::json!(roots));
 }

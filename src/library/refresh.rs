@@ -16,7 +16,10 @@ pub struct Snapshot {
 /// inaccessible roots and incomplete traversals never imply mass deletion.
 pub fn run(database: &Path, roots: &[PathBuf]) -> Result<Snapshot, String> {
     let database = Database::open(database)?;
-    let original = database.load()?;
+    let mut original = database.load()?;
+    for track in &mut original {
+        database.apply_lyrics(track)?;
+    }
     let mut roots: Vec<_> = if roots.is_empty() {
         original
             .iter()

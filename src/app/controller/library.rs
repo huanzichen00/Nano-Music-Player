@@ -1,6 +1,6 @@
 //! Startup publication and explicit library import task ownership.
 //!
-//! State merging, thumbnails, file availability, and monitoring policy remain in
+//! State merging, thumbnails, and file availability remain in
 //! the controller. This component owns task receivers and their readiness rules.
 
 use crate::{
@@ -30,6 +30,7 @@ pub(super) struct LibraryTasks {
     loading: Option<Receiver<thumbnails::LoadEvent>>,
     importing: Option<Receiver<ImportEvent>>,
     ready: bool,
+    refreshing: Option<Receiver<Result<Prepared<crate::library::refresh::Snapshot>, String>>>,
 }
 
 impl LibraryTasks {
@@ -56,6 +57,7 @@ impl LibraryTasks {
                 loading: Some(library_receiver),
                 importing: None,
                 ready: false,
+                refreshing: None,
             },
             playlist_receiver,
         )
@@ -63,6 +65,28 @@ impl LibraryTasks {
 
     pub(super) fn start_import(&mut self, title: String) {
         self.importing = Some(thumbnails::import(self.database.clone(), title));
+    }
+
+    pub(super) fn start_refresh(&mut self, roots: Vec<PathBuf>) {
+        if self.refreshing.is_none() && self.importing.is_none() {
+            self.refreshing = Some(thumbnails::refresh(self.database.clone(), roots));
+        }
+    }
+
+    pub(super) fn busy(&self) -> bool {
+        self.loading.is_some() || self.importing.is_some() || self.refreshing.is_some()
+    }
+
+    pub(super) fn poll_refresh(
+        &mut self,
+    ) -> Option<Result<Prepared<crate::library::refresh::Snapshot>, String>> {
+        let result = match self.refreshing.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("Library refresh stopped unexpectedly".into()),
+        };
+        self.refreshing = None;
+        Some(result)
     }
 
     pub(super) fn is_importing(&self) -> bool {
@@ -137,6 +161,7 @@ mod tests {
             loading: Some(receiver),
             importing: None,
             ready: false,
+            refreshing: None,
         }
     }
 
