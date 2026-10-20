@@ -145,6 +145,7 @@ impl Controller {
                 self.cancel_gapless_prefetch();
                 self.playback_session = None;
                 self.media_marker = None;
+                self.save_video_progress(true);
                 self.state.video_active = false;
                 self.state.paused = true;
                 if self.state.current.is_some() {

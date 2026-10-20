@@ -693,6 +693,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "视频导入失败：",
         "ビデオの読み込みに失敗しました：",
     ),
+    (
+        "Video progress error:",
+        "视频进度保存错误：",
+        "ビデオ再生位置のエラー：",
+    ),
     ("Next track", "下一首", "次の曲"),
     ("Previous track", "上一首", "前の曲"),
     (
@@ -2054,6 +2059,7 @@ pub fn notice(language: Language, text: &str) -> String {
         "Subtitle error: ",
         "Import failed: ",
         "Video library error: ",
+        "Video progress error: ",
         "Video import failed: ",
         "Lyrics import failed: ",
         "Cannot save window settings: ",

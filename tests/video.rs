@@ -217,3 +217,43 @@ fn keyboard_seek_uses_active_video_without_a_previous_music_track() {
     state.video_active = false;
     assert!(state.apply(Action::SeekForward).is_empty());
 }
+
+#[test]
+fn switching_videos_retains_independent_positions_and_replay_starts_over() {
+    let mut state = State::default();
+    state.merge_videos(vec![video("First", 1.0), video("Second", 1.0)]);
+    state.start_video(0);
+    state.video_status = Status::Playing;
+    state.video_position = 4.25;
+    state.start_video(1);
+    state.video_status = Status::Paused;
+    state.video_position = 7.5;
+    let resumed = state.start_video(0);
+    assert!(matches!(
+        resumed[0],
+        Effect::Video(Command::Load { start: 4.25, .. })
+    ));
+    assert_eq!(state.video_position, 4.25);
+
+    // A failed/loading reopen must not erase the last confirmed position.
+    state.video_status = Status::Error;
+    state.video_position = 0.0;
+    state.start_video(1);
+    assert_eq!(state.video_position, 7.5);
+    state.video_status = Status::Finished;
+    let replay = state.start_video(1);
+    assert!(matches!(
+        replay[0],
+        Effect::Video(Command::Load { start: 0.0, .. })
+    ));
+
+    state.video_status = Status::Paused;
+    state.video_position = 9.0;
+    state.seek(0.0);
+    state.start_video(0);
+    state.start_video(1);
+    assert_eq!(
+        state.video_position, 0.0,
+        "explicit rewind replaces the saved position"
+    );
+}

@@ -63,6 +63,7 @@ pub struct Controller {
     podcasts: podcasts::Podcasts,
     video_engine: crate::video::engine::Engine,
     video_tasks: video::VideoTasks,
+    video_progress_saved: std::time::Instant,
     video_thumbnails: super::video_thumbnails::VideoThumbnails,
     subtitle_tracks: Vec<crate::video::engine::SubtitleTrack>,
     subtitle_cursor: usize,
@@ -157,6 +158,10 @@ impl Controller {
         let statistics = StatisticsService::new(database.clone());
         let (library_tasks, receiver) = LibraryTasks::start(database);
         let video_tasks = video::VideoTasks::new(directory.clone());
+        match crate::video::progress::WatchProgress::load(&directory.join("video-progress.json")) {
+            Ok(progress) => state.video_progress = progress,
+            Err(error) => state.notice = format!("Video progress error: {error}"),
+        }
         match crate::video::subtitles::SubtitleAssociations::load(
             &directory.join("video-subtitles.json"),
         ) {
@@ -171,6 +176,7 @@ impl Controller {
             podcasts: podcasts::Podcasts::new(directory.clone()),
             video_engine: crate::video::engine::Engine::default(),
             video_tasks,
+            video_progress_saved: std::time::Instant::now(),
             video_thumbnails: super::video_thumbnails::VideoThumbnails::default(),
             subtitle_tracks: Vec::new(),
             subtitle_cursor: 0,
@@ -751,6 +757,7 @@ impl Controller {
     }
 
     fn send_music(&mut self, command: AudioCommand) {
+        self.save_video_progress(true);
         if matches!(
             command,
             AudioCommand::Load { .. } | AudioCommand::LoadWithGain { .. }
@@ -964,6 +971,12 @@ impl Controller {
 
     fn send_video(&mut self, command: crate::video::engine::Command) {
         use crate::video::engine::Command;
+        if matches!(
+            command,
+            Command::Load { .. } | Command::Pause { .. } | Command::Seek { .. }
+        ) {
+            self.save_video_progress(true);
+        }
         if let Command::Load { video, .. } = &command {
             self.leave_podcast();
             self.playback_session = None;
@@ -1244,6 +1257,7 @@ impl Controller {
     }
 
     fn poll_videos(&mut self, ui: &AppWindow) {
+        let previous_status = self.state.video_status;
         if let Some(result) = self.video_tasks.poll_subtitle() {
             self.dialog_open = false;
             if let video::SubtitleSelection {
@@ -1349,6 +1363,28 @@ impl Controller {
                 status => status,
             };
         }
+        self.save_video_progress(
+            previous_status != crate::video::Status::Finished
+                && self.state.video_status == crate::video::Status::Finished,
+        );
+    }
+
+    fn save_video_progress(&mut self, force: bool) {
+        self.state.remember_video_progress();
+        if !self.state.video_progress.is_dirty()
+            || (!force && self.video_progress_saved.elapsed() < std::time::Duration::from_secs(5))
+        {
+            return;
+        }
+        // Retry failed saves at the same bounded interval; leave the in-memory history dirty.
+        self.video_progress_saved = std::time::Instant::now();
+        if let Err(error) = self
+            .state
+            .video_progress
+            .save(&self.directory.join("video-progress.json"))
+        {
+            self.state.notice = format!("Video progress error: {error}");
+        }
     }
 
     /// A lightweight 60 Hz frame pump; metadata/navigation remain on the 50 ms poll.
@@ -1405,6 +1441,7 @@ impl Controller {
     }
 
     pub fn save_settings(&mut self, ui: &AppWindow) {
+        self.save_video_progress(true);
         self.save_podcast_progress();
         let size = ui.window().size().to_logical(ui.window().scale_factor());
         let (saved_width, saved_height) = if self.state.landscape_video() {
@@ -3630,6 +3667,7 @@ impl Controller {
 
 impl Drop for Controller {
     fn drop(&mut self) {
+        self.save_video_progress(true);
         self.save_podcast_progress();
         self.cancel_online_lyrics();
         // Drain queued user ratings/statistics before process exit.

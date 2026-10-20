@@ -17,6 +17,18 @@ ASS/SSA sidecars, embedded subtitle tracks, selection/Off and per-video preferen
 are supported; see [subtitle implementation](SUBTITLES_IMPLEMENTATION_PLAN.md).
 Chapter selection, rentals and video playlists are outside this milestone.
 
+## Watch progress
+
+Video positions are stored by canonical imported path in `video-progress.json`,
+independently of `videos.json`, so importing or refreshing metadata preserves watch
+history. Opening a partially watched video resumes its saved position, including
+after restarting the app. Completed videos replay from the beginning. Seeking
+back to zero replaces the saved position; failed/loading sessions do not erase it.
+Positions are saved every five seconds during playback and on pause, seek, media
+handoff, settings save and normal shutdown. Abrupt process termination can lose up
+to the latest five seconds. Writes atomically replace the progress file; failures
+report an error and retain dirty history for retry.
+
 ## Whole-device landscape orientation
 
 The user requested that landscape playback turn the entire nano 90 degrees.

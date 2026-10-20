@@ -284,3 +284,47 @@ mod tests {
         assert!(tasks.subtitle_pending());
     }
 }
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use crate::{app::controller::Controller, video::Status};
+
+    #[test]
+    fn periodic_save_and_shutdown_restore_latest_video_position_without_import_overwrite() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("movie.mp4");
+        let video = Video {
+            path: path.clone(),
+            title: "Movie".into(),
+            duration: 120.0,
+            width: 320,
+            height: 180,
+            display_aspect: 16.0 / 9.0,
+            video_codec: "h264".into(),
+            audio_codec: None,
+        };
+        let mut controller = Controller::new(directory.path().into());
+        controller.state.merge_videos(vec![video.clone()]);
+        controller.state.start_video(0);
+        controller.state.video_status = Status::Playing;
+        controller.state.video_position = 24.5;
+        controller.video_progress_saved -= std::time::Duration::from_secs(6);
+        controller.save_video_progress(false);
+        let database = directory.path().join("video-progress.json");
+        assert_eq!(
+            crate::video::progress::WatchProgress::load(&database)
+                .unwrap()
+                .resume(&path, 120.0),
+            24.5
+        );
+
+        controller.state.merge_videos(vec![video.clone()]);
+        controller.state.video_position = 31.75;
+        drop(controller);
+        let mut reopened = Controller::new(directory.path().into());
+        reopened.state.merge_videos(vec![video]);
+        reopened.state.start_video(0);
+        assert_eq!(reopened.state.video_position, 31.75);
+    }
+}

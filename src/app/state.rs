@@ -90,6 +90,7 @@ pub struct State {
     /// Paths temporarily hidden from library browsing; vector slots stay stable for queued IDs.
     pub unavailable_tracks: BTreeSet<PathBuf>,
     pub videos: Vec<crate::video::library::Video>,
+    pub video_progress: crate::video::progress::WatchProgress,
     pub video_subtitles: crate::video::subtitles::SubtitleAssociations,
     pub video_active: bool,
     pub video_current: Option<usize>,
@@ -148,6 +149,7 @@ impl Default for State {
             tracks: Vec::new(),
             unavailable_tracks: BTreeSet::new(),
             videos: Vec::new(),
+            video_progress: crate::video::progress::WatchProgress::default(),
             video_subtitles: crate::video::subtitles::SubtitleAssociations::default(),
             video_active: false,
             video_current: None,
@@ -929,6 +931,8 @@ impl State {
                 self.video_paused = true;
                 self.video_status = crate::video::Status::Loading;
                 self.video_position = seconds.clamp(0.0, video.duration);
+                self.video_progress
+                    .record(&video.path, self.video_position, video.duration);
                 return Effect::Video(crate::video::engine::Command::Load {
                     generation: self.video_generation,
                     video,
@@ -938,6 +942,7 @@ impl State {
                 });
             }
             self.video_position = seconds.clamp(0.0, self.duration().max(0.0));
+            self.remember_video_progress();
             return Effect::Video(crate::video::engine::Command::Seek {
                 generation: self.video_generation,
                 seconds: self.video_position,
@@ -984,6 +989,7 @@ impl State {
     }
 
     pub fn start(&mut self, id: usize) -> Vec<Effect> {
+        self.remember_video_progress();
         let Some(track) = self.tracks.get(id) else {
             return Vec::new();
         };
@@ -1065,7 +1071,26 @@ impl State {
         })
     }
 
+    pub fn remember_video_progress(&mut self) {
+        if self.video_active
+            && !matches!(
+                self.video_status,
+                crate::video::Status::Loading | crate::video::Status::Error
+            )
+            && let Some(video) = self.video_current.and_then(|id| self.videos.get(id))
+        {
+            let position = if self.video_status == crate::video::Status::Finished {
+                video.duration
+            } else {
+                self.video_position
+            };
+            self.video_progress
+                .record(&video.path, position, video.duration);
+        }
+    }
+
     pub fn start_video(&mut self, id: usize) -> Vec<Effect> {
+        self.remember_video_progress();
         let Some(video) = self.videos.get(id).cloned() else {
             return Vec::new();
         };
@@ -1075,7 +1100,7 @@ impl State {
             .video_generation
             .checked_add(1)
             .expect("video session counter exhausted");
-        self.video_position = 0.0;
+        self.video_position = self.video_progress.resume(&video.path, video.duration);
         self.video_paused = false;
         self.video_status = crate::video::Status::Loading;
         self.video_overlay = true;
@@ -1092,7 +1117,7 @@ impl State {
         let mut effects = vec![Effect::Video(crate::video::engine::Command::Load {
             generation: self.video_generation,
             video: video.clone(),
-            start: 0.0,
+            start: self.video_position,
             volume: self.effective_volume(),
             paused: false,
         })];
@@ -1129,6 +1154,7 @@ impl State {
 
     pub fn apply(&mut self, action: Action) -> Vec<Effect> {
         use Action::*;
+        self.remember_video_progress();
         if let Some(effects) = self.apply_podcast(action) {
             return effects;
         }
