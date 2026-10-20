@@ -41,6 +41,7 @@ Tests use original fixture audio and local HTTP servers; no user subscriptions o
 - Podcast unit tests cover namespace parsing, metadata and query parameters, stable GUID upgrades, changed enclosure URLs, duplicate GUID separation, persistent progress, conditional refresh, invalid downloaded audio, cancellation and FIFO shutdown writes.
 - Controller tests cover music/podcast event isolation, pending handoffs, natural EOF versus seek-to-end, cancellation of download autoplay when switching media, and deletion waiting for a matching release acknowledgement.
 - `tests/podcasts.rs` drives the actual desktop subscription preview, explicit subscribe, show and episode navigation, Chinese labels and the player under Slint's software backend. It writes review images to the system temporary `nano-qa` directory. Transport assertions also check separate music position and paused seeking after EOF.
+- Preview artwork is explicitly sized to its thumbnail and clipped to its rounded container. Pixel-difference regressions cover square, landscape and portrait images at two window sizes in both desktop display modes, with pointer checks for Subscribe and Cancel.
 - Audio engine regression tests include loading directly at a saved position, preserving pause/volume, stale-event rejection and existing gapless/seek behavior.
 - Existing desktop core, reference UI, screen motion and settings navigation tests verify the surrounding UI.
 - A `mobile` library check verifies that desktop-only podcast screens and service do not enter the mobile frontend.

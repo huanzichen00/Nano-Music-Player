@@ -38,8 +38,9 @@ export component PodcastSubscription inherits Rectangle {
         }
         if root.ready: Rectangle {
             x: 12px * root.s; y: 136px * root.s; width: 42px * root.s; height: 42px * root.s; background: #a06ac0; border-radius: 4px * root.s;
+            clip: true;
             Image { x: 7px * root.s; y: 7px * root.s; width: 28px * root.s; height: 28px * root.s; source: @image-url("../assets/icons/podcast.svg"); colorize: white; image-fit: contain; }
-            Image { source: root.artwork; image-fit: contain; }
+            Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.artwork; image-fit: contain; }
         }
         Text { x: root.ready ? 64px * root.s : 12px * root.s; y: 136px * root.s; width: parent.width - self.x - 12px * root.s; height: 42px * root.s; text: root.show-title; font-size: 15px * root.s; font-weight: 700; color: #503171; wrap: word-wrap; overflow: elide; }
         Text { x: 12px * root.s; y: 181px * root.s; width: parent.width - 24px * root.s; height: 55px * root.s; text: root.show-description; font-size: 11px * root.s; color: #5e6572; wrap: word-wrap; overflow: elide; }

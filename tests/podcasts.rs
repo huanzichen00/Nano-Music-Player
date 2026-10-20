@@ -96,17 +96,26 @@ fn snapshot(ui: &AppWindow, name: &str) {
     .unwrap();
 }
 
+fn display_point(ui: &AppWindow, x: f32, y: f32) -> slint::LogicalPosition {
+    let size = ui.window().size().to_logical(ui.window().scale_factor());
+    let scale = ui.get_display_scale();
+    let body_height = if ui.get_device_mode() {
+        296.0 * 76.5 / 39.6
+    } else {
+        432.0
+    };
+    slint::LogicalPosition::new(
+        (size.width - 240.0 * scale) / 2.0 + x * scale,
+        size.height - ui.get_content_height()
+            + (ui.get_content_height() - body_height * scale) / 2.0
+            + (y + if ui.get_device_mode() { 36.0 } else { 0.0 }) * scale,
+    )
+}
+
 fn click(ui: &AppWindow, x: f32, y: f32) {
     use slint::platform::{PointerEventButton, WindowEvent};
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
-    let size = ui.window().size().to_logical(ui.window().scale_factor());
-    let scale = ui.get_display_scale();
-    let position = slint::LogicalPosition::new(
-        (size.width - 240.0 * scale) / 2.0 + x * scale,
-        size.height - ui.get_content_height()
-            + (ui.get_content_height() - 432.0 * scale) / 2.0
-            + y * scale,
-    );
+    let position = display_point(ui, x, y);
     ui.window()
         .dispatch_event(WindowEvent::PointerMoved { position });
     ui.window().dispatch_event(WindowEvent::PointerPressed {
@@ -119,6 +128,99 @@ fn click(ui: &AppWindow, x: f32, y: f32) {
         button: PointerEventButton::Left,
     });
     i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(16));
+}
+
+fn solid_artwork(width: u32, height: u32, color: slint::Rgb8Pixel) -> slint::Image {
+    let mut pixels = slint::SharedPixelBuffer::new(width, height);
+    pixels.make_mut_slice().fill(color);
+    slint::Image::from_rgb8(pixels)
+}
+
+#[test]
+fn subscription_artwork_stays_inside_the_thumbnail_at_desktop_sizes() {
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
+            mock_time: true,
+            ..Default::default()
+        },
+    )))
+    .unwrap();
+    let ui = AppWindow::new().unwrap();
+    ui.global::<nano_music_player::ui::I18n>()
+        .on_translate(|_, key| key);
+    ui.set_smooth_slides(false);
+    ui.set_screen(1);
+    ui.set_screen_title("Podcasts".into());
+    ui.set_podcast_subscribe_open(true);
+    ui.set_podcast_preview_ready(true);
+    ui.set_podcast_preview_title("The Album Years".into());
+    ui.set_podcast_preview_description("Steven Wilson & Tim Bowness\nMusic is finite, opinions are endless. A long description should stay readable beside the cover.".into());
+    ui.set_podcast_message("67 episodes · audio downloads on demand".into());
+    ui.set_podcast_url("https://example.org/feed".into());
+    ui.show().unwrap();
+    for (device, width, height) in [
+        (false, 240.0, 460.0),
+        (false, 480.0, 892.0),
+        (true, 296.0, 590.0),
+        (true, 592.0, 1172.0),
+    ] {
+        ui.set_device_mode(device);
+        ui.window().set_size(slint::LogicalSize::new(width, height));
+        for (art_width, art_height) in [(320, 320), (640, 320), (320, 640)] {
+            ui.set_podcast_preview_artwork(solid_artwork(
+                art_width,
+                art_height,
+                slint::Rgb8Pixel {
+                    r: 255,
+                    g: 176,
+                    b: 0,
+                },
+            ));
+            let before = ui.window().take_snapshot().unwrap();
+            ui.set_podcast_preview_artwork(solid_artwork(
+                art_width,
+                art_height,
+                slint::Rgb8Pixel {
+                    r: 0,
+                    g: 176,
+                    b: 255,
+                },
+            ));
+            let after = ui.window().take_snapshot().unwrap();
+            let size = ui.window().size().to_logical(ui.window().scale_factor());
+            let pixels_per_logical = after.width() as f32 / size.width;
+            let top_left = display_point(&ui, 20.0, 187.0);
+            let bottom_right = display_point(&ui, 62.0, 229.0);
+            let mut changed = 0;
+            for (index, (a, b)) in before.as_slice().iter().zip(after.as_slice()).enumerate() {
+                if a == b {
+                    continue;
+                }
+                changed += 1;
+                let x = (index % after.width() as usize) as f32;
+                let y = (index / after.width() as usize) as f32;
+                assert!(
+                    x >= (top_left.x * pixels_per_logical).floor() - 1.0
+                        && x <= (bottom_right.x * pixels_per_logical).ceil() + 1.0
+                        && y >= (top_left.y * pixels_per_logical).floor() - 1.0
+                        && y <= (bottom_right.y * pixels_per_logical).ceil() + 1.0,
+                    "cover changed pixels outside its thumbnail at ({x}, {y}); device={device}, window={width}x{height}, artwork={art_width}x{art_height}"
+                );
+            }
+            assert!(changed > 100, "the artwork must remain visible");
+            if device && width == 592.0 && art_width == art_height {
+                snapshot(&ui, "podcast-subscription-artwork.png");
+            }
+        }
+    }
+    let commands = Rc::new(RefCell::new(Vec::new()));
+    let recorded = commands.clone();
+    ui.on_podcast_command(move |command| recorded.borrow_mut().push(command.to_string()));
+    click(&ui, 170.0, 353.0);
+    click(&ui, 65.0, 353.0);
+    assert_eq!(commands.borrow().as_slice(), ["subscribe", "close"]);
+    ui.hide().unwrap();
 }
 
 #[test]
