@@ -19,6 +19,9 @@ During playback, tap the image to reveal the controls, then choose **Subtitles �
 Import ASS/SSA…** to attach or replace a subtitle file for that video. The Subtitles
 button is at the bottom left in portrait/landscape and Device/Screen Mode. Desktop
 users can also choose **File → Import ASS/SSA…** while the video screen is open.
+Plain **S** opens/closes the subtitle menu during video playback, including when
+controls are hidden or volume is selected. It retains Shuffle in music screens;
+custom S bindings and text/native-dialog contexts take precedence.
 Chapter selection, rentals and video playlists are outside this milestone.
 
 ## Watch progress

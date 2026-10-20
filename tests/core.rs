@@ -128,6 +128,74 @@ fn all_default_shortcuts_resolve_to_their_semantic_actions() {
 }
 
 #[test]
+fn s_toggles_video_subtitles_without_stealing_music_or_custom_shortcuts() {
+    let key = Key::Letter('s');
+    let plain = Modifiers::default();
+    let dispatcher = Dispatcher::new(Keymap::default());
+    for surface in [
+        Surface::VideoPlaying,
+        Surface::VideoPlayingVolume,
+        Surface::SubtitleMenu,
+    ] {
+        let ctx = context(surface);
+        assert_eq!(
+            dispatcher.dispatch(&press(key.clone(), plain, false), ctx),
+            Dispatch::Action(Action::ToggleSubtitles)
+        );
+        assert_eq!(
+            dispatcher.dispatch(&press(key.clone(), plain, true), ctx),
+            Dispatch::Consumed
+        );
+        for ctx in [
+            Context {
+                text_input: true,
+                ..ctx
+            },
+            Context {
+                native_dialog: true,
+                ..ctx
+            },
+        ] {
+            assert_eq!(
+                dispatcher.dispatch(&press(key.clone(), plain, false), ctx),
+                Dispatch::Ignored
+            );
+        }
+        assert_eq!(
+            dispatcher.dispatch(
+                &press(key.clone(), plain, false),
+                Context {
+                    reference_open: true,
+                    ..ctx
+                }
+            ),
+            Dispatch::Consumed
+        );
+    }
+    for surface in [
+        Surface::Home,
+        Surface::Library,
+        Surface::NowPlaying,
+        Surface::NowPlayingVolume,
+    ] {
+        assert_eq!(
+            dispatch(key.clone(), plain, false, surface),
+            Dispatch::Action(Action::ToggleShuffle)
+        );
+    }
+    let mut map = Keymap::default();
+    map.bindings
+        .iter_mut()
+        .find(|b| b.key == key && b.modifiers == plain)
+        .unwrap()
+        .action = Action::TogglePlay;
+    assert_eq!(
+        Dispatcher::new(map).dispatch(&press(key, plain, false), context(Surface::VideoPlaying)),
+        Dispatch::Action(Action::TogglePlay)
+    );
+}
+
+#[test]
 fn f_finds_lyrics_on_song_screens_and_respects_keyboard_context() {
     let plain = Modifiers::default();
     let key = Key::Letter('f');

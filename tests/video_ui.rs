@@ -375,6 +375,24 @@ fn subtitle_menu_pointer_selection_persists_per_video() {
         controller.borrow().state.video_subtitles.get(&path),
         SubtitlePreference::Off
     );
+    // S reaches the same menu with the overlay hidden or volume selected.
+    for selected in [1, 3] {
+        {
+            let mut c = controller.borrow_mut();
+            c.state.video_overlay = false;
+            c.state.navigation.select(selected);
+            c.execute(&ui, Action::FinishSearchEditing);
+        }
+        for expected_open in [true, false] {
+            let key = "s".into();
+            ui.window()
+                .dispatch_event(WindowEvent::KeyPressed { text: key });
+            ui.window()
+                .dispatch_event(WindowEvent::KeyReleased { text: "s".into() });
+            assert_eq!(ui.get_subtitle_menu_open(), expected_open);
+            assert!(!controller.borrow().state.shuffle);
+        }
+    }
     ui.invoke_subtitle_command("open".into());
     let keys: [slint::SharedString; 2] = [
         slint::platform::Key::J.into(),

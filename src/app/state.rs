@@ -204,16 +204,16 @@ impl State {
     pub fn surface(&self) -> Surface {
         match &self.navigation.current().screen {
             Screen::Home => Surface::Home,
-            Screen::NowPlaying
-            | Screen::VideoPlaying
-            | Screen::Podcasts(super::navigation::PodcastPage::Playing)
+            Screen::VideoPlaying if self.navigation.selected() == 3 => Surface::VideoPlayingVolume,
+            Screen::VideoPlaying => Surface::VideoPlaying,
+            Screen::NowPlaying | Screen::Podcasts(super::navigation::PodcastPage::Playing)
                 if self.navigation.selected() == 3 =>
             {
                 Surface::NowPlayingVolume
             }
-            Screen::NowPlaying
-            | Screen::VideoPlaying
-            | Screen::Podcasts(super::navigation::PodcastPage::Playing) => Surface::NowPlaying,
+            Screen::NowPlaying | Screen::Podcasts(super::navigation::PodcastPage::Playing) => {
+                Surface::NowPlaying
+            }
             Screen::Placeholder(_) => Surface::Placeholder,
             _ => Surface::Library,
         }
@@ -1759,6 +1759,8 @@ impl State {
             FinishSearchEditing => {
                 return vec![Effect::FocusScreen];
             }
+            // The desktop controller owns the subtitle menu.
+            ToggleSubtitles => {}
             SeekBackward | SeekForward => {
                 let has_media = if self.video_active {
                     self.video_current.is_some()

@@ -248,6 +248,27 @@ impl Controller {
                     title: self.text(binding.action.title()),
                     keys: binding.label(cfg!(target_os = "macos")).into(),
                 });
+                if binding.action != Action::ToggleSubtitles
+                    && self.dispatcher.dispatch(
+                        &KeyPress {
+                            key: binding.key.clone(),
+                            modifiers: binding.modifiers,
+                            repeat: false,
+                        },
+                        Context {
+                            surface: crate::input::Surface::VideoPlaying,
+                            text_input: false,
+                            reference_open: false,
+                            native_dialog: false,
+                        },
+                    ) == Dispatch::Action(Action::ToggleSubtitles)
+                {
+                    reference.push(ShortcutRow {
+                        category: self.text(category.title()),
+                        title: self.text(Action::ToggleSubtitles.title()),
+                        keys: binding.label(cfg!(target_os = "macos")).into(),
+                    });
+                }
             }
         }
         ui.set_shortcuts(ModelRc::new(VecModel::from(reference)));
@@ -286,7 +307,7 @@ impl Controller {
             let resolved = self.dispatcher.dispatch(
                 &press,
                 Context {
-                    surface: crate::input::Surface::Library,
+                    surface: crate::input::Surface::SubtitleMenu,
                     text_input: false,
                     reference_open: false,
                     native_dialog: false,
@@ -298,7 +319,7 @@ impl Controller {
                     ui.set_subtitle_menu_open(false);
                     self.execute(ui, Action::Home);
                 }
-                Dispatch::Action(Action::Back) => {
+                Dispatch::Action(Action::Back | Action::ToggleSubtitles) => {
                     ui.set_subtitle_menu_open(false);
                     ui.invoke_focus_screen();
                 }
@@ -546,6 +567,21 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if action == Action::ToggleSubtitles {
+            if !self.dialog_open
+                && self.state.video_active
+                && self.state.navigation.current().screen == Screen::VideoPlaying
+                && !self.state.reference_open
+            {
+                if ui.get_subtitle_menu_open() {
+                    ui.set_subtitle_menu_open(false);
+                } else {
+                    self.open_subtitle_menu(ui);
+                }
+                ui.invoke_focus_screen();
+            }
+            return;
+        }
         if (action == Action::RefreshLibrary
             || (action == Action::ImportFolder
                 && !matches!(
@@ -1223,6 +1259,17 @@ impl Controller {
             }
         };
         self.set_video_subtitle(preference);
+    }
+
+    fn open_subtitle_menu(&mut self, ui: &AppWindow) {
+        let choices = self.subtitle_choices();
+        self.subtitle_cursor = choices
+            .iter()
+            .position(|choice| choice.selected)
+            .unwrap_or(0);
+        ui.set_subtitle_menu_selected(self.subtitle_cursor as i32);
+        ui.set_subtitle_choices(ModelRc::new(VecModel::from(choices)));
+        ui.set_subtitle_menu_open(true);
     }
 
     fn begin_subtitle_import(&mut self) {
@@ -3609,14 +3656,7 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
             let mut controller = state.borrow_mut();
             match name.as_str() {
                 "open" if controller.state.video_active => {
-                    let choices = controller.subtitle_choices();
-                    controller.subtitle_cursor = choices
-                        .iter()
-                        .position(|choice| choice.selected)
-                        .unwrap_or(0);
-                    ui.set_subtitle_menu_selected(controller.subtitle_cursor as i32);
-                    ui.set_subtitle_choices(ModelRc::new(VecModel::from(choices)));
-                    ui.set_subtitle_menu_open(true);
+                    controller.open_subtitle_menu(&ui);
                 }
                 "close" => ui.set_subtitle_menu_open(false),
                 "import" if controller.state.video_active => {

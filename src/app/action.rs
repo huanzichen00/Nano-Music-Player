@@ -40,6 +40,7 @@ pub enum Action {
     SeekBackward,
     SeekForward,
     ToggleLyrics,
+    ToggleSubtitles,
     ToggleOverlay,
     Settings,
     Shortcuts,
@@ -100,7 +101,7 @@ impl Action {
             | Self::SeekForward
             | Self::ToggleLyrics => Category::Playback,
             Self::ToggleRomaji | Self::ToggleTranslation => Category::Playback,
-            Self::ToggleOverlay | Self::TrackList => Category::Playback,
+            Self::ToggleOverlay | Self::TrackList | Self::ToggleSubtitles => Category::Playback,
             Self::ImportFolder
             | Self::RefreshLibrary
             | Self::ImportVideos
@@ -197,6 +198,7 @@ impl Action {
             Self::SeekBackward => "Seek back 5 seconds",
             Self::SeekForward => "Seek forward 5 seconds",
             Self::ToggleLyrics => "Show / hide lyrics",
+            Self::ToggleSubtitles => "Subtitles",
             Self::ToggleOverlay => "Show / hide cover controls",
             Self::Settings => "Open Settings",
             Self::Shortcuts => "Customize shortcuts",

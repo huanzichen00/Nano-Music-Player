@@ -50,7 +50,7 @@ On macOS, File, Playback, View and Help are native menus at the top of the scree
 | Playback | Space | Play / pause |
 | Playback | Cmd/Ctrl + Right / Left | Next / previous track |
 | Playback | Cmd/Ctrl + Up / Down | Volume; holding the keys repeats |
-| Playback | M / S | Mute / shuffle |
+| Playback | M / S | Mute / shuffle; S opens/closes subtitles during video playback |
 | Playback | R | Show / hide romaji on Now Playing; cycle repeat elsewhere |
 | Playback | N | Now Playing |
 | Playback | Y | Toggle lyrics on Now Playing |

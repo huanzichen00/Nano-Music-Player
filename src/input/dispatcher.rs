@@ -7,6 +7,9 @@ pub enum Surface {
     Library,
     NowPlaying,
     NowPlayingVolume,
+    VideoPlaying,
+    VideoPlayingVolume,
+    SubtitleMenu,
     Placeholder,
 }
 
@@ -88,6 +91,14 @@ impl Dispatcher {
             return Dispatch::Consumed;
         }
         let action = match (binding.action, context.surface) {
+            // Preserve the music binding and any customized S chord. Only the
+            // shipped plain-S shuffle binding opens subtitles on video screens.
+            (
+                ToggleShuffle,
+                Surface::VideoPlaying | Surface::VideoPlayingVolume | Surface::SubtitleMenu,
+            ) if press.key == Key::Letter('s') && press.modifiers == Modifiers::default() => {
+                ToggleSubtitles
+            }
             // F keeps its list prefix and finds the playing song's lyrics on the song screen.
             (JumpToLetter, Surface::NowPlaying | Surface::NowPlayingVolume)
                 if press.key == Key::Letter('f') && press.modifiers == Modifiers::default() =>
@@ -109,16 +120,18 @@ impl Dispatcher {
             (NavigateLeft, _) => Back,
             (NavigateRight, Surface::Placeholder) => return Dispatch::Consumed,
             (NavigateRight, _) => Activate,
-            (Left, Surface::Library | Surface::Placeholder) => Back,
-            (Right, Surface::Library) => Activate,
-            (Left, Surface::NowPlaying) => SeekBackward,
-            (Right, Surface::NowPlaying) => SeekForward,
-            (Left, Surface::NowPlayingVolume) => VolumeDown,
-            (Right, Surface::NowPlayingVolume) => VolumeUp,
+            (Left, Surface::Library | Surface::Placeholder | Surface::SubtitleMenu) => Back,
+            (Right, Surface::Library | Surface::SubtitleMenu) => Activate,
+            (Left, Surface::NowPlaying | Surface::VideoPlaying) => SeekBackward,
+            (Right, Surface::NowPlaying | Surface::VideoPlaying) => SeekForward,
+            (Left, Surface::NowPlayingVolume | Surface::VideoPlayingVolume) => VolumeDown,
+            (Right, Surface::NowPlayingVolume | Surface::VideoPlayingVolume) => VolumeUp,
             (Right, Surface::Placeholder) => return Dispatch::Consumed,
             (action, _) => action,
         };
-        if context.reference_open && matches!(action, ToggleRomaji | FindOnlineLyrics) {
+        if context.reference_open
+            && matches!(action, ToggleRomaji | FindOnlineLyrics | ToggleSubtitles)
+        {
             return Dispatch::Consumed;
         }
         // A held Right arrow in a list must not open several nested screens.
