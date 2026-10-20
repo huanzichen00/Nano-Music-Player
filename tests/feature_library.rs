@@ -47,20 +47,22 @@ fn root_reconciliation_detects_nested_add_remove_and_preserves_unavailable_root(
 #[test]
 fn gapless_queue_cursor_handles_missing_tracks_duplicate_entries_and_repeat() {
     use nano_music_player::{app::state::State, audio::Repeat, library::Track};
-    let mut state = State::default();
-    state.tracks = (0..3)
-        .map(|id| Track {
-            path: format!("/music/{id}.wav").into(),
-            title: id.to_string(),
-            artist: "Artist".into(),
-            album: "Album".into(),
-            genre: String::new(),
-            number: id,
-            duration: 180.0,
-            artwork: Vec::new(),
-            lyrics: Default::default(),
-        })
-        .collect();
+    let mut state = State {
+        tracks: (0..3)
+            .map(|id| Track {
+                path: format!("/music/{id}.wav").into(),
+                title: id.to_string(),
+                artist: "Artist".into(),
+                album: "Album".into(),
+                genre: String::new(),
+                number: id,
+                duration: 180.0,
+                artwork: Vec::new(),
+                lyrics: Default::default(),
+            })
+            .collect(),
+        ..Default::default()
+    };
     state.queue.set(vec![0, 1, 0, 2], 0, false);
     state.current = Some(0);
     let missing = state.tracks[1].path.clone();

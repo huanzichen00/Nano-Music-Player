@@ -1,4 +1,4 @@
-//! Path helpers shared by importers and the optional desktop file monitors.
+//! Path helpers shared by importers and explicit library refresh.
 
 use std::path::{Path, PathBuf};
 

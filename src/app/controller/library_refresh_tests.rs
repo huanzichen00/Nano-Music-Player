@@ -94,3 +94,54 @@ fn refresh_does_not_overwrite_a_lyric_edit_completed_after_its_snapshot() {
     controller.apply_library_refresh(prepared);
     assert_eq!(controller.state.tracks[0].lyrics, edited);
 }
+
+#[test]
+fn refresh_completion_preserves_an_error_from_a_newer_user_operation() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut controller, _) = fixture(directory.path());
+    let prepared = refreshed(directory.path());
+    controller.state.notice = "Could not save rating".into();
+    controller.apply_library_refresh(prepared);
+    assert_eq!(controller.state.notice, "Could not save rating");
+}
+
+#[test]
+fn missing_previous_music_does_not_stop_or_cancel_the_podcast_or_video_owner() {
+    for podcast in [true, false] {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut controller, paths) = fixture(directory.path());
+        controller.state.current = Some(0);
+        controller.handoff = 9;
+        controller.state.video_active = !podcast;
+        if podcast {
+            controller.state.podcasts.active = Some(1);
+            controller.state.podcasts.status = PlaybackStatus::Playing;
+            controller.pending_media = Some(PendingMedia::Music {
+                handoff: 9,
+                command: AudioCommand::Pause(false),
+            });
+        } else {
+            controller.pending_media = Some(PendingMedia::Video {
+                handoff: 9,
+                command: crate::video::engine::Command::Pause {
+                    generation: 1,
+                    paused: false,
+                },
+            });
+        }
+        fs::remove_file(&paths[0]).unwrap();
+        controller.apply_library_refresh(refreshed(directory.path()));
+        assert_eq!(controller.state.current, None);
+        assert_eq!(
+            controller.handoff, 9,
+            "no Stop command should be sent to the other owner"
+        );
+        assert!(controller.pending_media.is_some());
+        if podcast {
+            assert_eq!(controller.state.podcasts.active, Some(1));
+            assert_eq!(controller.state.podcasts.status, PlaybackStatus::Playing);
+        } else {
+            assert!(controller.state.video_active);
+        }
+    }
+}

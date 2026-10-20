@@ -23,6 +23,11 @@ impl State {
                 subtitle: "Generate or remove its translation".into(),
                 target: SharedTarget::Screen(Screen::SettingsSection(SettingsSection::Translation)),
             });
+            rows.push(settings::Row {
+                title: "Refresh Library".into(),
+                subtitle: String::new(),
+                target: SharedTarget::Action(super::action::Action::RefreshLibrary),
+            });
         }
         Some(
             rows.into_iter()

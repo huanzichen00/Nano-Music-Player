@@ -470,6 +470,11 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "导入与传歌",
         "音楽の読み込み・転送",
     ),
+    (
+        "Library refresh failed:",
+        "曲库刷新失败：",
+        "ライブラリの更新に失敗しました：",
+    ),
     ("Refresh Library", "刷新曲库", "ライブラリを更新"),
     (
         "Preparing music library…",
@@ -2064,6 +2069,7 @@ pub fn notice(language: Language, text: &str) -> String {
         "Subtitle error: ",
         "Import failed: ",
         "Video library error: ",
+        "Library refresh failed: ",
         "Video progress error: ",
         "Video import failed: ",
         "Lyrics import failed: ",

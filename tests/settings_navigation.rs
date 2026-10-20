@@ -81,7 +81,7 @@ fn settings_controls_are_explicit_persist_and_keep_the_playback_context() {
     ui.show().unwrap();
     controller.borrow_mut().state.notice.clear();
     controller.borrow_mut().execute(&ui, Action::Settings);
-    assert_eq!(ui.get_rows().row_count(), 7);
+    assert_eq!(ui.get_rows().row_count(), 8);
     snapshot(&ui, "settings-en");
     assert!(ui.get_list_row_height() * 7.0 <= ui.get_list_viewport_height() + 0.01);
     // Real pointer events use the same row geometry as keyboard navigation.

@@ -546,11 +546,12 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
-        if action == Action::ImportFolder
-            && !matches!(
-                self.state.navigation.current().screen,
-                Screen::Videos | Screen::VideoPlaying
-            )
+        if (action == Action::RefreshLibrary
+            || (action == Action::ImportFolder
+                && !matches!(
+                    self.state.navigation.current().screen,
+                    Screen::Videos | Screen::VideoPlaying
+                )))
             && self.library_tasks.busy()
         {
             self.state.notice = if self.library_tasks.is_importing() {
@@ -623,10 +624,21 @@ impl Controller {
                     self.video_tasks
                         .start_import(translate(self.state.language, "Import Videos…"), None);
                 }
+                Effect::RefreshLibrary => {
+                    self.start_library_refresh();
+                    ui.set_library_busy(self.library_tasks.busy());
+                }
                 Effect::Import => {
-                    self.dialog_open = true;
-                    self.library_tasks
-                        .start_import(translate(self.state.language, "Import Music Folder…"));
+                    if self
+                        .library_tasks
+                        .start_import(translate(self.state.language, "Import Music Folder…"))
+                    {
+                        self.dialog_open = true;
+                        ui.set_library_busy(true);
+                    } else {
+                        self.state.importing = false;
+                        self.state.notice = "Refreshing library…".into();
+                    }
                 }
                 Effect::FocusSearch => ui.invoke_focus_search(),
                 Effect::FocusScreen => ui.invoke_focus_screen(),
@@ -1906,12 +1918,17 @@ impl Controller {
     fn start_library_refresh(&mut self) {
         self.library_tasks
             .start_refresh(self.settings.library_roots.clone());
+        self.state.library_refreshing = true;
+        if self.state.notice == "Import a music folder to begin" {
+            self.state.notice = "Refreshing library…".into();
+        }
     }
 
     fn poll_library_refresh(&mut self) {
         let Some(result) = self.library_tasks.poll_refresh() else {
             return;
         };
+        self.state.library_refreshing = false;
         match result {
             Ok(prepared) => self.apply_library_refresh(prepared),
             Err(error) => self.state.notice = format!("Library refresh failed: {error}"),
@@ -1922,57 +1939,75 @@ impl Controller {
         let snapshot = &mut prepared.value;
         // User lyric edits may finish during a refresh. Preserve newer values;
         // stable vector slots keep queued and currently playing IDs unchanged.
+        let current: HashMap<_, _> = self
+            .state
+            .tracks
+            .iter()
+            .map(|track| (&track.path, track))
+            .collect();
+        let original: HashMap<_, _> = snapshot
+            .original
+            .iter()
+            .map(|track| (&track.path, track))
+            .collect();
         snapshot.tracks.retain(|track| {
-            let current = self
-                .state
-                .tracks
-                .iter()
-                .find(|current| current.path == track.path);
-            let original = snapshot
-                .original
-                .iter()
-                .find(|original| original.path == track.path);
-            current.is_none()
-                || current == original
-                || (original.is_none() && self.state.unavailable_tracks.contains(&track.path))
+            let previous = current.get(&track.path).copied();
+            let was_missing = self.state.unavailable_tracks.contains(&track.path);
+            if previous == Some(track) && !was_missing {
+                return false;
+            }
+            previous.is_none()
+                || previous == original.get(&track.path).copied()
+                || (!original.contains_key(&track.path) && was_missing)
         });
         prepared.previews.retain_tracks(&snapshot.tracks);
-        let artwork_changed = snapshot.tracks.iter().any(|track| {
+        let changed = !snapshot.tracks.is_empty()
+            || snapshot.missing.iter().any(|path| {
+                self.state
+                    .tracks
+                    .iter()
+                    .any(|track| &track.path == path && self.state.track_available(track))
+            });
+        if changed {
+            let artwork_changed = snapshot.tracks.iter().any(|track| {
+                self.state
+                    .tracks
+                    .iter()
+                    .find(|old| old.path == track.path)
+                    .is_none_or(|old| old.artwork != track.artwork)
+            });
             self.state
-                .tracks
-                .iter()
-                .find(|old| old.path == track.path)
-                .is_none_or(|old| old.artwork != track.artwork)
-        });
-        self.state
-            .merge_library(std::mem::take(&mut snapshot.tracks));
-        for path in &snapshot.missing {
-            self.mark_library_missing(path);
+                .merge_library(std::mem::take(&mut snapshot.tracks));
+            for path in &snapshot.missing {
+                self.mark_library_missing(path);
+            }
+            if artwork_changed {
+                self.thumbnails.clear();
+                self.artwork.clear();
+                self.last_track = None;
+            }
+            self.thumbnails.seed(&self.state.tracks, prepared.previews);
+            self.update_smart_playlist_library();
+            self.lyrics_dirty = true;
+            self.media_marker = None;
+            self.rows_dirty = true;
         }
-        if artwork_changed {
-            self.thumbnails.clear();
-            self.artwork.clear();
-            self.last_track = None;
-        }
-        self.thumbnails.seed(&self.state.tracks, prepared.previews);
-        self.update_smart_playlist_library();
-        self.lyrics_dirty = true;
-        self.media_marker = None;
-        self.rows_dirty = true;
         let count = self
             .state
             .tracks
             .iter()
             .filter(|track| self.state.track_available(track))
             .count();
-        self.state.notice = format!(
-            "{count} songs in library{}",
-            if snapshot.warnings.is_empty() {
-                String::new()
-            } else {
-                format!(" · {} files skipped", snapshot.warnings.len())
-            }
-        );
+        if self.state.notice == "Refreshing library…" {
+            self.state.notice = format!(
+                "{count} songs in library{}",
+                if snapshot.warnings.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {} files skipped", snapshot.warnings.len())
+                }
+            );
+        }
     }
 
     fn mark_library_missing(&mut self, path: &std::path::Path) {
@@ -1987,14 +2022,16 @@ impl Controller {
         self.state.mark_track_available(path, false);
         self.cancel_gapless_prefetch();
         if self.state.current == Some(id) {
-            self.handoff += 1;
-            if matches!(self.pending_media, Some(PendingMedia::Music { .. })) {
-                self.pending_media = None;
-                self.pending_seek = None;
+            if !self.state.video_active && self.state.podcasts.active.is_none() {
+                self.handoff += 1;
+                if matches!(self.pending_media, Some(PendingMedia::Music { .. })) {
+                    self.pending_media = None;
+                    self.pending_seek = None;
+                }
+                let _ = self.engine.send(AudioCommand::Stop {
+                    handoff: self.handoff,
+                });
             }
-            let _ = self.engine.send(AudioCommand::Stop {
-                handoff: self.handoff,
-            });
             self.state.current = None;
             self.state.status = PlaybackStatus::Stopped;
             self.state.position = 0.0;
@@ -2004,6 +2041,7 @@ impl Controller {
     }
 
     fn sync(&mut self, ui: &AppWindow) {
+        ui.set_library_busy(self.library_tasks.busy());
         if self.state.translation_target != self.settings.translation_target
             || self.state.translation_visible != self.lyrics.visible()
         {

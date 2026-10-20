@@ -42,7 +42,8 @@ fn desktop_settings_include_current_song_translation_and_flat_playback_preferenc
             "Language",
             "Keyboard Shortcuts",
             "AI Services",
-            "Translate Current Song"
+            "Translate Current Song",
+            "Refresh Library"
         ]
     );
     state.navigation.select(1);

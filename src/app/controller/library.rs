@@ -63,8 +63,12 @@ impl LibraryTasks {
         )
     }
 
-    pub(super) fn start_import(&mut self, title: String) {
+    pub(super) fn start_import(&mut self, title: String) -> bool {
+        if self.busy() {
+            return false;
+        }
         self.importing = Some(thumbnails::import(self.database.clone(), title));
+        true
     }
 
     pub(super) fn start_refresh(&mut self, roots: Vec<PathBuf>) {

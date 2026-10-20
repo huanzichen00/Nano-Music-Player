@@ -43,6 +43,7 @@ export component AppWindow inherits Window {
     in-out property <bool> podcast-subscribe-open;
     in-out property <string> podcast-url;
     in property <bool> podcast-busy;
+    in property <bool> library-busy;
     in property <bool> podcast-preview-ready;
     in property <string> podcast-message;
     in property <string> podcast-preview-title;
@@ -322,7 +323,8 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Edit Playlist…"); enabled: root.playlist-content && !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("edit_playlist"); } }
             MenuItem { title: I18n.tr("Import Videos…"); activated => { root.command("import_videos"); } }
             MenuItem { title: I18n.tr("Subtitles…"); enabled: root.screen == 9; activated => { root.subtitle-command("open"); } }
-            MenuItem { title: I18n.tr("Import Music Folder…"); activated => { root.command("import_folder"); } }
+            MenuItem { title: I18n.tr("Refresh Library"); enabled: !root.library-busy; activated => { root.command("refresh_library"); } }
+            MenuItem { title: I18n.tr("Import Music Folder…"); enabled: !root.library-busy; activated => { root.command("import_folder"); } }
             MenuItem { title: I18n.tr("Sync to iPhone…"); activated => { root.command("sync_iphone"); } }
             MenuItem { title: I18n.tr("Import / Replace Lyrics…"); activated => { root.command("import_lyrics"); } }
             MenuItem { title: I18n.tr("Search Library…"); activated => { root.command("search"); } }

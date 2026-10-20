@@ -46,6 +46,7 @@ pub enum Effect {
     Audio(AudioCommand),
     Video(crate::video::engine::Command),
     ImportVideos,
+    RefreshLibrary,
     Import,
     FocusSearch,
     FocusScreen,
@@ -134,6 +135,7 @@ pub struct State {
     pub romaji: HashMap<PathBuf, crate::library::romaji::Romaji>,
     pub romaji_generating: Option<PathBuf>,
     pub importing: bool,
+    pub library_refreshing: bool,
     pub notice: String,
 }
 
@@ -192,6 +194,7 @@ impl Default for State {
             romaji: HashMap::new(),
             romaji_generating: None,
             importing: false,
+            library_refreshing: false,
             notice: "Import a music folder to begin".to_owned(),
         }
     }
@@ -1580,6 +1583,13 @@ impl State {
                     self.video_importing = true;
                     self.notice = "Choose local videos…".into();
                     return vec![Effect::ImportVideos];
+                }
+            }
+            RefreshLibrary => {
+                if !self.importing && !self.library_refreshing {
+                    self.library_refreshing = true;
+                    self.notice = "Refreshing library…".into();
+                    return vec![Effect::RefreshLibrary];
                 }
             }
             ImportFolder => {

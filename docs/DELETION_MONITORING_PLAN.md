@@ -1,5 +1,8 @@
 # Source-file deletion monitoring plan
 
+> Historical design, retired on 2026-10-20. Both watcher implementations and
+> their dependency have been removed. See [the current library refresh design](LIBRARY_REFRESH.md).
+
 ## Current behavior
 
 The library stores each imported track in SQLite under its path. Import refreshes selected folders, while startup loads cached records even when their audio files are unavailable. Playlist entries are path based, and manual lyrics and romaji are stored separately by audio path. Consequently, deleting an audio file does not currently remove its cached record or hide it from library views.

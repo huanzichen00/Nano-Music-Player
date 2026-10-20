@@ -133,6 +133,11 @@ fn restart_loads_annotations_and_controls_preserve_credentials_and_original_lyri
     )
     .unwrap();
     let path = directory.path().join("song.mp3");
+    std::fs::copy(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/quiet.mp3"),
+        &path,
+    )
+    .unwrap();
     let original = track(path.clone(), "Japanese song");
     let romaji = Romaji::new(
         original.lyrics.clone(),
@@ -144,6 +149,13 @@ fn restart_loads_annotations_and_controls_preserve_credentials_and_original_lyri
     {
         let database = Database::open(&database_path).unwrap();
         database.save(&original, 1).unwrap();
+        database
+            .set_manual_lyrics(
+                &path,
+                &directory.path().join("chosen.lrc"),
+                &original.lyrics,
+            )
+            .unwrap();
         database.save_romaji(&path, &romaji).unwrap();
     }
     let key_path = directory.path().join("deepseek.json");

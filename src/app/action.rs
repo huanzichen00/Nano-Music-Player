@@ -25,6 +25,7 @@ pub enum Action {
     CycleRepeat,
     NowPlaying,
     ImportFolder,
+    RefreshLibrary,
     ImportVideos,
     Search,
     DeviceMode,
@@ -101,6 +102,7 @@ impl Action {
             Self::ToggleRomaji | Self::ToggleTranslation => Category::Playback,
             Self::ToggleOverlay | Self::TrackList => Category::Playback,
             Self::ImportFolder
+            | Self::RefreshLibrary
             | Self::ImportVideos
             | Self::Search
             | Self::DeviceMode
@@ -174,6 +176,7 @@ impl Action {
             Self::CycleRepeat => "Repeat: Off / All / One",
             Self::NowPlaying => "Open Now Playing",
             Self::ImportFolder => "Import music folder",
+            Self::RefreshLibrary => "Refresh Library",
             Self::ImportVideos => "Import Videos…",
             Self::Search => "Search library",
             Self::DeviceMode => "Device Mode",
@@ -241,6 +244,7 @@ impl Action {
         Self::SeekBackward,
         Self::SeekForward,
         Self::ImportFolder,
+        Self::RefreshLibrary,
         Self::ImportVideos,
         Self::Search,
         Self::JumpToLetter,
