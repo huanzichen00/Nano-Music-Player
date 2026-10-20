@@ -14,7 +14,7 @@ use std::{
 pub struct ScanResult {
     pub tracks: Vec<Track>,
     pub warnings: Vec<String>,
-    /// Selected folder roots, including empty folders, retained for monitoring.
+    /// Selected folder roots, including empty folders, retained for explicit refresh.
     pub roots: Vec<PathBuf>,
 }
 
@@ -110,7 +110,7 @@ pub fn reconcile_root(root: &Path, known: &[PathBuf]) -> Result<RootReconciliati
         });
     }
     let mut paths = std::collections::BTreeSet::new();
-    for entry in walkdir::WalkDir::new(root).follow_links(false) {
+    for entry in walkdir::WalkDir::new(root).follow_links(false).max_open(8) {
         let entry = entry.map_err(|error| error.to_string())?;
         if entry.file_type().is_file() && super::paths::is_audio(entry.path()) {
             paths.insert(super::paths::normalize(entry.path()));
@@ -152,8 +152,7 @@ pub fn reconcile_root(root: &Path, known: &[PathBuf]) -> Result<RootReconciliati
     })
 }
 
-/// Re-read and persist a single restored file using the same cache stamp as imports.
-/// Called on the deletion worker, never on the UI thread.
+/// Refresh one file using import cache stamps. Call on a background worker.
 pub fn refresh_track(database: &Database, path: &Path) -> Result<Track, String> {
     let stamp = metadata_stamp(path);
     let mut track = if let Some(cached) = database.cached(path, stamp) {

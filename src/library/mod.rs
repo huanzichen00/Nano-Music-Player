@@ -8,6 +8,7 @@ pub mod lyrics;
 pub mod online_lyrics;
 pub mod paths;
 pub mod playlists;
+pub mod refresh;
 pub mod romaji;
 pub mod scanner;
 pub mod statistics;
