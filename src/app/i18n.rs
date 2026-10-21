@@ -1582,9 +1582,9 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "オンラインで一致する歌詞を検索",
     ),
     (
-        "Multiple online lyric recordings match; import lyrics for this version",
-        "找到多个匹配的歌词版本，请为此录音手动导入歌词",
-        "複数の歌詞が一致しました。このバージョンの歌詞を手動で読み込んでください",
+        "Could not verify lyrics for this recording",
+        "暂未找到能确认匹配此录音的歌词",
+        "この録音に一致する歌詞を確認できませんでした",
     ),
     (
         "DeepSeek web search rate limit reached; try again later",

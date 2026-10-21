@@ -11,6 +11,7 @@ mod matching;
 const ENDPOINT: &str = "https://lrclib.net/api/get";
 const RESPONSE_LIMIT: u64 = 262_144;
 const SEARCH_RESPONSE_LIMIT: u64 = 2_097_152;
+const AMBIGUOUS: &str = "Could not verify lyrics for this recording";
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -232,6 +233,7 @@ fn candidate_miss(error: &str) -> bool {
         "No matching online lyrics found"
             | "Online lyrics did not match this recording"
             | "This recording is instrumental"
+            | AMBIGUOUS
     )
 }
 
@@ -262,16 +264,23 @@ fn select(request: &Request, records: Vec<Record>) -> Result<Found, String> {
             .then_with(|| a.0.1.cmp(&b.0.1))
             .then_with(|| a.1.total_cmp(&b.1))
     });
-    let Some((rank, _, best)) = candidates.first() else {
+    let Some((rank, distance, best)) = candidates.first() else {
         return Err(last_miss);
     };
     let content = matching::key(&best.lyrics.lines().join(" "));
-    if candidates.iter().skip(1).any(|(other_rank, _, found)| {
-        *other_rank == *rank && matching::key(&found.lyrics.lines().join(" ")) != content
-    }) {
-        return Err(
-            "Multiple online lyric recordings match; import lyrics for this version".into(),
-        );
+    // Only equally useful sources can conflict with the best candidate.
+    // Sub-second differences can just be rounded service metadata.
+    if candidates
+        .iter()
+        .skip(1)
+        .any(|(other_rank, other_distance, found)| {
+            *other_rank == *rank
+                && found.lyrics.timed.is_empty() == best.lyrics.timed.is_empty()
+                && other_distance - distance <= 0.5
+                && matching::key(&found.lyrics.lines().join(" ")) != content
+        })
+    {
+        return Err(AMBIGUOUS.into());
     }
     Ok(candidates.remove(0).2)
 }
@@ -333,10 +342,13 @@ fn retrieve(
         }
         match result {
             Ok(found) => return Ok(found),
-            Err(FetchError::Candidate(error)) if error.starts_with("Multiple online") => {
-                return Err(error);
+            // Search ambiguity must still try the exact recording signature,
+            // then optional discovery. Preserve it if the signature also misses.
+            Err(FetchError::Candidate(error)) => {
+                if last_miss != AMBIGUOUS {
+                    last_miss = error;
+                }
             }
-            Err(FetchError::Candidate(error)) => last_miss = error,
             Err(FetchError::Service(error)) => return Err(error.into()),
             Err(FetchError::RateLimited) => {
                 return Err("Online lyrics rate limit reached; try again later".into());

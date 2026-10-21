@@ -1,5 +1,24 @@
 # iPod translation settings and online lyrics
 
+## Automatic resolution of conflicting lookup results, 2026-10-21
+
+Conflicting search results now continue through LRCLIB's exact recording
+signature and, if still needed and configured, DeepSeek discovery. The previous
+ambiguity error stopped both stages and told the user to import lyrics manually.
+Candidate conflicts now respect the same album, synchronization and guest-credit
+priorities as selection. A duration match more than half a second closer also
+outranks a weaker candidate; smaller differences remain tied to allow for rounded
+metadata. All candidates still require compatible recording versions and a
+duration within two seconds. Only unresolved conflicts after the fallback stages
+report that the recording's lyrics could not be verified; those misses use the
+existing short negative cache.
+
+Offline HTTP regressions cover conflicting plain/timed results, meaningful versus
+rounded duration differences, exact-signature resolution without a model call,
+discovery after an unresolved conflict, rejection of a discovered live substitute,
+and caching after fallback failure. These checks use synthetic lyrics and do not
+make live provider requests or modify the user's library.
+
 ## Existing timestamps and recording versions, 2026-10-19
 
 The latest Firefly download was LRCLIB record 12038413: its synchronized field
@@ -109,8 +128,9 @@ song without lyrics, it runs the following stages off the UI/audio path:
    guest credits in either title or artist. Album release-format/encoding/edition
    labels can differ; matching albums outrank other releases. A different live or
    acoustic album is rejected. Title, primary artist and duration (within two
-   seconds) remain required. Equally ranked candidates with conflicting lyric text
-   produce an explicit ambiguity notice rather than choosing the first record.
+   seconds) remain required. Conflicting lyric text among equally useful candidates
+   continues to the exact recording signature and optional discovery instead of
+   ending the lookup. Only unresolved conflicts produce a verification failure.
 2. If no usable candidate exists, try LRCLIB's exact signature endpoint. Only then
    attempt native DeepSeek discovery when credentials are configured. This uses
    `web_search_20250305` with one tool use at the Anthropic-compatible Messages

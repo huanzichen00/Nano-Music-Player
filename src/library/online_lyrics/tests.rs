@@ -153,18 +153,139 @@ fn candidate_search_chooses_matching_album_over_first_result_and_rejects_ambigui
     let mut conflicting = record();
     conflicting["id"] = json!(3);
     conflicting["syncedLyrics"] = json!("[00:01]conflicting lyrics");
-    assert!(
+    assert_eq!(
         select(
             &request(),
             vec![as_record(conflicting), as_record(record())]
         )
-        .unwrap_err()
-        .starts_with("Multiple online")
+        .unwrap_err(),
+        AMBIGUOUS
     );
     let mut same = record();
     same["id"] = json!(4);
     same["albumName"] = json!("Reissue");
     assert!(select(&request(), vec![as_record(same), as_record(record())]).is_ok());
+}
+
+#[test]
+fn weaker_plain_text_and_duration_matches_do_not_block_synced_lyrics() {
+    for (synced, duration) in [
+        (serde_json::Value::Null, 60.0),
+        (json!("[00:01]different words"), 61.5),
+    ] {
+        let mut weaker = record();
+        weaker["id"] = json!(2);
+        weaker["duration"] = json!(duration);
+        weaker["plainLyrics"] = json!("different words");
+        weaker["syncedLyrics"] = synced;
+        for records in [
+            vec![as_record(weaker.clone()), as_record(record())],
+            vec![as_record(record()), as_record(weaker.clone())],
+        ] {
+            let found = select(&request(), records).unwrap();
+            assert_eq!(found.source_url, "https://lrclib.net/api/get/1");
+            assert_eq!(found.lyrics.timed.len(), 2);
+        }
+    }
+    // Rounding alone cannot establish which conflicting text is correct.
+    let mut rounded = record();
+    rounded["duration"] = json!(60.4);
+    rounded["syncedLyrics"] = json!("[00:01]different words");
+    assert_eq!(
+        select(&request(), vec![as_record(record()), as_record(rounded)]).unwrap_err(),
+        AMBIGUOUS
+    );
+}
+
+fn ambiguous_records() -> String {
+    let mut conflicting = record();
+    conflicting["id"] = json!(2);
+    conflicting["syncedLyrics"] = json!("[00:01]conflicting lyrics");
+    json!([record(), conflicting]).to_string()
+}
+
+#[test]
+fn ambiguous_search_continues_to_the_exact_recording_without_a_model_call() {
+    let (endpoint, server) = mock_replies(
+        vec![
+            ("200 OK", ambiguous_records()),
+            ("200 OK", record().to_string()),
+        ],
+        None,
+    );
+    let found = lookup_with_search(&request(), &endpoint, &Cancellation::default(), || {
+        panic!("an exact synchronized match needs no discovery")
+    })
+    .unwrap();
+    assert_eq!(found.source_url, "https://lrclib.net/api/get/1");
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[0].starts_with("get /api/search?"));
+    assert!(requests[1].starts_with("get /api/get?"));
+    assert!(requests[1].contains("album_name=album"));
+    assert!(requests[1].contains("duration=60"));
+}
+
+#[test]
+fn unresolved_search_continues_to_discovery_and_validates_its_recording() {
+    for title in ["Song", "Song (Live)"] {
+        let mut discovered = record();
+        discovered["id"] = json!(3);
+        discovered["trackName"] = json!(title);
+        let (endpoint, server) = mock_replies(
+            vec![
+                ("200 OK", ambiguous_records()),
+                ("404 Not Found", String::new()),
+                ("200 OK", discovered.to_string()),
+            ],
+            None,
+        );
+        let mut searched = false;
+        let result = lookup_with_search(&request(), &endpoint, &Cancellation::default(), || {
+            searched = true;
+            Ok(vec!["https://lrclib.net/api/get/3".into()])
+        });
+        assert!(searched, "ambiguous candidates must not skip discovery");
+        if title == "Song" {
+            let found = result.unwrap();
+            assert_eq!(found.source_url, "https://lrclib.net/api/get/3");
+            assert_eq!(found.lyrics.timed.len(), 2);
+        } else {
+            assert!(
+                result.is_err(),
+                "discovery cannot substitute a live version"
+            );
+        }
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2], "get /api/get/3 http/1.1");
+    }
+}
+
+#[test]
+fn unverified_conflicts_are_cached_only_after_all_lookup_stages() {
+    let (endpoint, server) = mock_replies(
+        vec![
+            ("200 OK", ambiguous_records()),
+            ("404 Not Found", String::new()),
+        ],
+        None,
+    );
+    assert_eq!(
+        lookup_with_search(&request(), &endpoint, &Cancellation::default(), || {
+            Err("DeepSeek search failed".into())
+        })
+        .unwrap_err(),
+        AMBIGUOUS
+    );
+    assert_eq!(server.join().unwrap().len(), 2);
+    assert_eq!(
+        lookup_with_search(&request(), &endpoint, &Cancellation::default(), || {
+            panic!("repeated unresolved lookup should use the short negative cache")
+        })
+        .unwrap_err(),
+        AMBIGUOUS
+    );
 }
 
 #[test]
