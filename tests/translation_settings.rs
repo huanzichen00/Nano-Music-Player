@@ -193,6 +193,56 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
             .contains("Press F to find lyrics")
     );
     snapshot(&ui, "missing-lyrics");
+    // Pending work must not invite another request. Exhausted fallbacks show
+    // a localized retry hint instead of asking the user to supply lyric files.
+    for status in ["Searching online lyrics…", "Saving online lyrics…"] {
+        let mut c = controller.borrow_mut();
+        c.state
+            .lyrics_lookup_status
+            .insert(playing_path.clone(), status.into());
+        c.execute(&ui, Action::FinishSearchEditing);
+        assert_eq!(ui.get_empty_lyrics_message(), status);
+    }
+    {
+        use nano_music_player::app::i18n::Language;
+        let mut c = controller.borrow_mut();
+        c.state.lyrics_lookup_status.insert(
+            playing_path.clone(),
+            "Could not verify lyrics for this recording".into(),
+        );
+        c.state.notice.clear();
+        for (language, message, hint, name) in [
+            (
+                Language::English,
+                "Could not verify lyrics for this recording",
+                "Press F to try again",
+                "unverified-lyrics-en",
+            ),
+            (
+                Language::SimplifiedChinese,
+                "暂未找到能确认匹配此录音的歌词",
+                "按 F 重新查找",
+                "unverified-lyrics-zh",
+            ),
+            (
+                Language::Japanese,
+                "この録音に一致する歌詞を確認できませんでした",
+                "F キーで再検索",
+                "unverified-lyrics-ja",
+            ),
+        ] {
+            c.state.language = language;
+            c.execute(&ui, Action::FinishSearchEditing);
+            assert_eq!(
+                ui.get_empty_lyrics_message(),
+                format!("{message}\n\n{hint}")
+            );
+            snapshot(&ui, name);
+        }
+        c.state.language = Language::English;
+        c.state.lyrics_lookup_status.remove(&playing_path);
+        c.execute(&ui, Action::FinishSearchEditing);
+    }
     controller.borrow_mut().execute(&ui, Action::ToggleOverlay);
     assert!(!ui.get_overlay_visible());
     ui.window()
@@ -205,6 +255,10 @@ fn ipod_translation_settings_share_menu_commands_and_persist_language() {
     assert!(
         ui.get_empty_lyrics_message()
             .contains("Invalid DeepSeek API key")
+    );
+    assert!(
+        ui.get_empty_lyrics_message()
+            .contains("Press F to try again")
     );
     snapshot(&ui, "lookup-error");
     assert!(

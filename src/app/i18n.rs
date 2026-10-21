@@ -1459,6 +1459,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "按 F 自动查找歌词",
         "F キーで歌詞を検索",
     ),
+    ("Press F to try again", "按 F 重新查找", "F キーで再検索"),
     ("No translation available", "暂无译文", "翻訳がありません"),
     (
         "Find Lyrics Online",

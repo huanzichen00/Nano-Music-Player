@@ -13,6 +13,11 @@ duration within two seconds. Only unresolved conflicts after the fallback stages
 report that the recording's lyrics could not be verified; those misses use the
 existing short negative cache.
 
+The empty-lyric overlay shows no find-key hint while searching or saving. After
+a failed lookup it offers a localized retry hint instead of repeating the
+initial find prompt. English, Chinese and Japanese overlay snapshots are covered
+by the desktop translation-settings regression.
+
 Offline HTTP regressions cover conflicting plain/timed results, meaningful versus
 rounded duration differences, exact-signature resolution without a model call,
 discovery after an unresolved conflict, rejection of a discovered live substitute,

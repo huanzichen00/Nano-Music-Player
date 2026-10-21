@@ -2259,7 +2259,12 @@ impl Controller {
             self.state.language,
             lookup_status.map_or("No lyrics available", String::as_str),
         );
+        let lookup_pending = matches!(
+            lookup_status.map(String::as_str),
+            Some("Searching online lyrics…" | "Saving online lyrics…")
+        );
         if self.state.current.is_some()
+            && !lookup_pending
             && self.dispatcher.keymap.bindings.iter().any(|binding| {
                 binding.matches(&Key::Letter('f'), Modifiers::default())
                     && matches!(
@@ -2269,7 +2274,11 @@ impl Controller {
             })
         {
             empty_lyrics_message.push_str("\n\n");
-            empty_lyrics_message.push_str(&self.text("Press F to find lyrics"));
+            empty_lyrics_message.push_str(&self.text(if lookup_status.is_some() {
+                "Press F to try again"
+            } else {
+                "Press F to find lyrics"
+            }));
         }
         ui.set_empty_lyrics_message(empty_lyrics_message.into());
         ui.set_romaji_visible(self.state.romaji_visible);
