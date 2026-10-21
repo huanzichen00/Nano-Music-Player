@@ -101,6 +101,7 @@ pub struct Controller {
     last_selected: usize,
     last_scale: f32,
     last_window_size: slint::LogicalSize,
+    last_window_scale_factor: f32,
     resize_debouncer: super::geometry::ResizeDebouncer,
     resize_clock: std::time::Instant,
     last_notice: String,
@@ -199,6 +200,7 @@ impl Controller {
             last_selected: usize::MAX,
             last_scale: 0.0,
             last_window_size: slint::LogicalSize::new(0.0, 0.0),
+            last_window_scale_factor: 0.0,
             resize_debouncer: super::geometry::ResizeDebouncer::default(),
             resize_clock: std::time::Instant::now(),
             last_notice: String::new(),
@@ -1500,7 +1502,9 @@ impl Controller {
         ui.set_device_mode(self.state.device_mode);
         ui.set_video_landscape(self.state.landscape_video());
         let (width, height) = self.base_size();
-        let current_size = ui.window().size().to_logical(ui.window().scale_factor());
+        let scale_factor = ui.window().scale_factor();
+        self.last_window_scale_factor = scale_factor;
+        let current_size = ui.window().size().to_logical(scale_factor);
         let menu_height = (current_size.height - ui.get_content_height()).max(0.0);
         self.last_window_size = slint::LogicalSize::new(
             width * self.state.zoom,
@@ -1510,7 +1514,22 @@ impl Controller {
     }
 
     fn maintain_aspect_ratio(&mut self, ui: &AppWindow) {
-        let size = ui.window().size().to_logical(ui.window().scale_factor());
+        let scale_factor = ui.window().scale_factor();
+        if self.last_window_scale_factor > 0.0
+            && (scale_factor - self.last_window_scale_factor).abs() > f32::EPSILON
+        {
+            // Moving a window between backing scales can report the new DPI
+            // before its physical size catches up. Preserve our last logical
+            // request instead of treating that intermediate size as a drag.
+            // Reapply it directly: mixing the old layout's content height with
+            // the new DPI here can also invent extra menu chrome.
+            self.last_window_scale_factor = scale_factor;
+            self.resize_debouncer.reset();
+            ui.window().set_size(self.last_window_size);
+            return;
+        }
+        self.last_window_scale_factor = scale_factor;
+        let size = ui.window().size().to_logical(scale_factor);
         let content_height = ui.get_content_height();
         if let Some(zoom) = self.resize_debouncer.observe(
             self.resize_clock.elapsed().as_millis() as u64,
