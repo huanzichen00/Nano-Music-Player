@@ -1,5 +1,7 @@
 #[cfg(any(target_os = "ios", feature = "mobile"))]
 pub mod ios;
+#[cfg(all(target_os = "macos", not(feature = "mobile")))]
+pub(crate) mod macos_hotkey;
 pub mod macos_media;
 
 /// Keep both frontends on the same native renderer and honor diagnostic overrides.

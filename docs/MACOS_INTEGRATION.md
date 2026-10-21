@@ -18,13 +18,17 @@ The bundle ID is set in [`scripts/package-macos.sh`](../scripts/package-macos.sh
 
 ## Focus with Option + R
 
-Copy [`scripts/aerospace-focus-player.sh`](../scripts/aerospace-focus-player.sh) to `~/.config/aerospace/nano-focus-player.sh`, then add this binding to the existing `[mode.main.binding]` section of `~/.aerospace.toml`:
+On macOS, the desktop player registers **Option + R** as a native global shortcut at startup using Carbon's `RegisterEventHotKey`. It works while another application is active and restores a minimized or hidden player before bringing it forward, preserving the current screen. The player must be running. The registration is released on exit and does not require AeroSpace or Accessibility/Input Monitoring permission. It is separate from the configurable in-app keymap. Registration failure (for example, another app reserving the same chord) leaves playback available and reports the error in the startup notice and stderr.
+
+Remove any existing `alt-r` binding for the player from AeroSpace and reload its configuration to avoid competing shortcuts. The workspace-follow callback and floating rule can remain enabled independently.
+
+For older player builds without the native shortcut, [`scripts/aerospace-focus-player.sh`](../scripts/aerospace-focus-player.sh) remains available as an optional fallback. Copy it to `~/.config/aerospace/nano-focus-player.sh`, then add this binding to the existing `[mode.main.binding]` section of `~/.aerospace.toml`:
 
 ```toml
 alt-r = 'exec-and-forget /bin/bash "$HOME/.config/aerospace/nano-focus-player.sh"'
 ```
 
-Validate with `aerospace reload-config --dry-run --no-gui`, then run `aerospace reload-config --no-gui`. **Option + R** focuses a running player from another application, including a player on another workspace or monitor. It preserves the current player screen. If the player is closed, the shortcut does nothing. AeroSpace must be running in main mode; this binding is separate from the player's in-app shortcuts.
+Validate with `aerospace reload-config --dry-run --no-gui`, then run `aerospace reload-config --no-gui`. This fallback requires AeroSpace in main mode and does nothing if the player is closed.
 
 ## Follow AeroSpace workspace changes
 

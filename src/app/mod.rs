@@ -23,12 +23,36 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ui = crate::ui::AppWindow::new()?;
     let controller = Rc::new(RefCell::new(controller::Controller::new(directory)));
     controller::connect(&ui, &controller);
+    #[cfg(target_os = "macos")]
+    let focus_hotkey = match crate::platform::macos_hotkey::FocusHotkey::register() {
+        Ok(hotkey) => Some(hotkey),
+        Err(error) => {
+            eprintln!("{error}");
+            controller.borrow_mut().state.notice = error;
+            None
+        }
+    };
     controller.borrow_mut().initialize(&ui);
     let timer = Timer::default();
     let weak = ui.as_weak();
     let ticking = controller.clone();
     timer.start(TimerMode::Repeated, Duration::from_millis(50), move || {
         if let Some(ui) = weak.upgrade() {
+            #[cfg(target_os = "macos")]
+            if focus_hotkey
+                .as_ref()
+                .is_some_and(|hotkey| hotkey.take_pending())
+            {
+                use slint::winit_030::WinitWindowAccessor;
+                // Restore minimized/hidden windows before requesting native focus.
+                // Keep the current screen and its text-input focus intact.
+                let _ = ui.show();
+                ui.window().with_winit_window(|window| {
+                    window.set_minimized(false);
+                    window.set_visible(true);
+                    window.focus_window();
+                });
+            }
             ticking.borrow_mut().poll(&ui);
         }
     });

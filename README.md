@@ -70,6 +70,8 @@ On macOS, File, Playback, View and Help are native menus at the top of the scree
 
 All app shortcuts pause while the search field has focus, preserving native text editing. Enter or Escape returns focus to results. Playback remains accessible across screens and during background scanning. **Help → Keyboard Shortcuts** displays the currently loaded bindings, grouped into the three categories above.
 
+On macOS, **Option + R** is a native global shortcut that restores and focuses the running player from other applications. It works independently of AeroSpace and the in-app keymap. See [macOS integration](docs/MACOS_INTEGRATION.md#focus-with-option--r).
+
 Available lyrics appear by default over the artwork in a translucent, left-aligned panel. Click the cover or lyrics to toggle this overlay together with the seek bar, repeat, shuffle and album track-list controls. Artwork fits the available region without cropping, including portrait and landscape images. Transport and volume remain available at the bottom. Lists and lyrics accept mouse-wheel, trackpad and pointer scrolling, with [rubber-band resistance and spring-back](docs/OVERSCROLL.md) at their boundaries. Horizontal scrolling changes Home pages; the page-dot area also supports a mouse drag. Drag the bezel to move the window. Resize its edges or use zoom shortcuts; the display keeps its aspect ratio. Device Mode has a rounded transparent outer silhouette. **Settings → Appearance → Keep on Top** (also in the native View menu) starts enabled and persists your choice. macOS three-finger dragging is controlled by the system's trackpad settings.
 
 ## Podcasts (desktop)
