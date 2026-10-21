@@ -1,9 +1,9 @@
-//! A process-owned macOS global shortcut. Native callbacks only set a flag;
-//! the normal Slint timer restores and focuses the player on the main thread.
+//! Process-owned macOS global shortcuts. Native callbacks only set flags;
+//! the normal Slint timer focuses or hides the player on the main thread.
 
 use std::{
     cell::Cell,
-    ffi::{c_ulong, c_void},
+    ffi::{c_char, c_ulong, c_void},
     ptr,
 };
 
@@ -16,6 +16,10 @@ const FOCUS_ID: HotkeyId = HotkeyId {
     signature: u32::from_be_bytes(*b"Nano"),
     id: 1,
 };
+const HIDE_ID: HotkeyId = HotkeyId {
+    signature: FOCUS_ID.signature,
+    id: 2,
+};
 
 #[repr(C)]
 struct EventType {
@@ -24,10 +28,15 @@ struct EventType {
 }
 
 #[repr(C)]
-#[derive(Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct HotkeyId {
     signature: u32,
     id: u32,
+}
+
+struct HotkeyContext {
+    id: HotkeyId,
+    pending: Cell<bool>,
 }
 
 #[link(name = "Carbon", kind = "framework")]
@@ -64,15 +73,23 @@ unsafe extern "C" {
 
 /// Raw native handles keep this guard !Send/!Sync: Carbon registration,
 /// callbacks, polling and teardown all belong to the application's main thread.
-pub(crate) struct FocusHotkey {
+pub(crate) struct GlobalHotkey {
     hotkey: *mut c_void,
     handler: *mut c_void,
     // Stable address even when the guard moves into the Slint timer closure.
-    pending: Box<Cell<bool>>,
+    context: Box<HotkeyContext>,
 }
 
-impl FocusHotkey {
-    pub(crate) fn register() -> Result<Self, String> {
+impl GlobalHotkey {
+    pub(crate) fn register_focus() -> Result<Self, String> {
+        Self::register::<{ FOCUS_ID.id }>(1 << 11, "Option + R")
+    }
+
+    pub(crate) fn register_hide() -> Result<Self, String> {
+        Self::register::<{ HIDE_ID.id }>((1 << 11) | (1 << 9), "Option + Shift + R")
+    }
+
+    fn register<const ID: u32>(modifiers: u32, label: &str) -> Result<Self, String> {
         // SAFETY: pthread_main_np has no preconditions.
         if unsafe { libc::pthread_main_np() } == 0 {
             return Err("Global shortcuts must be registered on the main thread".into());
@@ -80,21 +97,30 @@ impl FocusHotkey {
         let mut registration = Self {
             hotkey: ptr::null_mut(),
             handler: ptr::null_mut(),
-            pending: Box::new(Cell::new(false)),
+            context: Box::new(HotkeyContext {
+                id: HotkeyId {
+                    signature: FOCUS_ID.signature,
+                    id: ID,
+                },
+                pending: Cell::new(false),
+            }),
         };
         let event_type = EventType {
             class: KEYBOARD,
             kind: HOTKEY_PRESSED,
         };
         // SAFETY: Called on the main thread. All out-pointers are valid, and
-        // pending stays allocated until after RemoveEventHandler in Drop.
+        // context stays allocated until after RemoveEventHandler in Drop.
         let status = unsafe {
             InstallEventHandler(
                 GetApplicationEventTarget(),
-                on_hotkey,
+                // Carbon rejects installing the same callback twice on a target.
+                // Each ID has a distinct monomorphized callback, including the ID
+                // check below, so both registrations can coexist.
+                on_hotkey::<ID>,
                 1,
                 &event_type,
-                ptr::from_ref(registration.pending.as_ref())
+                ptr::from_ref(registration.context.as_ref())
                     .cast_mut()
                     .cast(),
                 &mut registration.handler,
@@ -105,14 +131,16 @@ impl FocusHotkey {
                 "Could not install global shortcut handler ({status})"
             ));
         }
-        // kVK_ANSI_R, optionKey, kEventHotKeyExclusive. Exclusive registration
+        // kVK_ANSI_R and kEventHotKeyExclusive. Modifiers use Carbon's optionKey
+        // and shiftKey bits. Each chord has its own guard, so a conflict on one
+        // doesn't disable the other. Exclusive registration
         // reports conflicts instead of also triggering another application's key.
         // SAFETY: Same main-thread lifetime as the installed handler above.
         let status = unsafe {
             RegisterEventHotKey(
                 15,
-                1 << 11,
-                FOCUS_ID,
+                modifiers,
+                registration.context.id,
                 GetApplicationEventTarget(),
                 1,
                 &mut registration.hotkey,
@@ -120,18 +148,18 @@ impl FocusHotkey {
         };
         if status != 0 {
             return Err(format!(
-                "Could not register Option + R ({status}); another application may be using it"
+                "Could not register {label} ({status}); another application may be using it"
             ));
         }
         Ok(registration)
     }
 
     pub(crate) fn take_pending(&self) -> bool {
-        self.pending.replace(false)
+        self.context.pending.replace(false)
     }
 }
 
-impl Drop for FocusHotkey {
+impl Drop for GlobalHotkey {
     fn drop(&mut self) {
         // SAFETY: The !Send guard stays on its registration thread. Stop events
         // and detach the handler before its boxed user data is released. This
@@ -147,11 +175,13 @@ impl Drop for FocusHotkey {
     }
 }
 
-unsafe extern "C" fn on_hotkey(
+unsafe extern "C" fn on_hotkey<const ID: u32>(
     _handler: *mut c_void,
     event: *mut c_void,
     user_data: *mut c_void,
 ) -> i32 {
+    // SAFETY: Our installed handler supplies its live, stable boxed context.
+    let context = unsafe { &*user_data.cast::<HotkeyContext>() };
     let mut id = HotkeyId::default();
     // SAFETY: Carbon supplies the event; id is a correctly sized output buffer.
     let status = unsafe {
@@ -165,13 +195,44 @@ unsafe extern "C" fn on_hotkey(
             ptr::from_mut(&mut id).cast(),
         )
     };
-    if status != 0 || id != FOCUS_ID {
+    if status != 0 || id != context.id || id.id != ID {
         return NOT_HANDLED;
     }
-    // SAFETY: Only our installed handler calls this callback with the live box.
-    // No UI calls or event-loop re-entry occur while borrowing the Cell.
-    unsafe { &*user_data.cast::<Cell<bool>>() }.set(true);
+    // No UI calls or event-loop re-entry occur while borrowing the context.
+    context.pending.set(true);
     0
+}
+
+#[link(name = "objc")]
+unsafe extern "C" {
+    fn objc_getClass(name: *const c_char) -> *mut c_void;
+    fn sel_registerName(name: *const c_char) -> *mut c_void;
+    fn objc_msgSend();
+}
+
+#[link(name = "AppKit", kind = "framework")]
+unsafe extern "C" {}
+
+/// Use AppKit's Hide command, keeping Slint's window and event loop alive so
+/// playback continues and the global focus shortcut remains registered.
+pub(crate) fn set_application_hidden(hidden: bool) {
+    // SAFETY: This function is only called by the main-thread Slint timer.
+    // Selectors and typed objc_msgSend signatures match NSApplication's API.
+    unsafe {
+        let get_app: unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void =
+            std::mem::transmute(objc_msgSend as *const ());
+        let app = get_app(
+            objc_getClass(c"NSApplication".as_ptr()),
+            sel_registerName(c"sharedApplication".as_ptr()),
+        );
+        let send: unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) =
+            std::mem::transmute(objc_msgSend as *const ());
+        send(
+            app,
+            sel_registerName(if hidden { c"hide:" } else { c"unhide:" }.as_ptr()),
+            ptr::null_mut(),
+        );
+    }
 }
 
 #[cfg(test)]
@@ -197,7 +258,7 @@ mod tests {
         fn ReleaseEvent(event: *mut c_void);
     }
 
-    fn deliver(id: Option<HotkeyId>, pending: &Cell<bool>) -> i32 {
+    fn deliver(id: Option<HotkeyId>, context: &HotkeyContext) -> i32 {
         let mut event = ptr::null_mut();
         // SAFETY: Use a real Carbon event to exercise parameter decoding. The
         // callback borrows a live Cell synchronously; the event is then released.
@@ -225,10 +286,15 @@ mod tests {
                     0
                 );
             }
-            let status = on_hotkey(
+            let callback = if context.id == HIDE_ID {
+                on_hotkey::<2>
+            } else {
+                on_hotkey::<1>
+            };
+            let status = callback(
                 ptr::null_mut(),
                 event,
-                ptr::from_ref(pending).cast_mut().cast(),
+                ptr::from_ref(context).cast_mut().cast(),
             );
             ReleaseEvent(event);
             status
@@ -237,7 +303,10 @@ mod tests {
 
     #[test]
     fn ignores_other_hotkeys_and_missing_parameters() {
-        let pending = Cell::new(false);
+        let context = HotkeyContext {
+            id: FOCUS_ID,
+            pending: Cell::new(false),
+        };
         for id in [
             None,
             Some(HotkeyId {
@@ -249,22 +318,48 @@ mod tests {
                 id: 2,
             }),
         ] {
-            assert_eq!(deliver(id, &pending), NOT_HANDLED);
-            assert!(!pending.get());
+            assert_eq!(deliver(id, &context), NOT_HANDLED);
+            assert!(!context.pending.get());
         }
     }
 
     #[test]
     fn repeated_presses_coalesce_into_one_focus_request() {
-        let hotkey = FocusHotkey {
+        let hotkey = GlobalHotkey {
             hotkey: ptr::null_mut(),
             handler: ptr::null_mut(),
-            pending: Box::new(Cell::new(false)),
+            context: Box::new(HotkeyContext {
+                id: FOCUS_ID,
+                pending: Cell::new(false),
+            }),
         };
         assert!(!hotkey.take_pending());
-        assert_eq!(deliver(Some(FOCUS_ID), &hotkey.pending), 0);
-        assert_eq!(deliver(Some(FOCUS_ID), &hotkey.pending), 0);
+        assert_eq!(deliver(Some(FOCUS_ID), &hotkey.context), 0);
+        assert_eq!(deliver(Some(FOCUS_ID), &hotkey.context), 0);
         assert!(hotkey.take_pending());
         assert!(!hotkey.take_pending());
+    }
+
+    #[test]
+    fn focus_and_hide_requests_are_independent() {
+        let focus = HotkeyContext {
+            id: FOCUS_ID,
+            pending: Cell::new(false),
+        };
+        let hide = HotkeyContext {
+            id: HIDE_ID,
+            pending: Cell::new(false),
+        };
+        assert_eq!(deliver(Some(HIDE_ID), &focus), NOT_HANDLED);
+        assert_eq!(deliver(Some(FOCUS_ID), &hide), NOT_HANDLED);
+        assert!(!focus.pending.get());
+        assert!(!hide.pending.get());
+        assert_eq!(deliver(Some(HIDE_ID), &hide), 0);
+        assert!(hide.pending.get());
+        assert!(!focus.pending.get());
+        hide.pending.set(false);
+        assert_eq!(deliver(Some(FOCUS_ID), &focus), 0);
+        assert!(focus.pending.get());
+        assert!(!hide.pending.get());
     }
 }

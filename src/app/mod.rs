@@ -24,7 +24,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let controller = Rc::new(RefCell::new(controller::Controller::new(directory)));
     controller::connect(&ui, &controller);
     #[cfg(target_os = "macos")]
-    let focus_hotkey = match crate::platform::macos_hotkey::FocusHotkey::register() {
+    let focus_hotkey = match crate::platform::macos_hotkey::GlobalHotkey::register_focus() {
+        Ok(hotkey) => Some(hotkey),
+        Err(error) => {
+            eprintln!("{error}");
+            controller.borrow_mut().state.notice = error;
+            None
+        }
+    };
+    #[cfg(target_os = "macos")]
+    let hide_hotkey = match crate::platform::macos_hotkey::GlobalHotkey::register_hide() {
         Ok(hotkey) => Some(hotkey),
         Err(error) => {
             eprintln!("{error}");
@@ -46,12 +55,20 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 use slint::winit_030::WinitWindowAccessor;
                 // Restore minimized/hidden windows before requesting native focus.
                 // Keep the current screen and its text-input focus intact.
+                crate::platform::macos_hotkey::set_application_hidden(false);
                 let _ = ui.show();
                 ui.window().with_winit_window(|window| {
                     window.set_minimized(false);
                     window.set_visible(true);
                     window.focus_window();
                 });
+            }
+            #[cfg(target_os = "macos")]
+            if hide_hotkey
+                .as_ref()
+                .is_some_and(|hotkey| hotkey.take_pending())
+            {
+                crate::platform::macos_hotkey::set_application_hidden(true);
             }
             ticking.borrow_mut().poll(&ui);
         }

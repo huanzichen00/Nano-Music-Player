@@ -18,7 +18,9 @@ The bundle ID is set in [`scripts/package-macos.sh`](../scripts/package-macos.sh
 
 ## Focus with Option + R
 
-On macOS, the desktop player registers **Option + R** as a native global shortcut at startup using Carbon's `RegisterEventHotKey`. It works while another application is active and restores a minimized or hidden player before bringing it forward, preserving the current screen. The player must be running. The registration is released on exit and does not require AeroSpace or Accessibility/Input Monitoring permission. It is separate from the configurable in-app keymap. Registration failure (for example, another app reserving the same chord) leaves playback available and reports the error in the startup notice and stderr.
+On macOS, the desktop player registers **Option + R** as a native global shortcut at startup using Carbon's `RegisterEventHotKey`. It works while another application is active and restores a minimized or hidden player before bringing it forward, preserving the current screen. **Option + Shift + R** is a separate global shortcut that hides the player using AppKit's Hide command. Playback, the event loop and shortcut registration remain active; Option + R restores the player. Pressing Option + R again keeps the player focused.
+
+The player must be running. Both registrations are released on exit and do not require AeroSpace or Accessibility/Input Monitoring permission. They are separate from the configurable in-app keymap. Each shortcut registers independently: a conflict on one leaves the other and playback available, with an error in the startup notice and stderr.
 
 Remove any existing `alt-r` binding for the player from AeroSpace and reload its configuration to avoid competing shortcuts. The workspace-follow callback and floating rule can remain enabled independently.
 
