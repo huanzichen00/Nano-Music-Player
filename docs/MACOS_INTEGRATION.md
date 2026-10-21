@@ -16,6 +16,16 @@ This is an optional, user-managed window-manager rule. The app does not read, cr
 
 The bundle ID is set in [`scripts/package-macos.sh`](../scripts/package-macos.sh). Keep it stable when changing the display name or executable; changing it would require users' app-specific window-manager rules and macOS identity-based settings to be updated.
 
+## Focus with Option + R
+
+Copy [`scripts/aerospace-focus-player.sh`](../scripts/aerospace-focus-player.sh) to `~/.config/aerospace/nano-focus-player.sh`, then add this binding to the existing `[mode.main.binding]` section of `~/.aerospace.toml`:
+
+```toml
+alt-r = 'exec-and-forget /bin/bash "$HOME/.config/aerospace/nano-focus-player.sh"'
+```
+
+Validate with `aerospace reload-config --dry-run --no-gui`, then run `aerospace reload-config --no-gui`. **Option + R** focuses a running player from another application, including a player on another workspace or monitor. It preserves the current player screen. If the player is closed, the shortcut does nothing. AeroSpace must be running in main mode; this binding is separate from the player's in-app shortcuts.
+
 ## Follow AeroSpace workspace changes
 
 AeroSpace 0.21.2 does not provide native sticky windows; its [sticky-window feature issue](https://github.com/nikitabobko/AeroSpace/issues/2) is still open. Floating layout and Always on Top affect layout/stacking, not workspace membership. The optional [`scripts/aerospace-follow-player.sh`](../scripts/aerospace-follow-player.sh) helper makes the player follow workspace changes on its monitor. It remains managed by AeroSpace and may briefly disappear while the asynchronous callback moves it.
