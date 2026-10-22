@@ -153,6 +153,7 @@ export component AppWindow inherits Window {
     in property <bool> battery-external-power;
     in property <string> audio-output-name;
     in property <bool> audio-output-headphones;
+    in property <bool> audio-output-earbuds;
     in property <bool> audio-output-wireless;
     in property <int> headphone-left-level: -1;
     in property <int> headphone-right-level: -1;
@@ -708,9 +709,8 @@ export component AppWindow inherits Window {
             width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
             s: root.s; battery-level: root.battery-level; charging: root.battery-charging; external-power: root.battery-external-power;
             output-name: root.audio-output-name; wireless: root.audio-output-wireless;
-            headphones: root.audio-output-headphones;
+            headphones: root.audio-output-headphones; earbuds: root.audio-output-earbuds;
             left-level: root.headphone-left-level; right-level: root.headphone-right-level; case-level: root.headphone-case-level; single-level: root.headphone-single-level;
-            last-command: root.last-media-command;
             settings-available: root.native-settings-available;
             close => { root.native-status-open = false; keyboard.focus(); }
             settings => { root.command("bluetooth_settings"); }

@@ -22,7 +22,7 @@ export component DesktopBattery inherits Rectangle {
     Rectangle { x: 20px * root.s; y: 3px * root.s; width: 2px * root.s; height: 3px * root.s; background: root.dark ? #ccd1d8 : #737b84; }
 }
 
-// Local vector illustrations and system-like typography; the nano shell keeps its own skin.
+// Decorative transparent renders follow the approved concept; native data stays in text/bars.
 component SystemLabel inherits Text {
     font-family: "Helvetica Neue";
     color: #1d1d1f;
@@ -33,13 +33,25 @@ component BatteryCell inherits Rectangle {
     in property <image> illustration;
     in property <string> label;
     in property <int> level: -1;
+    in property <int> source-x;
+    in property <int> source-y;
+    in property <int> source-width;
+    in property <int> source-height;
+    in property <float> illustration-offset: 0;
     background: transparent;
-    Image { x: (parent.width - self.width) / 2; y: 0px; width: 31px * root.s; height: 29px * root.s; source: root.illustration; image-fit: contain; }
-    SystemLabel { y: 33px * root.s; width: parent.width; height: 12px * root.s; text: root.label; font-size: 9px * root.s; color: #86868b; horizontal-alignment: center; }
-    SystemLabel { y: 49px * root.s; width: parent.width; height: 18px * root.s; text: root.level < 0 ? "—" : root.level + "%"; font-size: 16px * root.s; font-weight: 600; color: root.level < 0 ? #a1a1a6 : #1d1d1f; horizontal-alignment: center; }
+    accessible-role: text;
+    accessible-label: root.label + ": " + (root.level < 0 ? I18n.tr("Battery unavailable") : root.level + "%");
+    Image {
+        x: (parent.width - self.width) / 2; y: root.illustration-offset * root.s * 1px;
+        width: 58px * root.s; height: 74px * root.s; source: root.illustration; image-fit: contain;
+        source-clip-x: root.source-x; source-clip-y: root.source-y;
+        source-clip-width: root.source-width; source-clip-height: root.source-height;
+    }
+    SystemLabel { y: 78px * root.s; width: parent.width; height: 13px * root.s; text: root.label; font-size: 9px * root.s; color: #777980; horizontal-alignment: center; }
+    SystemLabel { y: 94px * root.s; width: parent.width; height: 24px * root.s; text: root.level < 0 ? "—" : root.level + "%"; font-size: 19px * root.s; font-weight: 600; color: root.level < 0 ? #989ba2 : #161719; horizontal-alignment: center; }
     Rectangle {
-        x: (parent.width - self.width) / 2; y: 72px * root.s; width: 24px * root.s; height: 4px * root.s; border-radius: 2px * root.s; background: #e8e8ed;
-        Rectangle { width: parent.width * max(0, min(100, root.level)) / 100; height: parent.height; border-radius: 2px * root.s; background: root.level <= 20 ? #ff9f0a : #34c759; }
+        x: (parent.width - self.width) / 2; y: 121px * root.s; width: 28px * root.s; height: 5px * root.s; border-radius: 2.5px * root.s; background: #dce0e5;
+        Rectangle { width: parent.width * max(0, min(100, root.level)) / 100; height: parent.height; border-radius: 2.5px * root.s; background: root.level <= 20 ? #ff9f0a : #08c54b; }
     }
 }
 
@@ -51,60 +63,66 @@ export component DesktopStatusPanel inherits Rectangle {
     in property <string> output-name;
     in property <bool> wireless;
     in property <bool> headphones;
+    in property <bool> earbuds;
     in property <int> left-level: -1;
     in property <int> right-level: -1;
     in property <int> case-level: -1;
     in property <int> single-level: -1;
-    in property <string> last-command;
     in property <bool> settings-available;
     private property <bool> has-parts: root.left-level >= 0 || root.right-level >= 0 || root.case-level >= 0;
+    private property <bool> connected: root.output-name != "";
     callback close;
     callback settings;
     background: #0004;
     TouchArea { clicked => { root.close(); } }
     Rectangle {
-        x: 8px * root.s; y: 32px * root.s; width: parent.width - 16px * root.s; height: 374px * root.s;
-        border-radius: 18px * root.s; border-width: 1px * root.s; border-color: #ffffffc0;
-        background: @linear-gradient(180deg, #f1f3f8fa, #e9ecf3fa);
+        x: 8px * root.s; y: 32px * root.s; width: parent.width - 16px * root.s; height: (root.settings-available ? 366px : 324px) * root.s;
+        border-radius: 20px * root.s; border-width: 1px * root.s; border-color: #ffffffb0;
+        // A solid translucent surface preserves rounded corners in both renderers.
+        background: #edf1f6fa;
         drop-shadow-blur: 14px * root.s; drop-shadow-offset-y: 4px * root.s; drop-shadow-color: #0004;
         TouchArea { }
-        SystemLabel { x: 16px * root.s; y: 16px * root.s; width: parent.width - 58px * root.s; height: 20px * root.s; text: I18n.tr("Device Status"); font-size: 15px * root.s; font-weight: 600; }
+        SystemLabel { x: 16px * root.s; y: 15px * root.s; width: parent.width - 58px * root.s; height: 21px * root.s; text: I18n.tr("Device Status"); font-size: 15px * root.s; font-weight: 600; }
         Rectangle {
-            x: parent.width - 38px * root.s; y: 12px * root.s; width: 26px * root.s; height: self.width; border-radius: 13px * root.s; background: #dfe2e9;
-            SystemLabel { text: "×"; color: #737780; font-size: 20px * root.s; horizontal-alignment: center; vertical-alignment: center; }
-            TouchArea { clicked => { root.close(); } }
+            x: parent.width - 37px * root.s; y: 12px * root.s; width: 25px * root.s; height: self.width; border-radius: self.width / 2; background: #e0e3e8;
+            accessible-role: button; accessible-label: I18n.tr("Close"); accessible-action-default => { root.close(); }
+            SystemLabel { text: "×"; color: #74777f; font-size: 21px * root.s; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { mouse-cursor: pointer; clicked => { root.close(); } }
         }
+        // AirPods are the primary card, with one column per component.
         Rectangle {
-            x: 10px * root.s; y: 48px * root.s; width: parent.width - 20px * root.s; height: 62px * root.s; border-radius: 12px * root.s; background: #ffffffd8;
-            Image { x: 11px * root.s; y: 15px * root.s; width: 30px * root.s; height: 30px * root.s; source: @image-url("../assets/icons/laptop.svg"); }
-            SystemLabel { x: 49px * root.s; y: 11px * root.s; width: parent.width - 58px * root.s; height: 14px * root.s; text: I18n.tr("Computer Battery"); color: #86868b; font-size: 10px * root.s; }
-            SystemLabel { x: 49px * root.s; y: 29px * root.s; width: 65px * root.s; height: 24px * root.s; text: root.battery-level < 0 ? "—" : root.battery-level + "%"; color: #1d1d1f; font-size: 22px * root.s; font-weight: 600; }
-            SystemLabel { x: 112px * root.s; y: 33px * root.s; width: parent.width - 120px * root.s; height: 20px * root.s; text: root.battery-level < 0 ? I18n.tr("Unavailable") : root.charging ? I18n.tr("Charging") : root.external-power ? I18n.tr("On Power") : I18n.tr("On battery"); color: root.charging ? #248b3d : #86868b; font-size: 9px * root.s; overflow: elide; vertical-alignment: center; }
-        }
-        Rectangle {
-            x: 10px * root.s; y: 120px * root.s; width: parent.width - 20px * root.s; height: 132px * root.s; border-radius: 12px * root.s; background: #ffffffd8;
-            Rectangle {
-                x: 11px * root.s; y: 12px * root.s; width: 27px * root.s; height: self.width; border-radius: self.width / 2; background: #007aff;
-                Image { x: 6px * root.s; y: 6px * root.s; width: 15px * root.s; height: self.width; source: root.headphones ? @image-url("../assets/icons/headphones.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: white; }
+            x: 10px * root.s; y: 48px * root.s; width: parent.width - 20px * root.s; height: 190px * root.s; border-radius: 14px * root.s; background: #ffffffde;
+            Rectangle { x: 14px * root.s; y: 17px * root.s; width: 8px * root.s; height: self.width; border-radius: self.width / 2; background: root.connected ? #08c54b : #a5a8ae; }
+            SystemLabel { x: 29px * root.s; y: 11px * root.s; width: parent.width - 41px * root.s; height: 19px * root.s; text: root.connected ? root.output-name : I18n.tr("No output available"); font-size: 13px * root.s; font-weight: 600; overflow: elide; }
+            SystemLabel { x: 29px * root.s; y: 33px * root.s; width: parent.width - 41px * root.s; height: 13px * root.s; text: !root.connected ? I18n.tr("Choose an audio output") : root.wireless ? I18n.tr("Connected to this Mac") : I18n.tr("System Audio Output"); font-size: 9px * root.s; color: #777980; overflow: elide; }
+            if root.earbuds || root.has-parts: Rectangle {
+                x: 6px * root.s; y: 57px * root.s; width: parent.width - 12px * root.s; height: 126px * root.s; background: transparent;
+                BatteryCell { x: 0px; width: parent.width / 3; height: parent.height; s: root.s; illustration: @image-url("../assets/images/desktop-devices/airpod-left.png"); source-x: 220; source-y: 110; source-width: 830; source-height: 1040; label: I18n.tr("Left Ear"); level: root.left-level; }
+                BatteryCell { x: parent.width / 3; width: parent.width / 3; height: parent.height; s: root.s; illustration: @image-url("../assets/images/desktop-devices/airpod-right.png"); source-x: 170; source-y: 60; source-width: 930; source-height: 1160; label: I18n.tr("Right Ear"); level: root.right-level; }
+                BatteryCell { x: parent.width * 2 / 3; width: parent.width / 3; height: parent.height; s: root.s; illustration: @image-url("../assets/images/desktop-devices/charging-case.png"); source-x: 50; source-y: 200; source-width: 1154; source-height: 880; illustration-offset: 8; label: I18n.tr("Charging Case"); level: root.case-level; }
             }
-            SystemLabel { x: 47px * root.s; y: 11px * root.s; width: parent.width - 58px * root.s; height: 17px * root.s; text: root.output-name == "" ? I18n.tr("No output available") : root.output-name; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
-            SystemLabel { x: 47px * root.s; y: 29px * root.s; width: parent.width - 58px * root.s; height: 13px * root.s; text: root.wireless ? I18n.tr("Bluetooth Audio") : I18n.tr("Audio Output"); font-size: 9px * root.s; color: #86868b; }
-            if root.has-parts: Rectangle {
-                x: 5px * root.s; y: 49px * root.s; width: parent.width - 10px * root.s; height: 78px * root.s; background: transparent;
-                BatteryCell { x: 0px; width: parent.width / 3; height: parent.height; s: root.s; illustration: @image-url("../assets/icons/earbud-left.svg"); label: I18n.tr("Left"); level: root.left-level; }
-                BatteryCell { x: parent.width / 3; width: parent.width / 3; height: parent.height; s: root.s; illustration: @image-url("../assets/icons/earbud-right.svg"); label: I18n.tr("Right"); level: root.right-level; }
-                BatteryCell { x: parent.width * 2 / 3; width: parent.width / 3; height: parent.height; s: root.s; illustration: @image-url("../assets/icons/earbud-case.svg"); label: I18n.tr("Case"); level: root.case-level; }
+            // Speakers, generic headphones and single-battery accessories keep truthful fallback states.
+            if !root.earbuds && !root.has-parts: Rectangle {
+                x: 12px * root.s; y: 65px * root.s; width: parent.width - 24px * root.s; height: 105px * root.s; background: transparent;
+                Image { x: (parent.width - self.width) / 2; y: 2px * root.s; width: 44px * root.s; height: self.width; source: root.headphones ? @image-url("../assets/icons/headphones.svg") : @image-url("../assets/icons/volume-high.svg"); colorize: #7d8792; }
+                SystemLabel { y: 61px * root.s; width: parent.width; height: 28px * root.s; text: root.single-level >= 0 ? root.single-level + "%" : I18n.tr("Battery unavailable"); color: root.single-level >= 0 ? #1d1d1f : #86868b; font-size: root.single-level >= 0 ? 23px * root.s : 11px * root.s; horizontal-alignment: center; vertical-alignment: center; }
             }
-            if !root.has-parts: SystemLabel { x: 12px * root.s; y: 67px * root.s; width: parent.width - 24px * root.s; height: 38px * root.s; text: root.single-level >= 0 ? root.single-level + "%" : I18n.tr("Battery unavailable"); color: root.single-level >= 0 ? #1d1d1f : #86868b; font-size: root.single-level >= 0 ? 23px * root.s : 11px * root.s; horizontal-alignment: center; vertical-alignment: center; }
         }
-        SystemLabel { x: 16px * root.s; y: 264px * root.s; width: parent.width - 32px * root.s; height: 12px * root.s; text: I18n.tr("Last Media Command"); color: #86868b; font-size: 9px * root.s; }
-        SystemLabel { x: 16px * root.s; y: 280px * root.s; width: parent.width - 32px * root.s; height: 16px * root.s; text: root.last-command == "" ? I18n.tr("None received") : root.last-command; color: #51535a; font-size: 11px * root.s; overflow: elide; }
-        SystemLabel { x: 16px * root.s; y: 303px * root.s; width: parent.width - 32px * root.s; height: 27px * root.s; text: I18n.tr("AirPods controlling your phone? Check automatic switching in Bluetooth settings."); color: #86868b; font-size: 9px * root.s; wrap: word-wrap; overflow: elide; }
+        // The computer has a quieter, compact secondary card.
+        Rectangle {
+            x: 10px * root.s; y: 250px * root.s; width: parent.width - 20px * root.s; height: 62px * root.s; border-radius: 13px * root.s; background: #ffffffd8;
+            Image { x: 5px * root.s; y: 5px * root.s; width: 54px * root.s; height: 52px * root.s; source: @image-url("../assets/images/desktop-devices/computer.png"); image-fit: contain; source-clip-x: 20; source-clip-y: 250; source-clip-width: 1214; source-clip-height: 770; }
+            SystemLabel { x: 63px * root.s; y: 12px * root.s; width: parent.width - 72px * root.s; height: 13px * root.s; text: I18n.tr("Computer Battery"); color: #777980; font-size: 9px * root.s; }
+            SystemLabel { x: 63px * root.s; y: 29px * root.s; width: 62px * root.s; height: 25px * root.s; text: root.battery-level < 0 ? "—" : root.battery-level + "%"; color: #161719; font-size: 22px * root.s; font-weight: 600; }
+            if root.battery-level >= 0 && (root.charging || root.external-power): Image { x: 125px * root.s; y: 36px * root.s; width: 7px * root.s; height: 12px * root.s; source: @image-url("../assets/icons/power-bolt.svg"); }
+            SystemLabel { x: (root.battery-level >= 0 && (root.charging || root.external-power) ? 136px : 127px) * root.s; y: 30px * root.s; width: parent.width - self.x - 8px * root.s; height: 25px * root.s; text: root.battery-level < 0 ? I18n.tr("Unavailable") : root.charging ? I18n.tr("Charging") : root.external-power ? I18n.tr("Connected to power") : I18n.tr("On battery"); color: root.battery-level >= 0 && (root.charging || root.external-power) ? #00a83d : #777980; font-size: 8px * root.s; wrap: word-wrap; overflow: elide; vertical-alignment: center; }
+        }
         if root.settings-available: Rectangle {
-            x: 10px * root.s; y: 336px * root.s; width: parent.width - 20px * root.s; height: 28px * root.s;
-            background: settings-touch.pressed ? #d7e6fc : #ffffffc0; border-radius: 10px * root.s;
+            x: 10px * root.s; y: 324px * root.s; width: parent.width - 20px * root.s; height: 30px * root.s;
+            background: settings-touch.pressed ? #d7e6fc : #ffffffe0; border-radius: 11px * root.s;
+            accessible-role: button; accessible-label: I18n.tr("Bluetooth Settings…"); accessible-action-default => { root.settings(); }
             SystemLabel { text: I18n.tr("Bluetooth Settings…"); color: #007aff; font-size: 11px * root.s; vertical-alignment: center; horizontal-alignment: center; }
-            settings-touch := TouchArea { clicked => { root.settings(); } }
+            settings-touch := TouchArea { mouse-cursor: pointer; clicked => { root.settings(); } }
         }
     }
 }

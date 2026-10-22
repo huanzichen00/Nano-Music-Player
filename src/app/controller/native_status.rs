@@ -95,6 +95,14 @@ impl Controller {
         ui.set_audio_output_wireless(status.output.bluetooth);
         ui.set_native_settings_available(cfg!(target_os = "macos"));
         let battery = &status.accessory;
+        let output_name = status.output.name.to_lowercase();
+        ui.set_audio_output_earbuds(
+            status.output.bluetooth
+                && ((output_name.contains("airpods") && !output_name.contains("max"))
+                    || battery.left.is_some()
+                    || battery.right.is_some()
+                    || battery.case.is_some()),
+        );
         ui.set_headphone_left_level(battery.left.map_or(-1, i32::from));
         ui.set_headphone_right_level(battery.right.map_or(-1, i32::from));
         ui.set_headphone_case_level(battery.case.map_or(-1, i32::from));

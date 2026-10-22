@@ -4,6 +4,8 @@ These transparent PNGs were generated with the built-in image_gen tool on 2026-1
 
 The four separate assets were visually inspected, copied into this repository, and checked for alpha and dimensions. The original generated files are retained in Codex's image history. No third-party screenshot or product photo is embedded in these assets.
 
+The source PNGs are 1254 × 1254 with alpha ranging from 0 to 255. `ui/desktop-status.slint` crops their transparent padding at display time so left/right illustrations have comparable visual size. The files themselves are preserved; update those display crops if the source dimensions or product framing change.
+
 ## Final prompts
 
 ### airpod-left.png

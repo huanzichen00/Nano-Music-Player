@@ -1,6 +1,6 @@
 # macOS integration
 
-The desktop status bar displays native computer battery/charging state and a headphone indicator. Click the battery for the current system output, available AirPods battery levels and the last received media command. See [desktop devices and battery](DESKTOP_DEVICES.md) for the data sources, Apple design references and the AirPods automatic-switching investigation.
+The desktop status bar displays native computer battery/charging state and a headphone indicator. Click the battery for the current system output and available AirPods battery levels, shown in the approved device-card design. Media-command diagnostics remain in the playback log. See [desktop devices and battery](DESKTOP_DEVICES.md) for the data sources, design references and the AirPods automatic-switching investigation.
 
 The player starts above other ordinary application windows by default. Settings → Always on Top, or the checked View → Always on Top menu item, toggles this preference and saves it across restarts. This uses Slint's native window level and is independent of AeroSpace's floating layout. It does not override macOS system overlays or other applications' special window levels.
 
