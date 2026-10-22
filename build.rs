@@ -1,4 +1,15 @@
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rerun-if-changed=src/platform/desktop_status.m");
+        cc::Build::new()
+            .file("src/platform/desktop_status.m")
+            .flag("-fobjc-arc")
+            .flag("-fblocks")
+            .compile("nano_desktop_status");
+        for framework in ["Foundation", "CoreAudio", "IOKit"] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
+    }
     let ios = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios");
     let mobile = ios || std::env::var_os("CARGO_FEATURE_MOBILE").is_some();
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_MOBILE");

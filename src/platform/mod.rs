@@ -1,3 +1,5 @@
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+pub mod desktop_status;
 #[cfg(any(target_os = "ios", feature = "mobile"))]
 pub mod ios;
 #[cfg(all(target_os = "macos", not(feature = "mobile")))]
