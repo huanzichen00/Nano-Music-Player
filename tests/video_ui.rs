@@ -514,7 +514,7 @@ fn subtitle_menu_many_tracks_renders_in_both_landscape_modes() {
             .0
             .iter()
             .enumerate()
-            .filter(|(_, rgba)| rgba[..3] == [52, 120, 200])
+            .filter(|(_, rgba)| rgba[..3] == [0, 122, 255]) // Desktop accent (#007aff).
             .map(|(index, _)| (index as u32 % pixels.width(), index as u32 / pixels.width()))
             .collect();
         assert!(
