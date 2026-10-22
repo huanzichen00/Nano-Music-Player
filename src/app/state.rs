@@ -16,6 +16,9 @@ use std::{
 
 #[derive(Clone)]
 pub enum Target {
+    None,
+    RefreshStatistics,
+    StatisticsRange(crate::library::statistics::StatisticsRange),
     Screen(Screen),
     Play(usize),
     PlayVideo(usize),
@@ -42,6 +45,7 @@ pub struct Row {
 }
 
 pub enum Effect {
+    RefreshStatistics,
     Podcast(crate::podcast::Action),
     Audio(AudioCommand),
     Video(crate::video::engine::Command),
@@ -81,6 +85,7 @@ pub enum Effect {
 }
 
 pub struct State {
+    pub statistics: super::statistics_state::StatisticsState,
     pub podcasts: super::podcast_state::PodcastState,
     pub language: Language,
     pub font: Font,
@@ -142,6 +147,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            statistics: super::statistics_state::StatisticsState::default(),
             podcasts: super::podcast_state::PodcastState::default(),
             language: Language::English,
             font: Font::Classic,
@@ -221,7 +227,12 @@ impl State {
 
     pub fn supports_list_shuffle(&self) -> bool {
         match self.navigation.current().screen {
-            Screen::Songs(Filter::Album { .. }) => false,
+            Screen::Songs(
+                Filter::Album { .. }
+                | Filter::Statistics {
+                    album_order: true, ..
+                },
+            ) => false,
             Screen::Songs(_) | Screen::Artist(_) => true,
             _ => false,
         }
@@ -258,6 +269,9 @@ impl State {
     }
 
     fn list_rows(&self) -> Vec<Row> {
+        if let Screen::Statistics(page) = self.navigation.current().screen {
+            return self.statistics_rows(page);
+        }
         if let Some(rows) = self.podcast_rows() {
             return rows;
         }
@@ -551,7 +565,13 @@ impl State {
                 }
                 let is_album = matches!(
                     self.navigation.current().screen,
-                    Screen::Songs(Filter::Album { .. })
+                    Screen::Songs(
+                        Filter::Album { .. }
+                            | Filter::Statistics {
+                                album_order: true,
+                                ..
+                            }
+                    )
                 );
                 let mut rows: Vec<Row> = self
                     .tracks
@@ -565,6 +585,9 @@ impl State {
                                 && artist.as_ref().is_none_or(|a| &track.artist == a)
                         }
                         Screen::Songs(Filter::Genre(genre)) => &track.genre == genre,
+                        Screen::Songs(Filter::Statistics { paths, .. }) => {
+                            paths.contains(&track.path)
+                        }
                         _ => true,
                     })
                     .map(|(id, track)| Row {
@@ -743,7 +766,7 @@ impl State {
                 if self.home_page == 0 {
                     6
                 } else {
-                    2
+                    3
                 }
             }
             Screen::NowPlaying => 7,
@@ -1287,7 +1310,7 @@ impl State {
                             ["Music", "Videos", "Fitness", "Podcasts", "Photos", "Radio"]
                                 [selected.min(5)]
                         } else {
-                            ["Clock", "Settings"][selected.min(1)]
+                            ["Clock", "Settings", "Statistics"][selected.min(2)]
                         };
                         self.navigation.open(if name == "Music" {
                             Screen::Music
@@ -1298,6 +1321,8 @@ impl State {
                             Screen::Podcasts(super::navigation::PodcastPage::Home)
                         } else if name == "Settings" {
                             Screen::Settings
+                        } else if name == "Statistics" {
+                            Screen::Statistics(super::navigation::StatisticsPage::Home)
                         } else {
                             Screen::Placeholder(name.to_owned())
                         });
@@ -1329,6 +1354,17 @@ impl State {
                     _ => {
                         if let Some(row) = self.rows().get(selected) {
                             match row.target.clone() {
+                                Target::None => {}
+                                Target::RefreshStatistics => {
+                                    return vec![Effect::RefreshStatistics];
+                                }
+                                Target::StatisticsRange(range) => {
+                                    self.statistics.range = range;
+                                    self.statistics.snapshot = None;
+                                    self.statistics.failed = false;
+                                    self.navigation.back();
+                                    return Vec::new();
+                                }
                                 Target::Screen(screen) => {
                                     if self.playlist_list_editing
                                         && self.navigation.current().screen

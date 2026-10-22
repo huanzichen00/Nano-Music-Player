@@ -660,6 +660,10 @@ impl Controller {
     fn effects(&mut self, ui: &AppWindow, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::RefreshStatistics => {
+                    self.refresh_statistics(true);
+                    self.sync(ui);
+                }
                 Effect::Podcast(action) => self.podcast_action(ui, action),
                 Effect::Audio(command) => self.send_music(command),
                 Effect::Video(command) => self.send_video(command),
@@ -1621,6 +1625,7 @@ impl Controller {
                     let Prepared { value, previews } = *prepared;
                     let artwork_changed = value.artwork != original.artwork;
                     if self.state.refresh_cached_track(&original, value) {
+                        self.statistics.invalidate();
                         self.media_marker = None;
                         self.lyrics_dirty = true;
                         if artwork_changed {
@@ -1927,9 +1932,65 @@ impl Controller {
         self.sync(ui);
     }
 
+    fn refresh_statistics(&mut self, force: bool) {
+        let tracks = self
+            .state
+            .tracks
+            .iter()
+            .filter(|t| self.state.track_available(t))
+            .map(|t| crate::library::statistics::StatisticsTrack {
+                path: t.path.clone(),
+                title: t.title.clone(),
+                artist: t.artist.clone(),
+                album: t.album.clone(),
+            })
+            .collect();
+        self.state.statistics.failed = false;
+        match self
+            .statistics
+            .query(self.state.statistics.range, tracks, force)
+        {
+            Ok(Some(snapshot)) => {
+                self.state.statistics.snapshot = Some(snapshot);
+                self.state.statistics.loading = false;
+            }
+            Ok(None) => self.state.statistics.loading = true,
+            Err(error) => {
+                self.state.statistics.loading = false;
+                self.state.statistics.failed = true;
+                eprintln!("Statistics query failed: {error}");
+            }
+        }
+        self.state.clamp_statistics_selection();
+        self.rows_dirty = true;
+    }
+
     fn poll_statistics(&mut self) {
         while let Some(event) = self.statistics.poll(&self.state.ratings) {
             match event {
+                StatisticsEvent::Statistics { range, snapshot } => {
+                    if range == self.state.statistics.range {
+                        self.state.statistics.snapshot = Some(snapshot);
+                        self.state.statistics.loading = false;
+                        self.state.statistics.failed = false;
+                        self.state.clamp_statistics_selection();
+                        self.rows_dirty |= matches!(
+                            self.state.navigation.current().screen,
+                            Screen::Statistics(_)
+                        );
+                    }
+                }
+                StatisticsEvent::StatisticsFailed { range, error } => {
+                    if range == self.state.statistics.range {
+                        self.state.statistics.loading = false;
+                        self.state.statistics.failed = true;
+                        self.rows_dirty |= matches!(
+                            self.state.navigation.current().screen,
+                            Screen::Statistics(_)
+                        );
+                        eprintln!("Statistics query failed: {error}");
+                    }
+                }
                 StatisticsEvent::RatingsLoaded(ratings) => {
                     self.state.ratings = ratings;
                     self.state.ratings_ready = true;
@@ -2096,6 +2157,11 @@ impl Controller {
         let current_screen = self.state.navigation.current().screen.clone();
         let screen = &current_screen;
         let screen_changed = self.last_screen.as_ref() != Some(screen);
+        if matches!(screen, Screen::Statistics(_))
+            && (screen_changed || self.statistics.needs_query(self.state.statistics.range))
+        {
+            self.refresh_statistics(false);
+        }
         let home_page = self.state.home_page as i32;
         if matches!(screen, Screen::Home) && ui.get_home_page() != home_page {
             ui.set_home_transition_direction(if home_page > ui.get_home_page() {
@@ -2127,6 +2193,8 @@ impl Controller {
             ui.set_previous_podcast_list(ui.get_podcast_list());
             ui.set_previous_playlist_content(ui.get_playlist_content());
             ui.set_previous_shuffle_list(ui.get_shuffle_list());
+            ui.set_previous_statistics_page(ui.get_statistics_page());
+            ui.set_previous_statistics_note(ui.get_statistics_note());
             ui.set_previous_rating_visible(ui.get_rating_visible());
             ui.set_previous_rating_title(ui.get_rating_title());
             ui.set_previous_rating(ui.get_rating());
@@ -2173,10 +2241,19 @@ impl Controller {
         });
         ui.set_screen_title(match screen {
             Screen::Artist(_)
-            | Screen::Songs(Filter::Album { .. } | Filter::Genre(_) | Filter::Playlist { .. }) => {
-                screen.title().into()
-            }
+            | Screen::Songs(
+                Filter::Album { .. }
+                | Filter::Genre(_)
+                | Filter::Playlist { .. }
+                | Filter::Statistics { .. },
+            ) => screen.title().into(),
             _ => self.text(screen.title()),
+        });
+        ui.set_statistics_page(matches!(screen, Screen::Statistics(_)));
+        ui.set_statistics_note(if matches!(screen, Screen::Statistics(_)) {
+            self.state.statistics_note().into()
+        } else {
+            "".into()
         });
         ui.set_settings_root(*screen == Screen::Settings);
         ui.set_device_mode(self.state.device_mode);
@@ -2356,7 +2433,8 @@ impl Controller {
                         _ => 0,
                     }
                         }),
-                        title: if *screen == Screen::LyricSongs
+                        title: if matches!(screen, Screen::Statistics(_))
+                            || *screen == Screen::LyricSongs
                             || (matches!(screen, Screen::LyricsSearch(_))
                                 && matches!(&row.target, Target::Screen(Screen::LyricSongs)))
                             || matches!(
@@ -2385,7 +2463,8 @@ impl Controller {
                         } else if matches!(screen, Screen::Groups(Group::Playlists)) {
                             i18n::notice(self.state.language, &row.subtitle).into()
                         } else {
-                            if metadata_rows
+                            if matches!(screen, Screen::Statistics(_))
+                                || metadata_rows
                                 || *screen == Screen::LyricSongs
                                 || (matches!(screen, Screen::LyricsSearch(_))
                                     && matches!(row.target, Target::Screen(Screen::LyricSongs)))
@@ -2435,6 +2514,7 @@ impl Controller {
                         chevron: matches!(
                             row.target,
                             Target::Screen(_)
+                                | Target::RefreshStatistics
                                 | Target::Shortcut(_)
                                 | Target::GeniusPreview
                                 | Target::Action(
@@ -2472,6 +2552,7 @@ impl Controller {
             if matches!(
                 screen,
                 Screen::Music
+                    | Screen::Statistics(_)
                     | Screen::Videos
                     | Screen::Groups(_)
                     | Screen::Artist(_)

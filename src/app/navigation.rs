@@ -20,6 +20,41 @@ pub enum Filter {
         name: String,
     },
     SmartPlaylist(crate::library::statistics::SmartPlaylist),
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    Statistics {
+        name: String,
+        album_order: bool,
+        paths: std::sync::Arc<std::collections::BTreeSet<std::path::PathBuf>>,
+    },
+}
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatisticsPage {
+    Home,
+    Overview,
+    Artists,
+    Albums,
+    Tracks,
+    Recent,
+    Daily,
+    Range,
+}
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+impl StatisticsPage {
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Home => "Statistics",
+            Self::Overview => "Overview",
+            Self::Artists => "Top Artists",
+            Self::Albums => "Top Albums",
+            Self::Tracks => "Top Tracks",
+            Self::Recent => "Recently Played",
+            Self::Daily => "Daily Plays",
+            Self::Range => "Time Range",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +85,8 @@ pub enum PodcastPage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    Statistics(StatisticsPage),
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     Podcasts(PodcastPage),
     Home,
     Music,
@@ -74,6 +111,8 @@ pub enum Screen {
 impl Screen {
     pub fn title(&self) -> &str {
         match self {
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::Statistics(page) => page.title(),
             Self::Home => "iPod",
             Self::Music => "Music",
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
@@ -98,6 +137,8 @@ impl Screen {
             Self::Songs(Filter::Genre(name)) => name,
             Self::Songs(Filter::Playlist { name, .. }) => name,
             Self::Songs(Filter::SmartPlaylist(kind)) => kind.label(),
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::Songs(Filter::Statistics { name, .. }) => name,
             Self::Search => "Search",
             Self::NowPlaying => "Now Playing",
             Self::Settings => "Settings",

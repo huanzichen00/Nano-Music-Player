@@ -41,6 +41,47 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Statistics", "播放统计", "再生統計"),
+    ("Overview", "概览", "概要"),
+    ("Total Plays", "总播放次数", "総再生回数"),
+    ("Top Artists", "艺术家排行", "アーティストランキング"),
+    ("Top Albums", "专辑排行", "アルバムランキング"),
+    ("Top Tracks", "歌曲排行", "曲ランキング"),
+    ("Daily Plays", "每日播放", "日別再生回数"),
+    ("Time Range", "时间范围", "期間"),
+    ("All Time", "全部时间", "全期間"),
+    ("Last 7 Days", "最近 7 天", "過去7日間"),
+    ("Last 30 Days", "最近 30 天", "過去30日間"),
+    ("{0} plays", "{0} 次播放", "{0} 回再生"),
+    ("Local calendar days", "按本地日期统计", "端末の暦日で集計"),
+    (
+        "History: latest 1,000 plays.\nDate totals may be incomplete.",
+        "历史保留最近 1,000 次播放。\n按日期统计可能不完整。",
+        "履歴は直近1,000回まで。\n日別集計は不完全な場合あり。",
+    ),
+    (
+        "Unable to load. Refresh to retry.",
+        "加载失败，请刷新重试。",
+        "読込失敗。更新して再試行。",
+    ),
+    (
+        "Unable to load statistics",
+        "无法加载统计",
+        "統計を読み込めません",
+    ),
+    ("No plays yet", "尚无播放记录", "再生履歴はありません"),
+    (
+        "Totals include removed songs",
+        "总次数包含已移除歌曲",
+        "総回数は削除済みの曲も含む",
+    ),
+    (
+        "Rankings use available songs",
+        "排行仅显示可用歌曲",
+        "ランキングは利用可能な曲のみ",
+    ),
+    ("Selected", "已选择", "選択中"),
+    ("Loading…", "正在加载…", "読込中…"),
     ("Unavailable", "暂无信息", "情報なし"),
     ("On Power", "已接电源", "電源に接続"),
     ("Device Status", "设备状态", "デバイスの状態"),

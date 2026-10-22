@@ -5,6 +5,43 @@
 //! the worker.
 
 use crate::library::statistics::{QualifiedPlay, SmartPlaylist, StatisticsStore};
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+use crate::library::statistics::{StatisticsRange, StatisticsSnapshot, StatisticsTrack};
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+use chrono::Offset;
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct QueryKey {
+    range: StatisticsRange,
+    revision: u64,
+    date: chrono::NaiveDate,
+    offset: i32,
+}
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+#[derive(Default)]
+struct Queries {
+    revision: std::cell::Cell<u64>,
+    next_request: u64,
+    attempted: Option<QueryKey>,
+    pending: Option<(u64, QueryKey)>,
+    cache: HashMap<StatisticsRange, (QueryKey, StatisticsSnapshot)>,
+}
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+impl Queries {
+    fn key(&self, range: StatisticsRange) -> QueryKey {
+        let now = chrono::Local::now();
+        QueryKey {
+            range,
+            revision: self.revision.get(),
+            date: now.date_naive(),
+            offset: now.offset().fix().local_minus_utc(),
+        }
+    }
+}
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -13,6 +50,13 @@ use std::{
 };
 
 enum Command {
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    Query {
+        request: u64,
+        key: QueryKey,
+        tracks: Vec<StatisticsTrack>,
+        now: chrono::DateTime<chrono::Local>,
+    },
     Library(Vec<PathBuf>),
     Rate {
         path: PathBuf,
@@ -28,6 +72,12 @@ enum Command {
 }
 
 enum WorkerEvent {
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    Statistics {
+        request: u64,
+        key: QueryKey,
+        result: Result<StatisticsSnapshot, String>,
+    },
     RatingsLoaded(HashMap<PathBuf, u8>),
     RatingSaved {
         path: PathBuf,
@@ -40,13 +90,28 @@ enum WorkerEvent {
 }
 
 pub(super) enum Event {
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    Statistics {
+        range: StatisticsRange,
+        snapshot: StatisticsSnapshot,
+    },
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    StatisticsFailed {
+        range: StatisticsRange,
+        error: String,
+    },
     RatingsLoaded(HashMap<PathBuf, u8>),
-    RatingReverted { path: PathBuf, stars: u8 },
+    RatingReverted {
+        path: PathBuf,
+        stars: u8,
+    },
     SmartPlaylists(HashMap<SmartPlaylist, Vec<PathBuf>>),
     Unavailable(String),
 }
 
 pub(super) struct StatisticsService {
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    queries: Queries,
     commands: Sender<Command>,
     events: Receiver<WorkerEvent>,
     worker: Option<JoinHandle<()>>,
@@ -60,6 +125,8 @@ impl StatisticsService {
         let (events, event_receiver) = mpsc::channel();
         let worker = thread::spawn(move || run_worker(database, receiver, events));
         Self {
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            queries: Queries::default(),
             commands,
             events: event_receiver,
             worker: Some(worker),
@@ -68,11 +135,74 @@ impl StatisticsService {
         }
     }
 
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    pub(super) fn needs_query(&self, range: StatisticsRange) -> bool {
+        self.queries.attempted != Some(self.queries.key(range))
+    }
+
+    /// Cache by library/play revision and local date/offset. An attempted failure
+    /// stays idle until navigation or explicit Refresh, avoiding poll-loop retries.
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    pub(super) fn query(
+        &mut self,
+        range: StatisticsRange,
+        tracks: Vec<StatisticsTrack>,
+        force: bool,
+    ) -> Result<Option<StatisticsSnapshot>, String> {
+        let key = self.queries.key(range);
+        self.queries.attempted = Some(key);
+        if !force {
+            if self
+                .queries
+                .pending
+                .is_some_and(|(_, pending)| pending == key)
+            {
+                return Ok(None);
+            }
+            if let Some((cached_key, snapshot)) = self.queries.cache.get(&range)
+                && *cached_key == key
+            {
+                self.queries.pending = None;
+                return Ok(Some(snapshot.clone()));
+            }
+        } else {
+            self.queries.cache.remove(&range);
+        }
+        self.queries.next_request = self.queries.next_request.wrapping_add(1);
+        let request = self.queries.next_request;
+        self.queries.pending = Some((request, key));
+        if self
+            .commands
+            .send(Command::Query {
+                request,
+                key,
+                tracks,
+                now: chrono::Local::now(),
+            })
+            .is_err()
+        {
+            self.queries.pending = None;
+            return Err("Statistics worker disconnected".into());
+        }
+        Ok(None)
+    }
+
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    pub(super) fn invalidate(&self) {
+        self.queries
+            .revision
+            .set(self.queries.revision.get().wrapping_add(1));
+    }
+
     pub(super) fn set_library(&self, paths: Vec<PathBuf>) {
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        self.invalidate();
         let _ = self.commands.send(Command::Library(paths));
     }
 
     pub(super) fn record_play(&self, play: QualifiedPlay) {
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        self.invalidate();
         let _ = self.commands.send(Command::Played {
             path: play.path,
             played_at: chrono::Utc::now().timestamp(),
@@ -113,6 +243,36 @@ impl StatisticsService {
     pub(super) fn poll(&mut self, current_ratings: &HashMap<PathBuf, u8>) -> Option<Event> {
         while let Ok(event) = self.events.try_recv() {
             match event {
+                #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+                WorkerEvent::Statistics {
+                    request,
+                    key,
+                    result,
+                } => {
+                    if self.queries.pending != Some((request, key)) {
+                        continue;
+                    }
+                    self.queries.pending = None;
+                    if key != self.queries.key(key.range) {
+                        self.queries.attempted = None;
+                        continue;
+                    }
+                    return Some(match result {
+                        Ok(snapshot) => {
+                            self.queries
+                                .cache
+                                .insert(key.range, (key, snapshot.clone()));
+                            Event::Statistics {
+                                range: key.range,
+                                snapshot,
+                            }
+                        }
+                        Err(error) => Event::StatisticsFailed {
+                            range: key.range,
+                            error,
+                        },
+                    });
+                }
                 WorkerEvent::RatingsLoaded(mut ratings) => {
                     for path in self.pending_ratings.keys() {
                         if let Some(stars) = current_ratings.get(path) {
@@ -169,6 +329,133 @@ impl Drop for StatisticsService {
     }
 }
 
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+fn run_worker(database: PathBuf, receiver: Receiver<Command>, events: Sender<WorkerEvent>) {
+    // Keep the worker alive after an open failure. A later explicit request can
+    // reopen a repaired/unlocked database without restarting music playback.
+    let mut store = match StatisticsStore::open(&database) {
+        Ok(store) => Some(store),
+        Err(error) => {
+            let _ = events.send(WorkerEvent::Error(error));
+            None
+        }
+    };
+    if let Some(store) = &store {
+        match store.ratings() {
+            Ok(ratings) => {
+                let _ = events.send(WorkerEvent::RatingsLoaded(ratings));
+            }
+            Err(error) => {
+                let _ = events.send(WorkerEvent::Error(error));
+            }
+        }
+    }
+    let mut current_paths = Vec::new();
+    while let Ok(command) = receiver.recv() {
+        if matches!(command, Command::Shutdown) {
+            break;
+        }
+        if let Command::Library(paths) = &command {
+            current_paths.clone_from(paths);
+        }
+        if store.is_none() {
+            match StatisticsStore::open(&database) {
+                Ok(opened) => {
+                    if let Ok(ratings) = opened.ratings() {
+                        let _ = events.send(WorkerEvent::RatingsLoaded(ratings));
+                    }
+                    store = Some(opened);
+                }
+                Err(error) => {
+                    let event = match command {
+                        Command::Query { request, key, .. } => WorkerEvent::Statistics {
+                            request,
+                            key,
+                            result: Err(error),
+                        },
+                        Command::Rate {
+                            path,
+                            stars,
+                            request,
+                        } => WorkerEvent::RatingSaved {
+                            path,
+                            stars,
+                            request,
+                            result: Err(error),
+                        },
+                        _ => WorkerEvent::Error(error),
+                    };
+                    let _ = events.send(event);
+                    continue;
+                }
+            }
+        }
+        let store = store.as_ref().expect("opened store");
+        let result = match command {
+            Command::Shutdown => break,
+            Command::Query {
+                request,
+                key,
+                tracks,
+                now,
+            } => {
+                let result = store.listening_statistics(&tracks, key.range, now);
+                let _ = events.send(WorkerEvent::Statistics {
+                    request,
+                    key,
+                    result,
+                });
+                continue;
+            }
+            Command::Rate {
+                path,
+                stars,
+                request,
+            } => {
+                let result = store.set_rating(&path, stars);
+                let _ = events.send(WorkerEvent::RatingSaved {
+                    path,
+                    stars,
+                    request,
+                    result,
+                });
+                continue;
+            }
+            Command::Library(_) => {
+                store.register_library_paths(&current_paths, chrono::Utc::now().timestamp())
+            }
+            Command::Played {
+                path,
+                played_at,
+                listened_seconds,
+            } => store.record_play(&path, played_at, listened_seconds),
+        };
+        if let Err(error) = result {
+            let _ = events.send(WorkerEvent::Error(error));
+            continue;
+        }
+        let snapshots = SmartPlaylist::ALL
+            .into_iter()
+            .map(|kind| {
+                store
+                    .smart_playlist(kind, &current_paths)
+                    .map(|paths| (kind, paths))
+            })
+            .collect::<Result<HashMap<_, _>, _>>();
+        match snapshots {
+            Ok(playlists) => {
+                if events.send(WorkerEvent::SmartPlaylists(playlists)).is_err() {
+                    return;
+                }
+            }
+            Err(error) => {
+                let _ = events.send(WorkerEvent::Error(error));
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "ios", feature = "mobile"))]
 fn run_worker(database: PathBuf, receiver: Receiver<Command>, events: Sender<WorkerEvent>) {
     let store = match StatisticsStore::open(&database) {
         Ok(store) => store,
@@ -248,6 +535,8 @@ mod tests {
         let (events, event_receiver) = mpsc::channel();
         (
             StatisticsService {
+                #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+                queries: Queries::default(),
                 commands,
                 events: event_receiver,
                 worker: None,
@@ -456,5 +745,211 @@ mod tests {
         service.shutdown();
         assert_eq!(service.rate(&path, 5, 2), Err(2));
         service.shutdown();
+    }
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    mod desktop_tests {
+        use super::*;
+        fn empty_snapshot() -> StatisticsSnapshot {
+            let tmp = tempfile::tempdir().unwrap();
+            StatisticsStore::open(&tmp.path().join("db"))
+                .unwrap()
+                .listening_statistics(&[], StatisticsRange::AllTime, chrono::Local::now())
+                .unwrap()
+        }
+
+        #[test]
+        fn statistics_cache_reuses_results_and_rejects_old_requests_and_revisions() {
+            let (mut service, commands, events) = channels();
+            let all = StatisticsRange::AllTime;
+            assert!(service.needs_query(all));
+            assert!(service.query(all, vec![], false).unwrap().is_none());
+            let Command::Query { request, key, .. } = commands.try_recv().unwrap() else {
+                panic!("query");
+            };
+            assert!(!service.needs_query(all));
+            // A second poll/navigation while in flight must not enqueue a duplicate.
+            service.query(all, vec![], false).unwrap();
+            assert!(commands.try_recv().is_err());
+            let snapshot = empty_snapshot();
+            events
+                .send(WorkerEvent::Statistics {
+                    request,
+                    key,
+                    result: Ok(snapshot.clone()),
+                })
+                .unwrap();
+            assert!(matches!(
+                service.poll(&HashMap::new()),
+                Some(Event::Statistics { .. })
+            ));
+            assert_eq!(
+                service.query(all, vec![], false).unwrap(),
+                Some(snapshot.clone())
+            );
+            assert!(commands.try_recv().is_err());
+
+            service
+                .query(StatisticsRange::Last7Days, vec![], false)
+                .unwrap();
+            let Command::Query { request, key, .. } = commands.try_recv().unwrap() else {
+                panic!("query");
+            };
+            // Returning to a cached range cancels publication of the outstanding range.
+            service.query(all, vec![], false).unwrap();
+            events
+                .send(WorkerEvent::Statistics {
+                    request,
+                    key,
+                    result: Ok(snapshot.clone()),
+                })
+                .unwrap();
+            assert!(service.poll(&HashMap::new()).is_none());
+
+            service.query(all, vec![], true).unwrap();
+            let Command::Query { request, key, .. } = commands.try_recv().unwrap() else {
+                panic!("query");
+            };
+            service.record_play(QualifiedPlay {
+                path: PathBuf::from("/new.wav"),
+                listened: Duration::from_secs(30),
+            });
+            events
+                .send(WorkerEvent::Statistics {
+                    request,
+                    key,
+                    result: Ok(snapshot),
+                })
+                .unwrap();
+            assert!(service.poll(&HashMap::new()).is_none());
+            assert!(
+                service.needs_query(all),
+                "a play arriving during a query requires a new snapshot"
+            );
+        }
+
+        #[test]
+        fn explicit_refresh_survives_navigation_to_another_statistics_subpage() {
+            let (mut service, commands, events) = channels();
+            let all = StatisticsRange::AllTime;
+            let old = empty_snapshot();
+            let key = service.queries.key(all);
+            service.queries.cache.insert(all, (key, old.clone()));
+            service.query(all, vec![], true).unwrap();
+            let Command::Query { request, key, .. } = commands.try_recv().unwrap() else {
+                panic!("query");
+            };
+            assert!(
+                service.query(all, vec![], false).unwrap().is_none(),
+                "subpage waits for explicit refresh"
+            );
+            assert!(commands.try_recv().is_err());
+            let mut fresh = old;
+            fresh.total_plays = 17;
+            events
+                .send(WorkerEvent::Statistics {
+                    request,
+                    key,
+                    result: Ok(fresh.clone()),
+                })
+                .unwrap();
+            assert!(
+                matches!(service.poll(&HashMap::new()), Some(Event::Statistics { snapshot, .. }) if snapshot.total_plays == 17)
+            );
+            assert_eq!(service.query(all, vec![], false).unwrap(), Some(fresh));
+        }
+
+        fn receive_statistics(service: &mut StatisticsService) -> Event {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                if let Some(event @ (Event::Statistics { .. } | Event::StatisticsFailed { .. })) =
+                    service.poll(&HashMap::new())
+                {
+                    return event;
+                }
+                assert!(Instant::now() < deadline, "query timed out");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        #[test]
+        fn statistics_sql_failure_does_not_kill_worker_and_refresh_recovers() {
+            let tmp = tempfile::tempdir().unwrap();
+            let db = tmp.path().join("library.sqlite3");
+            let mut service = StatisticsService::new(db.clone());
+            receive(&mut service, &HashMap::new()); // Ready.
+            rusqlite::Connection::open(&db)
+                .unwrap()
+                .execute_batch("DROP TABLE listening_history")
+                .unwrap();
+            service
+                .query(StatisticsRange::AllTime, vec![], false)
+                .unwrap();
+            assert!(matches!(
+                receive_statistics(&mut service),
+                Event::StatisticsFailed { .. }
+            ));
+            assert!(
+                !service.needs_query(StatisticsRange::AllTime),
+                "failure must not retry every frame"
+            );
+            StatisticsStore::open(&db).unwrap(); // Repair schema, without restarting service.
+            service
+                .query(StatisticsRange::AllTime, vec![], true)
+                .unwrap();
+            assert!(matches!(
+                receive_statistics(&mut service),
+                Event::Statistics { .. }
+            ));
+        }
+
+        #[test]
+        fn statistics_retry_reopens_database_after_startup_failure() {
+            let tmp = tempfile::tempdir().unwrap();
+            let db = tmp.path().join("blocked");
+            std::fs::create_dir(&db).unwrap();
+            let mut service = StatisticsService::new(db.clone());
+            assert!(matches!(
+                receive(&mut service, &HashMap::new()),
+                Event::Unavailable(_)
+            ));
+            service
+                .query(StatisticsRange::AllTime, vec![], false)
+                .unwrap();
+            assert!(matches!(
+                receive_statistics(&mut service),
+                Event::StatisticsFailed { .. }
+            ));
+            std::fs::remove_dir(&db).unwrap();
+            service
+                .query(StatisticsRange::AllTime, vec![], true)
+                .unwrap();
+            assert!(matches!(
+                receive_statistics(&mut service),
+                Event::Statistics { .. }
+            ));
+        }
+
+        #[test]
+        fn sqlite_lock_never_blocks_query_submission() {
+            let tmp = tempfile::tempdir().unwrap();
+            let db = tmp.path().join("library.sqlite3");
+            let mut service = StatisticsService::new(db.clone());
+            receive(&mut service, &HashMap::new());
+            let lock = rusqlite::Connection::open(&db).unwrap();
+            lock.execute_batch("BEGIN EXCLUSIVE").unwrap();
+            let submitted = Instant::now();
+            service
+                .query(StatisticsRange::Last30Days, vec![], false)
+                .unwrap();
+            assert!(
+                submitted.elapsed() < Duration::from_secs(1),
+                "UI only sends a channel command"
+            );
+            lock.execute_batch("ROLLBACK").unwrap();
+            assert!(matches!(
+                receive_statistics(&mut service),
+                Event::Statistics { .. }
+            ));
+        }
     }
 }
