@@ -6,6 +6,7 @@ import { ElasticFlickable, WheelGesture } from "overscroll.slint";
 export { WheelGesture }
 import { HomeView } from "home.slint";
 import { StatisticsNote } from "statistics.slint";
+import { TrackDetails } from "track-details.slint";
 import "fonts/maple-mono/MapleMono-Regular.ttf";
 import "fonts/maple-mono/MapleMono-SemiBold.ttf";
 import "fonts/maple-mono/MapleMono-Bold.ttf";
@@ -253,6 +254,16 @@ export component AppWindow inherits Window {
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
     out property <length> content-height: keyboard.height;
+    in-out property <bool> track-details-open;
+    in property <string> details-title;
+    in property <string> details-artist;
+    in property <string> details-album;
+    in property <image> details-artwork;
+    out property <length> details-title-offset: track-details.title-offset;
+    out property <length> details-artist-offset: track-details.artist-offset;
+    out property <length> details-album-offset: track-details.album-offset;
+    public function reset-details-scroll() { track-details.reset-scroll(); }
+    callback details-close;
     out property <float> lyric-content-height: now-playing.lyric-content-height / 1px;
     private property <float> s: min(keyboard.width / root.base-width, keyboard.height / root.base-height);
     callback key-event(KeyEvent, bool) -> bool;
@@ -588,7 +599,7 @@ export component AppWindow inherits Window {
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
                 // A fresh Back gesture can interrupt the slide; the outgoing
                 // host remains shielded and BackScroll consumes momentum tails.
-                enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
+                enabled: !root.track-details-open && (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s + statistics-note.height; height: root.podcast-detail ? min(192px * root.s, root.rows.length * ListMetrics.text-row-height * root.s * 1px) : 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
                 fit-settings: root.settings-root;
@@ -722,6 +733,16 @@ export component AppWindow inherits Window {
                 }
             }
         }
+        track-details := TrackDetails {
+            visible: root.track-details-open;
+            x: root.screen == 9 ? video-device.display-x : display.x;
+            y: root.screen == 9 ? video-device.display-y : display.y;
+            width: root.screen == 9 ? video-device.display-width : display.width;
+            height: root.screen == 9 ? video-device.display-height : display.height;
+            s: root.s; title: root.details-title; artist: root.details-artist; album: root.details-album;
+            artwork: root.details-artwork; text-font-family: root.ui-font-family;
+            close => { root.details-close(); keyboard.focus(); }
+        }
         if root.native-status-open: DesktopStatusPanel {
             x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y;
             width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
@@ -763,7 +784,7 @@ export component AppWindow inherits Window {
             command(name) => { root.deepseek-command(name); }
         }
         // Status stays inside the display; the window has no surrounding panel or footer.
-        if root.notice != "" && root.notice != "Ready" && !root.podcast-subscribe-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open: Rectangle {
+        if !root.track-details-open && root.notice != "" && root.notice != "Ready" && !root.podcast-subscribe-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open: Rectangle {
             x: (root.screen == 9 ? video-device.display-x : display.x) + 4px * root.s; y: root.screen == 9 ? video-device.display-y + video-device.display-height - 24px * root.s : display.y + (root.screen == 2 ? 296px : 408px) * root.s;
             width: (root.screen == 9 ? video-device.display-width : display.width) - 8px * root.s; height: 20px * root.s; background: #222d;
             Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }

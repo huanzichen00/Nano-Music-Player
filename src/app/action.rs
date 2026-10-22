@@ -24,6 +24,10 @@ pub enum Action {
     ShuffleAll,
     CycleRepeat,
     NowPlaying,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    DeviceInformation,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    TrackDetails,
     ImportFolder,
     RefreshLibrary,
     ImportVideos,
@@ -101,6 +105,8 @@ impl Action {
             | Self::SeekForward
             | Self::ToggleLyrics => Category::Playback,
             Self::ToggleRomaji | Self::ToggleTranslation => Category::Playback,
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::DeviceInformation | Self::TrackDetails => Category::Navigation,
             Self::ToggleOverlay | Self::TrackList | Self::ToggleSubtitles => Category::Playback,
             Self::ImportFolder
             | Self::RefreshLibrary
@@ -176,6 +182,10 @@ impl Action {
             Self::ShuffleAll => "Shuffle all songs",
             Self::CycleRepeat => "Repeat: Off / All / One",
             Self::NowPlaying => "Open Now Playing",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::DeviceInformation => "Device Information",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::TrackDetails => "Track Details",
             Self::ImportFolder => "Import music folder",
             Self::RefreshLibrary => "Refresh Library",
             Self::ImportVideos => "Import Videos…",
@@ -240,6 +250,10 @@ impl Action {
         Self::ShuffleAll,
         Self::CycleRepeat,
         Self::NowPlaying,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::DeviceInformation,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::TrackDetails,
         Self::ToggleLyrics,
         Self::ToggleOverlay,
         Self::TrackList,

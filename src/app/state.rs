@@ -45,6 +45,8 @@ pub struct Row {
 }
 
 pub enum Effect {
+    DeviceInformation,
+    TrackDetails,
     RefreshStatistics,
     Podcast(crate::podcast::Action),
     Audio(AudioCommand),
@@ -1728,6 +1730,8 @@ impl State {
                 }
                 return vec![Effect::Translation(crate::translation::Command::FindLyrics)];
             }
+            DeviceInformation => return vec![Effect::DeviceInformation],
+            TrackDetails => return vec![Effect::TrackDetails],
             ToggleTranslation => {
                 return vec![Effect::Translation(crate::translation::Command::Toggle)];
             }

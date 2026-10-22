@@ -619,12 +619,20 @@ fn configurable_keymaps_round_trip_and_replace_defaults() {
     };
     fs::write(&path, serde_json::to_vec_pretty(&custom).unwrap()).unwrap();
     let loaded = Keymap::load_or_create(&path).unwrap();
-    assert_eq!(loaded.version, 6);
+    assert_eq!(loaded.version, 7);
     assert_eq!(&loaded.bindings[..custom.bindings.len()], custom.bindings);
-    assert_eq!(
-        loaded.bindings.last().unwrap().action,
-        Action::ToggleTranslation
-    );
+    for action in [
+        Action::ToggleTranslation,
+        Action::DeviceInformation,
+        Action::TrackDetails,
+    ] {
+        assert!(
+            loaded
+                .bindings
+                .iter()
+                .any(|binding| binding.action == action)
+        );
+    }
     let dispatcher = Dispatcher::new(loaded);
     assert_eq!(
         dispatcher.dispatch(
@@ -1648,6 +1656,8 @@ fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
     legacy.bindings.retain(|b| {
         b.action != Action::ShuffleAll
             && b.action != Action::ToggleTranslation
+            && b.action != Action::DeviceInformation
+            && b.action != Action::TrackDetails
             && b.action != Action::Settings
             && b.action != Action::JumpToLetter
             && !(b.action == Action::Home && b.modifiers.shift)
@@ -1672,10 +1682,18 @@ fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
     legacy.save(&path).unwrap();
     let loaded = Keymap::load_or_create(&path).unwrap();
     assert_eq!(&loaded.bindings[..legacy.bindings.len()], legacy.bindings);
-    assert_eq!(
-        loaded.bindings.last().unwrap().action,
-        Action::ToggleTranslation
-    );
+    for action in [
+        Action::ToggleTranslation,
+        Action::DeviceInformation,
+        Action::TrackDetails,
+    ] {
+        assert!(
+            loaded
+                .bindings
+                .iter()
+                .any(|binding| binding.action == action)
+        );
+    }
 }
 
 #[test]

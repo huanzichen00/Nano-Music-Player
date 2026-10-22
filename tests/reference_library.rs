@@ -181,7 +181,7 @@ fn global_shuffle_plays_available_library_from_any_list_and_migration_preserves_
     .save(&file)
     .unwrap();
     let migrated = Keymap::load_or_create(&file).unwrap();
-    assert_eq!(migrated.version, 6);
+    assert_eq!(migrated.version, 7);
     assert_eq!(migrated.bindings[0], custom);
     assert!(
         !migrated
@@ -221,12 +221,26 @@ fn translation_shortcut_migration_preserves_custom_t_and_explicit_unassignment()
     .save(&path)
     .unwrap();
     let migrated = Keymap::load_or_create(&path).unwrap();
-    assert_eq!(migrated.version, 6);
-    assert_eq!(migrated.bindings, [custom]);
+    assert_eq!(migrated.version, 7);
+    assert_eq!(migrated.bindings[0], custom);
+    assert!(
+        !migrated
+            .bindings
+            .iter()
+            .any(|binding| binding.action == Action::ToggleTranslation)
+    );
+    for action in [Action::DeviceInformation, Action::TrackDetails] {
+        assert!(
+            migrated
+                .bindings
+                .iter()
+                .any(|binding| binding.action == action)
+        );
+    }
     let unassigned = Keymap::default()
         .edit(Action::ToggleTranslation, None, true)
         .unwrap();
-    assert_eq!(unassigned.version, 6);
+    assert_eq!(unassigned.version, 7);
     unassigned.save(&path).unwrap();
     assert!(
         !Keymap::load_or_create(&path)

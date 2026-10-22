@@ -1,0 +1,123 @@
+import { DesktopStyle, DesktopSurface, DesktopCard, SurfaceText } from "desktop-surfaces.slint";
+import { I18n } from "i18n.slint";
+
+// Render the complete Unicode string and move its native Text item inside a
+// clipped viewport. No substring slicing or assumptions about glyph widths.
+component DetailsMarquee inherits Rectangle {
+    in property <float> s: 1;
+    in property <string> text;
+    in property <string> text-font-family;
+    in property <bool> enabled: true;
+    in property <bool> emphasis;
+    out property <length> offset: 0px;
+    private property <duration> started-at;
+    private property <length> overflow-width: max(0px, line.preferred-width - root.width);
+    public function reset-scroll() {
+        root.offset = 0px;
+        root.started-at = animation-tick();
+    }
+    changed text => { root.reset-scroll(); }
+    changed enabled => { root.reset-scroll(); }
+    changed width => { root.reset-scroll(); }
+    changed s => { root.reset-scroll(); }
+    changed text-font-family => { root.reset-scroll(); }
+    changed overflow-width => { root.offset = clamp(root.offset, -root.overflow-width, 0px); }
+    clip: true;
+    background: transparent;
+    line := SurfaceText {
+        x: root.offset; width: max(root.width, self.preferred-width); height: parent.height;
+        text: root.text;
+        font-family: root.text-font-family == "" ? "Helvetica Neue" : root.text-font-family;
+        font-size: (root.emphasis ? 13px : 12px) * root.s;
+        font-weight: root.emphasis ? 600 : 400;
+        color: DesktopStyle.text; vertical-alignment: center;
+        wrap: no-wrap;
+    }
+    clock := Timer {
+        interval: 16ms;
+        running: root.enabled && root.overflow-width > 0px;
+        triggered => {
+            // The absolute animation clock also makes delayed UI frames and
+            // test clocks advance at the same 25 logical pixels per second.
+            let elapsed = max(0, (animation-tick() - root.started-at) / 1s);
+            let speed = 25px * max(0.1, root.s);
+            let travel = root.overflow-width / speed;
+            let phase = mod(elapsed, 2 * travel + 1.6);
+            if phase < 0.8 { root.offset = 0px; }
+            else if phase < 0.8 + travel { root.offset = -min(root.overflow-width, (phase - 0.8) * speed); }
+            else if phase < 1.6 + travel { root.offset = -root.overflow-width; }
+            else { root.offset = -max(0px, root.overflow-width - (phase - 1.6 - travel) * speed); }
+        }
+    }
+}
+
+export component TrackDetails inherits Rectangle {
+    in property <float> s: 1;
+    in property <string> title;
+    in property <string> artist;
+    in property <string> album;
+    in property <image> artwork;
+    in property <string> text-font-family;
+    in property <bool> enabled: true;
+    out property <length> title-offset: title-line.offset;
+    out property <length> artist-offset: artist-line.offset;
+    out property <length> album-offset: album-line.offset;
+    callback close;
+    public function reset-scroll() {
+        title-line.reset-scroll(); artist-line.reset-scroll(); album-line.reset-scroll();
+    }
+    changed visible => { root.reset-scroll(); }
+    changed title => { root.reset-scroll(); }
+    changed artist => { root.reset-scroll(); }
+    changed album => { root.reset-scroll(); }
+    changed enabled => { root.reset-scroll(); }
+    background: #0006;
+    // Modal pointer and wheel ownership prevents the underlying list from
+    // receiving a click or changing selection while these details are open.
+    TouchArea { enabled: root.enabled; scroll-event(event) => { accept } }
+    dialog := Rectangle {
+        x: 8px * root.s; y: max(4px * root.s, (parent.height - self.height) / 2);
+        width: max(0px, parent.width - 16px * root.s); height: 238px * root.s;
+        DesktopSurface { width: parent.width; height: parent.height; s: root.s; border-radius: 16px * root.s; }
+        SurfaceText {
+            x: 12px * root.s; y: 8px * root.s; width: parent.width - 51px * root.s; height: 27px * root.s;
+            text: I18n.tr("Track Details"); font-size: 14px * root.s; font-weight: 600;
+            color: DesktopStyle.text; vertical-alignment: center; overflow: elide;
+        }
+        Rectangle {
+            x: parent.width - 35px * root.s; y: 8px * root.s; width: 25px * root.s; height: self.width;
+            border-radius: self.width / 2; background: close-touch.pressed ? #d3dce8 : #dde4ed;
+            SurfaceText { text: "×"; font-size: 20px * root.s; color: #607080; horizontal-alignment: center; vertical-alignment: center; }
+            close-touch := TouchArea {
+                enabled: root.enabled; mouse-cursor: pointer;
+                accessible-role: button; accessible-label: I18n.tr("Close");
+                accessible-action-default => { root.close(); }
+                clicked => { root.close(); }
+            }
+        }
+        Rectangle { x: 10px * root.s; y: 40px * root.s; width: parent.width - 20px * root.s; height: 1px * root.s; background: DesktopStyle.separator; }
+        Rectangle {
+            x: 12px * root.s; y: 50px * root.s; width: 60px * root.s; height: self.width;
+            border-radius: 6px * root.s; clip: true; background: @linear-gradient(150deg, #779abb, #315270);
+            if root.artwork.width > 0: Image { width: parent.width; height: parent.height; source: root.artwork; image-fit: contain; }
+            if root.artwork.width == 0: Image { x: 12px * root.s; y: 12px * root.s; width: 36px * root.s; height: self.width; source: @image-url("../assets/icons/nano/songs.png"); image-fit: contain; colorize: #d6e7f6; }
+        }
+        SurfaceText { x: 84px * root.s; y: 51px * root.s; width: parent.width - 96px * root.s; height: 17px * root.s; text: I18n.tr("Title"); font-size: 10px * root.s; color: DesktopStyle.secondary; }
+        title-line := DetailsMarquee {
+            x: 84px * root.s; y: 70px * root.s; width: max(0px, parent.width - 96px * root.s); height: 27px * root.s;
+            s: root.s; text: root.title; text-font-family: root.text-font-family; emphasis: true; enabled: root.visible && root.enabled;
+        }
+        DesktopCard { x: 8px * root.s; y: 120px * root.s; width: parent.width - 16px * root.s; height: 52px * root.s; s: root.s; border-radius: 9px * root.s; }
+        SurfaceText { x: 16px * root.s; y: 126px * root.s; width: parent.width - 32px * root.s; height: 14px * root.s; text: I18n.tr("Artist"); font-size: 10px * root.s; color: DesktopStyle.secondary; }
+        artist-line := DetailsMarquee {
+            x: 16px * root.s; y: 142px * root.s; width: max(0px, parent.width - 32px * root.s); height: 24px * root.s;
+            s: root.s; text: root.artist; text-font-family: root.text-font-family; enabled: root.visible && root.enabled;
+        }
+        DesktopCard { x: 8px * root.s; y: 178px * root.s; width: parent.width - 16px * root.s; height: 52px * root.s; s: root.s; border-radius: 9px * root.s; }
+        SurfaceText { x: 16px * root.s; y: 184px * root.s; width: parent.width - 32px * root.s; height: 14px * root.s; text: I18n.tr("Album"); font-size: 10px * root.s; color: DesktopStyle.secondary; }
+        album-line := DetailsMarquee {
+            x: 16px * root.s; y: 200px * root.s; width: max(0px, parent.width - 32px * root.s); height: 24px * root.s;
+            s: root.s; text: root.album; text-font-family: root.text-font-family; enabled: root.visible && root.enabled;
+        }
+    }
+}

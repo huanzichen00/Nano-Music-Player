@@ -41,6 +41,11 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Title", "标题", "タイトル"),
+    ("Artist", "艺术家", "アーティスト"),
+    ("Album", "专辑", "アルバム"),
+    ("Device Information", "设备信息", "デバイス情報"),
+    ("Track Details", "歌曲详情", "曲の詳細"),
     ("Statistics", "播放统计", "再生統計"),
     ("Overview", "概览", "概要"),
     ("Total Plays", "总播放次数", "総再生回数"),

@@ -116,6 +116,7 @@ pub struct Controller {
     letter_jump: Option<(std::time::Instant, Screen)>,
     thumbnails: Thumbnails,
     library_rows: Rc<VecModel<LibraryRow>>,
+    details_path: Option<PathBuf>,
     row_artwork: Vec<Option<usize>>,
     artwork: ArtworkLoader,
     artwork_resolution: u32,
@@ -221,6 +222,7 @@ impl Controller {
             letter_jump: None,
             thumbnails: Thumbnails::default(),
             library_rows: Rc::new(VecModel::default()),
+            details_path: None,
             row_artwork: Vec::new(),
             artwork: ArtworkLoader::default(),
             artwork_resolution: 0,
@@ -528,6 +530,27 @@ impl Controller {
         if text_input || self.dialog_open || self.state.reference_open {
             self.letter_jump = None;
         }
+        if (ui.get_track_details_open() || ui.get_native_status_open())
+            && self.shortcut_edit.is_none()
+            && !text_input
+        {
+            self.letter_jump = None;
+            match self.dispatcher.dispatch(&press, context) {
+                Dispatch::Action(
+                    action @ (Action::Back
+                    | Action::Home
+                    | Action::TrackDetails
+                    | Action::DeviceInformation),
+                ) => {
+                    self.execute(ui, action);
+                    return true;
+                }
+                Dispatch::Action(action) if action.category() == Category::Navigation => {
+                    return true;
+                }
+                _ => {}
+            }
+        }
         if self.letter_jump.as_ref().is_some_and(|(since, screen)| {
             since.elapsed().as_secs_f32() >= 3.0
                 || *screen != self.state.navigation.current().screen
@@ -582,8 +605,28 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
-        if matches!(action, Action::Home | Action::Back) {
+        if action == Action::Back && (ui.get_track_details_open() || ui.get_native_status_open()) {
+            ui.set_track_details_open(false);
             ui.set_native_status_open(false);
+            self.details_path = None;
+            ui.invoke_focus_screen();
+            return;
+        }
+        if action == Action::Home {
+            ui.set_track_details_open(false);
+            ui.set_native_status_open(false);
+            self.details_path = None;
+        }
+        if matches!(action, Action::DeviceInformation | Action::TrackDetails)
+            && (self.dialog_open
+                || self.state.reference_open
+                || ui.get_playlist_editor_open()
+                || ui.get_genius_preview_open()
+                || ui.get_shortcut_editor_open()
+                || ui.get_deepseek_settings_open()
+                || ui.get_podcast_subscribe_open())
+        {
+            return;
         }
         if action == Action::ToggleSubtitles {
             if !self.dialog_open
@@ -651,6 +694,32 @@ impl Controller {
                 return;
             }
         }
+        if action == Action::ToggleRomaji
+            && self.state.navigation.current().screen == Screen::NowPlaying
+            && !self.state.video_active
+            && self.state.podcasts.active.is_none()
+            && let Some(id) = self.state.current
+            && let Some(track) = self.state.tracks.get(id)
+            && !self
+                .state
+                .romaji
+                .get(&track.path)
+                .is_some_and(|r| r.matches(&track.lyrics))
+        {
+            self.start_romaji(ui, id);
+            if self.state.romaji_generating.as_ref()
+                == self
+                    .state
+                    .current
+                    .and_then(|id| self.state.tracks.get(id))
+                    .map(|t| &t.path)
+            {
+                self.state.romaji_visible = true;
+                self.lyrics_dirty = true;
+            }
+            self.sync(ui);
+            return;
+        }
         let effects = self.state.apply(action);
         if self.gain_config() != previous_gain {
             self.cancel_gapless_prefetch();
@@ -670,6 +739,13 @@ impl Controller {
     fn effects(&mut self, ui: &AppWindow, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::DeviceInformation => {
+                    ui.set_track_details_open(false);
+                    self.details_path = None;
+                    ui.set_native_status_open(!ui.get_native_status_open());
+                    ui.invoke_focus_screen();
+                }
+                Effect::TrackDetails => self.toggle_track_details(ui),
                 Effect::RefreshStatistics => {
                     self.refresh_statistics(true);
                     self.sync(ui);
@@ -2009,6 +2085,55 @@ impl Controller {
         self.sync(ui);
     }
 
+    fn toggle_track_details(&mut self, ui: &AppWindow) {
+        if ui.get_track_details_open() {
+            ui.set_track_details_open(false);
+            self.details_path = None;
+            return;
+        }
+        let selected = self
+            .state
+            .rows()
+            .get(self.state.navigation.selected())
+            .cloned();
+        let id = match &self.state.navigation.current().screen {
+            Screen::Lyrics(id) | Screen::LyricsSearch(id) => Some(*id),
+            Screen::NowPlaying => self.state.current,
+            _ => selected
+                .as_ref()
+                .and_then(|row| match &row.target {
+                    Target::Play(id) => Some(*id),
+                    Target::Screen(Screen::Songs(Filter::Statistics { paths, .. }))
+                        if paths.len() == 1 =>
+                    {
+                        self.state
+                            .tracks
+                            .iter()
+                            .position(|t| paths.contains(&t.path))
+                    }
+                    _ => None,
+                })
+                .or(self
+                    .state
+                    .current
+                    .filter(|_| !self.state.video_active && self.state.podcasts.active.is_none())),
+        };
+        let Some((id, track)) = id.and_then(|id| self.state.tracks.get(id).map(|t| (id, t))) else {
+            self.state.notice = "Choose a song first".into();
+            self.sync(ui);
+            return;
+        };
+        self.details_path = Some(track.path.clone());
+        ui.set_details_title(track.title.as_str().into());
+        ui.set_details_artist(track.artist.as_str().into());
+        ui.set_details_album(track.album.as_str().into());
+        ui.set_details_artwork(self.thumbnails.cached(id).unwrap_or_default());
+        ui.set_native_status_open(false);
+        ui.set_track_details_open(true);
+        ui.invoke_reset_details_scroll();
+        ui.invoke_focus_screen();
+    }
+
     fn refresh_statistics(&mut self, force: bool) {
         let tracks = self
             .state
@@ -2238,6 +2363,10 @@ impl Controller {
             && (screen_changed || self.statistics.needs_query(self.state.statistics.range))
         {
             self.refresh_statistics(false);
+        }
+        if screen_changed && ui.get_track_details_open() {
+            ui.set_track_details_open(false);
+            self.details_path = None;
         }
         let home_page = self.state.home_page as i32;
         if matches!(screen, Screen::Home) && ui.get_home_page() != home_page {
@@ -2817,6 +2946,11 @@ impl Controller {
                     }
                 }
             }
+            if let Some(path) = &self.details_path
+                && let Some(id) = self.state.tracks.iter().position(|t| &t.path == path)
+            {
+                ui.set_details_artwork(self.thumbnails.cached(id).unwrap_or_default());
+            }
         }
         let resolution = ((ui.global::<ListMetrics>().get_artwork_row_height()
             - 2.0 * ui.global::<ListMetrics>().get_artwork_padding())
@@ -2843,6 +2977,16 @@ impl Controller {
         } else {
             Vec::new()
         };
+        let mut ids = ids;
+        let mut resolution = resolution;
+        if ui.get_track_details_open()
+            && let Some(path) = &self.details_path
+            && let Some(id) = self.state.tracks.iter().position(|t| &t.path == path)
+        {
+            ids.push(id);
+            resolution = resolution
+                .max((96.0 * ui.get_display_scale() * ui.window().scale_factor()).ceil() as u32);
+        }
         self.thumbnails
             .set_visible(&self.state.tracks, &ids, resolution);
     }
@@ -3910,6 +4054,15 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 state.state.navigation.select(index as usize);
                 state.execute(&ui, Action::Activate);
             }
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_details_close(move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_track_details_open(false);
+            state.borrow_mut().details_path = None;
+            ui.invoke_focus_screen();
         }
     });
     let weak = ui.as_weak();
