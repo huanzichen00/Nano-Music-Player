@@ -130,6 +130,8 @@ On macOS, the player publishes metadata, duration, playback position and optiona
 
 The desktop library uses cached startup followed by a finite background refresh of imported folders. Use **File → Refresh Library** or **Settings → Refresh Library** to discover new files, update metadata and remove confirmed missing entries. Unavailable volumes and incomplete scans preserve cached songs; valid active playback and stable queue slots are retained. Persistent filesystem monitoring has been removed. Imported roots survive restarts and older settings migrate automatically. See [library refresh behavior](docs/LIBRARY_REFRESH.md).
 
+Desktop **Home → second page → Statistics** shows totals, artist/album/song rankings, recent plays and a 30-day daily list. All Time uses cumulative counts; 7/30-day views use retained history and can be incomplete because only the latest 1,000 plays are kept. Queries run on the existing background worker. See [desktop listening statistics](docs/DESKTOP_LISTENING_STATISTICS.md) for range, timezone and album-identity details.
+
 **Music → Playlists** includes Recently Added, Most Played, Recently Played and Never Played. These computed views use available library paths and leave user playlists and Genius intact. Statistics persist in SQLite, with the latest 1,000 qualified plays in listening history. A session counts once after `max(3 seconds, min(30 seconds, half the duration))` of observed listening; unknown durations require 30 seconds. Tracks shorter than three seconds count only on natural completion after observing at least half their duration. Pauses, stalled positions and seeks add no listening time; restarting begins a new session.
 
 ## Configuration
