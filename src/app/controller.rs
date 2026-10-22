@@ -1,6 +1,7 @@
 mod genius;
 mod library;
 mod lyrics;
+mod native_status;
 #[path = "controller/playlists.rs"]
 mod playlist_service;
 mod podcasts;
@@ -77,6 +78,7 @@ pub struct Controller {
     iphone_sync: Option<super::iphone_sync::SyncPanel>,
     settings: Settings,
     media_bridge: crate::platform::macos_media::MediaBridge,
+    device_status: crate::platform::desktop_status::Monitor,
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
     statistics: StatisticsService,
     playback_session: Option<crate::library::statistics::ListeningSession>,
@@ -176,6 +178,7 @@ impl Controller {
             settings,
             iphone_sync: None,
             media_bridge: crate::platform::macos_media::MediaBridge::default(),
+            device_status: crate::platform::desktop_status::Monitor::new(),
             media_marker: None,
             statistics,
             playback_session: None,
@@ -569,6 +572,9 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if matches!(action, Action::Home | Action::Back) {
+            ui.set_native_status_open(false);
+        }
         if action == Action::ToggleSubtitles {
             if !self.dialog_open
                 && self.state.video_active
@@ -1584,6 +1590,9 @@ impl Controller {
     }
 
     pub fn poll(&mut self, ui: &AppWindow) {
+        if self.device_status.poll() {
+            self.pause_for_output_change(ui);
+        }
         self.maintain_aspect_ratio(ui);
         if let Some(event) = self.library_tasks.poll_load() {
             match event {
@@ -1835,40 +1844,7 @@ impl Controller {
 
     fn poll_media_commands(&mut self, ui: &AppWindow) {
         while let Some(command) = self.media_bridge.poll_command() {
-            let (paused, status) = if self.state.podcasts.active.is_some() {
-                (self.state.podcasts.paused, self.state.podcasts.status)
-            } else {
-                (self.state.paused, self.state.status)
-            };
-            match command {
-                crate::platform::macos_media::RemoteCommand::Play => {
-                    if paused || matches!(status, PlaybackStatus::Stopped | PlaybackStatus::Error) {
-                        self.execute(ui, Action::TogglePlay);
-                    }
-                }
-                crate::platform::macos_media::RemoteCommand::Pause => {
-                    if (self.state.podcasts.active.is_some() && !self.state.podcasts.paused)
-                        || (self.state.podcasts.active.is_none()
-                            && !self.state.paused
-                            && self.state.status == PlaybackStatus::Playing)
-                    {
-                        self.execute(ui, Action::TogglePlay);
-                    }
-                }
-                crate::platform::macos_media::RemoteCommand::Toggle => {
-                    self.execute(ui, Action::TogglePlay);
-                }
-                crate::platform::macos_media::RemoteCommand::Next => {
-                    self.execute(ui, Action::NextTrack);
-                }
-                crate::platform::macos_media::RemoteCommand::Previous => {
-                    self.execute(ui, Action::PreviousTrack);
-                }
-                crate::platform::macos_media::RemoteCommand::SeekTo(seconds) => {
-                    let effect = self.state.seek(seconds);
-                    self.effects(ui, vec![effect]);
-                }
-            }
+            self.handle_media_command(ui, command);
         }
     }
 
@@ -2229,6 +2205,7 @@ impl Controller {
         ui.set_selected(self.state.navigation.selected() as i32);
         ui.set_home_page(self.state.home_page as i32);
         ui.set_clock_text(chrono::Local::now().format("%-I:%M %p").to_string().into());
+        self.sync_device_status(ui);
         // Publish only the active owner's state. Transient music/podcast flips
         // rebuild the transport buttons and discard an in-progress mouse click.
         ui.set_playing(if self.state.podcasts.active.is_some() {
@@ -3725,6 +3702,17 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 ui.set_subtitle_menu_open(false);
             }
             match name.as_str() {
+                "bluetooth_settings" => {
+                    #[cfg(target_os = "macos")]
+                    if let Err(error) = std::process::Command::new("/usr/bin/open")
+                        .arg("x-apple.systempreferences:com.apple.BluetoothSettings")
+                        .spawn()
+                        .map(|mut child| std::thread::spawn(move || child.wait()))
+                    {
+                        controller.state.notice =
+                            format!("Could not open Bluetooth settings: {error}");
+                    }
+                }
                 "sync_iphone" => {
                     if controller.iphone_sync.is_none() {
                         match super::iphone_sync::SyncPanel::new(

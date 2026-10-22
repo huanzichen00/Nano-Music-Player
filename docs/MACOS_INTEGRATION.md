@@ -1,5 +1,7 @@
 # macOS integration
 
+The desktop status bar displays native computer battery/charging state and a headphone indicator. Click the battery for the current system output, available AirPods battery levels and the last received media command. See [desktop devices and battery](DESKTOP_DEVICES.md) for the data sources, Apple design references and the AirPods automatic-switching investigation.
+
 The player starts above other ordinary application windows by default. Settings → Always on Top, or the checked View → Always on Top menu item, toggles this preference and saves it across restarts. This uses Slint's native window level and is independent of AeroSpace's floating layout. It does not override macOS system overlays or other applications' special window levels.
 
 Device Mode uses a transparent frameless window around a rounded SVG shell. Its outer 15-unit and inner 10-unit corner curves scale with the same hardware geometry as the screen and controls. Screen Mode retains an opaque window.

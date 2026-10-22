@@ -1,3 +1,4 @@
+import { DesktopBattery, DesktopStatusPanel } from "desktop-status.slint";
 import { BackScroll } from "back-scroll.slint";
 export { BackScroll }
 import { ElasticFlickable, WheelGesture } from "overscroll.slint";
@@ -147,6 +148,20 @@ export component AppWindow inherits Window {
     in property <int> home-page;
     in property <int> home-transition-direction: 1;
     in property <string> clock-text;
+    in property <int> battery-level: -1;
+    in property <bool> battery-charging;
+    in property <bool> battery-external-power;
+    in property <string> audio-output-name;
+    in property <bool> audio-output-headphones;
+    in property <bool> audio-output-wireless;
+    in property <int> headphone-left-level: -1;
+    in property <int> headphone-right-level: -1;
+    in property <int> headphone-case-level: -1;
+    in property <int> headphone-single-level: -1;
+    in property <string> last-media-command;
+    in property <bool> native-settings-available;
+    in-out property <bool> native-status-open;
+    changed screen => { root.native-status-open = false; }
     in property <bool> playing;
     in property <bool> has-track;
     in property <string> track-path;
@@ -352,6 +367,7 @@ export component AppWindow inherits Window {
         }
         Menu {
             title: I18n.tr("View");
+            MenuItem { title: I18n.tr("Device Status…"); enabled: root.screen != 9; activated => { root.native-status-open = !root.native-status-open; keyboard.focus(); } }
             MenuItem { title: I18n.tr("Settings…"); activated => { root.command("settings"); } }
             MenuItem { title: I18n.tr("Device Mode"); activated => { root.command("device_mode"); } }
             MenuItem { title: I18n.tr("Screen Mode"); activated => { root.command("screen_mode"); } }
@@ -366,6 +382,7 @@ export component AppWindow inherits Window {
     keyboard := FocusScope {
         // The sole keyboard entry point for the entire application.
         capture-key-pressed(event) => {
+            if root.native-status-open && event.text == Key.Escape { root.native-status-open = false; return accept; }
             if root.modal-key-event(event, root.reference-open ? false
                 : root.podcast-subscribe-open ? podcast-dialog.editor-focused
                 : root.deepseek-settings-open ? deepseek-dialog.editor-focused
@@ -458,11 +475,9 @@ export component AppWindow inherits Window {
                 if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list: Text { x: 6px * root.s; width: 164px * root.s; text: root.previous-screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
                 if root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
                 if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: root.previous-screen == 0 || root.previous-screen == 2 ? #eee : #2a73be; }
-                Rectangle {
-                    x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
-                    border-color: #888; border-width: 1px * root.s; background: transparent;
-                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.previous-rating-visible || root.previous-screen == 0 || root.previous-screen == 2 ? #e1e9f4 : #7a994c; }
-                }
+                if root.audio-output-headphones: Image { x: 176px * root.s; y: 7px * root.s; width: 11px * root.s; height: 11px * root.s; source: @image-url("../assets/icons/headphones.svg"); colorize: root.previous-rating-visible || root.previous-screen == 0 || root.previous-screen == 2 ? #eee : #496b8b; }
+                DesktopBattery { x: 212px * root.s; y: 8px * root.s; s: root.s; level: root.battery-level; charging: root.battery-charging; dark: root.previous-rating-visible || root.previous-screen == 0 || root.previous-screen == 2; }
+                TouchArea { x: 206px * root.s; width: 34px * root.s; height: parent.height; clicked => { root.native-status-open = !root.native-status-open; keyboard.focus(); } }
             }
             Rectangle {
                 visible: root.previous-screen != 0 && root.previous-screen != 2 && !root.previous-artwork-list && !root.previous-playlist-list && !root.previous-playlist-content && !root.previous-music-list;
@@ -533,11 +548,9 @@ export component AppWindow inherits Window {
                 if root.artwork-list || root.playlist-list || root.playlist-content || root.music-list: Text { x: 6px * root.s; width: 164px * root.s; text: root.screen-title; font-size: 16px * root.s; font-weight: 700; color: #222; overflow: elide; }
                 if root.artwork-list || root.playlist-list || root.playlist-content || root.music-list: TouchArea { x: 0px; y: 0px; width: 184px * root.s; clicked => { root.command("back"); keyboard.focus(); } }
                 if root.playing: Image { x: 191px * root.s; y: 8px * root.s; width: 8px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: (root.screen == 0 || root.screen == 2 || root.screen == 10) ? #eee : #2a73be; }
-                Rectangle {
-                    x: 212px * root.s; y: 8px * root.s; width: 20px * root.s; height: 9px * root.s;
-                    border-color: #888; border-width: 1px * root.s; background: transparent;
-                    Rectangle { x: 2px * root.s; y: 2px * root.s; width: 15px * root.s; height: 5px * root.s; background: root.rating-visible || (root.screen == 0 || root.screen == 2 || root.screen == 10) ? #e1e9f4 : #7a994c; }
-                }
+                if root.audio-output-headphones: Image { x: 176px * root.s; y: 7px * root.s; width: 11px * root.s; height: 11px * root.s; source: @image-url("../assets/icons/headphones.svg"); colorize: root.rating-visible || root.screen == 0 || root.screen == 2 || root.screen == 10 ? #eee : #496b8b; }
+                DesktopBattery { x: 212px * root.s; y: 8px * root.s; s: root.s; level: root.battery-level; charging: root.battery-charging; dark: root.rating-visible || root.screen == 0 || root.screen == 2 || root.screen == 10; }
+                TouchArea { x: 206px * root.s; width: 34px * root.s; height: parent.height; clicked => { root.native-status-open = !root.native-status-open; keyboard.focus(); } }
             }
             Rectangle {
                 visible: root.screen != 0 && root.screen != 2 && root.screen != 10 && !root.artwork-list && !root.playlist-list && !root.playlist-content && !root.music-list;
@@ -689,6 +702,18 @@ export component AppWindow inherits Window {
                     TouchArea { clicked => { root.subtitle-command("close"); } }
                 }
             }
+        }
+        if root.native-status-open: DesktopStatusPanel {
+            x: root.screen == 9 ? video-device.display-x : display.x; y: root.screen == 9 ? video-device.display-y : display.y;
+            width: root.screen == 9 ? video-device.display-width : display.width; height: root.screen == 9 ? video-device.display-height : display.height;
+            s: root.s; battery-level: root.battery-level; charging: root.battery-charging; external-power: root.battery-external-power;
+            output-name: root.audio-output-name; wireless: root.audio-output-wireless;
+            headphones: root.audio-output-headphones;
+            left-level: root.headphone-left-level; right-level: root.headphone-right-level; case-level: root.headphone-case-level; single-level: root.headphone-single-level;
+            last-command: root.last-media-command;
+            settings-available: root.native-settings-available;
+            close => { root.native-status-open = false; keyboard.focus(); }
+            settings => { root.command("bluetooth_settings"); }
         }
         genius-preview := GeniusPreview {
             visible: root.genius-preview-open;
