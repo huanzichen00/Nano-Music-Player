@@ -14,6 +14,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use std::{cell::RefCell, rc::Rc, time::Duration};
     crate::platform::select_ui_backend()?;
     let directory = config::config_dir()?;
+    crate::shared::diagnostics::init(&directory);
     if std::env::args_os().any(|arg| arg == "--iphone-sync") {
         let language = config::Settings::load(&directory.join("settings.json"))?.language;
         let panel = iphone_sync::SyncPanel::new(directory, language)?;

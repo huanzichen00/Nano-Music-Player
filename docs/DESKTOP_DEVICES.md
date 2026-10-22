@@ -18,6 +18,8 @@ This symptom has been reported but has **not yet been reproduced end to end with
 
 After starting this build, select the AirPods as the Mac's output and play/pause a track. Open Device Status, then press the AirPods once. If “Last Media Command” changes to Play/Play-Pause, the Mac delivered the command to this app. If it stays unchanged while the iPhone starts playing, no command reached this app; inspect the Mac's output and the AirPods connection settings before attributing that event to the Rust transport.
 
+Desktop playback diagnostics also record native media-state changes, received commands and the output-change pause in the configuration directory's `playback.jsonl`. Disk writes run on the existing bounded diagnostics worker; logs rotate at 256 KiB with one previous file. These new records contain control/state names, not song titles, Bluetooth addresses, serial numbers, credentials or lyrics.
+
 Apple documents [automatic switching and how to disable it](https://support.apple.com/en-us/104988). To keep using the Mac, choose the AirPods from macOS Control Center → Sound. If unwanted switching persists, the user can set **Connect to This iPhone/Mac → When Last Connected to This Device** in the relevant AirPods settings. “Bluetooth Settings…” opens the Mac's settings only when clicked; the app cannot force a button already routed to the phone back to the Mac.
 
 ## Verification

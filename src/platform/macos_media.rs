@@ -332,6 +332,10 @@ mod macos {
             }
             _ => return STATUS_FAILED,
         };
+        crate::shared::diagnostics::record(
+            "macos_remote_command_received",
+            serde_json::json!({"command": format!("{command:?}")}),
+        );
         if route.sender.send(command).is_ok() {
             STATUS_SUCCESS
         } else {
@@ -483,6 +487,7 @@ mod macos {
                     install_remote_commands(&worker_route)
                 };
                 let mut artwork = ArtworkCache::default();
+                let mut last_state = None;
                 while let Ok(message) = receiver.recv() {
                     let _pool = Pool::new();
                     match message {
@@ -490,6 +495,15 @@ mod macos {
                             let _lock = NATIVE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
                             if ACTIVE_BRIDGE.load(Ordering::Acquire) == worker_route.id {
                                 publish_native(snapshot.as_ref(), &mut artwork);
+                                let state =
+                                    snapshot.as_ref().map(|snapshot| snapshot.playback_state);
+                                if state != last_state {
+                                    crate::shared::diagnostics::record(
+                                        "macos_media_state",
+                                        serde_json::json!({"state": format!("{state:?}")}),
+                                    );
+                                    last_state = state;
+                                }
                             }
                         }
                         WorkerMessage::Shutdown => break,
@@ -844,6 +858,40 @@ mod macos {
                 assert!(send_id(info_center(), sel("nowPlayingInfo")).is_null());
                 assert_eq!(playback_state(), 3);
             }
+        }
+
+        #[test]
+        fn paused_item_keeps_metadata_and_accepts_remote_play_without_re_registration() {
+            let _test = TEST_LOCK.lock().unwrap();
+            let bridge = native_bridge();
+            let mut track = snapshot(None);
+            bridge.publish(Some(track.clone()));
+            flush(&bridge);
+            track.playback_state = PlaybackState::Paused;
+            bridge.publish(Some(track));
+            flush(&bridge);
+            {
+                let _lock = NATIVE_LOCK.lock().unwrap();
+                let _pool = Pool::new();
+                unsafe {
+                    assert_eq!(playback_state(), 2);
+                    assert_eq!(string_value(MPMediaItemPropertyArtist), "Artist");
+                    let center =
+                        send_id(class("MPRemoteCommandCenter"), sel("sharedCommandCenter"));
+                    let play = send_id(center, sel("playCommand"));
+                    let enabled: unsafe extern "C" fn(Obj, Sel) -> bool =
+                        std::mem::transmute(objc_msgSend as *const ());
+                    assert!(enabled(play, sel("isEnabled")));
+                    // Exercise the native copied callback, not a synthesized hardware event.
+                    let block = make_remote_block(0, &bridge.worker.route);
+                    assert_eq!(
+                        handle_remote(block.0 as *mut RemoteBlock, ptr::null_mut()),
+                        STATUS_SUCCESS
+                    );
+                }
+            }
+            assert_eq!(bridge.poll_command(), Some(RemoteCommand::Play));
+            shutdown(bridge);
         }
 
         #[test]
