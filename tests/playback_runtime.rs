@@ -173,10 +173,39 @@ fn native_playback_gapless_statistics_and_artwork_do_not_crash() {
     let deadline = Instant::now() + Duration::from_secs(12);
     let mut saw_first = false;
     let mut saw_second = false;
+    let mut statistics_opened = false;
+    let mut statistics_closed = false;
+    let mut statistics_reopened = false;
     while Instant::now() < deadline {
         i_slint_backend_testing::mock_elapsed_time(Duration::from_millis(20));
         slint::platform::update_timers_and_animations();
         controller.borrow_mut().poll(&ui);
+        {
+            let mut c = controller.borrow_mut();
+            if c.state.status == PlaybackStatus::Playing && c.state.current == Some(0) {
+                let queue = c.state.queue.order.clone();
+                let position = c.state.position;
+                if position >= 0.5 && !statistics_opened {
+                    c.state.navigation.open(Screen::Statistics(
+                        nano_music_player::app::navigation::StatisticsPage::Overview,
+                    ));
+                    c.poll(&ui);
+                    statistics_opened = true;
+                } else if position >= 1.0 && statistics_opened && !statistics_closed {
+                    c.execute(&ui, Action::Back);
+                    statistics_closed = true;
+                } else if position >= 2.5 && statistics_closed && !statistics_reopened {
+                    c.state.navigation.open(Screen::Statistics(
+                        nano_music_player::app::navigation::StatisticsPage::Overview,
+                    ));
+                    c.poll(&ui);
+                    statistics_reopened = true;
+                }
+                assert_eq!(c.state.queue.order, queue);
+                // poll may consume genuine progress or a gapless handoff;
+                // deterministic UI tests separately assert navigation never seeks.
+            }
+        }
         let c = controller.borrow();
         assert_ne!(c.state.status, PlaybackStatus::Error, "{}", c.state.notice);
         if c.state.status == PlaybackStatus::Playing {
@@ -193,13 +222,31 @@ fn native_playback_gapless_statistics_and_artwork_do_not_crash() {
         thread::sleep(Duration::from_millis(20));
     }
     assert!(saw_first && saw_second, "both consecutive tracks must play");
+    assert!(statistics_opened && statistics_closed && statistics_reopened);
     assert_eq!(
         controller.borrow().state.status,
         PlaybackStatus::Stopped,
         "queue must finish naturally"
     );
-    for _ in 0..10 {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
         controller.borrow_mut().poll(&ui);
+        let ready = {
+            let c = controller.borrow();
+            !c.state.statistics.loading
+                && c.state
+                    .statistics
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|s| s.total_plays == 2)
+        };
+        if ready {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "statistics did not refresh to two qualified plays across the gapless transition"
+        );
         thread::sleep(Duration::from_millis(20));
     }
     let store = StatisticsStore::open(&db_path).unwrap();
