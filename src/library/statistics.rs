@@ -11,6 +11,11 @@ use std::{
     time::Duration,
 };
 
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+mod desktop;
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+pub use desktop::*;
+
 /// The listening history is deliberately bounded so long-running libraries do not
 /// grow the database without limit.
 pub const DEFAULT_HISTORY_LIMIT: usize = 1_000;
