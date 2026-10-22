@@ -360,6 +360,11 @@ fn identity(name: &str) -> String {
     clean_name(name).to_lowercase().nfc().collect()
 }
 
+/// Reuse the ranking identity when browsing an artist's albums in the UI.
+pub fn statistics_identity(name: &str) -> String {
+    identity(name)
+}
+
 fn add_count(total: &mut u64, count: u64) -> Result<(), String> {
     *total = total
         .checked_add(count)

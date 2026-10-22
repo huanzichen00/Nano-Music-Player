@@ -16,7 +16,7 @@ use super::{
     artwork::ArtworkLoader,
     config::Settings,
     i18n::{self, Language, translate},
-    navigation::{Filter, Group, Screen, SettingsSection},
+    navigation::{Filter, Group, Screen, SettingsSection, StatisticsPage},
     state::{Effect, State, Target},
     thumbnails::{self, Prepared, Thumbnails},
 };
@@ -29,7 +29,7 @@ use crate::{
     library::{playlists, scanner},
     ui::{
         AppWindow, BackScroll, I18n, LibraryRow, ListMetrics, PlaylistCandidate, ShortcutRow,
-        SubtitleChoice, WheelGesture,
+        StatisticsDay, StatisticsItem, StatisticsSummary, SubtitleChoice, WheelGesture,
     },
 };
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
@@ -116,7 +116,9 @@ pub struct Controller {
     letter_jump: Option<(std::time::Instant, Screen)>,
     thumbnails: Thumbnails,
     library_rows: Rc<VecModel<LibraryRow>>,
+    statistics_items: Rc<VecModel<StatisticsItem>>,
     details_path: Option<PathBuf>,
+    last_statistics_minute: i64,
     row_artwork: Vec<Option<usize>>,
     artwork: ArtworkLoader,
     artwork_resolution: u32,
@@ -222,7 +224,9 @@ impl Controller {
             letter_jump: None,
             thumbnails: Thumbnails::default(),
             library_rows: Rc::new(VecModel::default()),
+            statistics_items: Rc::new(VecModel::default()),
             details_path: None,
+            last_statistics_minute: 0,
             row_artwork: Vec::new(),
             artwork: ArtworkLoader::default(),
             artwork_resolution: 0,
@@ -2095,6 +2099,78 @@ impl Controller {
         self.sync(ui);
     }
 
+    fn sync_statistics_view(&mut self, ui: &AppWindow) {
+        use super::statistics_projection::{bar_ratio, chart_ceiling, grouped_number};
+        let entries = self.state.statistics_entries();
+        let items = entries
+            .into_iter()
+            .map(|e| StatisticsItem {
+                title: e.row.title.into(),
+                subtitle: e.row.subtitle.into(),
+                value: e.value.into(),
+                rank: e.rank,
+                ratio: e.ratio,
+                icon: e.icon,
+                chevron: matches!(
+                    e.row.target,
+                    Target::Screen(_)
+                        | Target::StatisticsRange(_)
+                        | Target::RefreshStatistics
+                        | Target::PlayStatisticsGroup(_)
+                ),
+                artwork: e
+                    .row
+                    .artwork_id
+                    .and_then(|id| self.thumbnails.cached(id))
+                    .unwrap_or_default(),
+            })
+            .collect::<Vec<_>>();
+        self.statistics_items = Rc::new(VecModel::from(items));
+        ui.set_statistics_items(self.statistics_items.clone().into());
+        let snapshot = self.state.statistics.snapshot.as_ref();
+        let maximum = chart_ceiling(snapshot.map_or(0, |s| {
+            s.daily_plays.iter().map(|d| d.plays).max().unwrap_or(0)
+        }));
+        let days = snapshot.map_or_else(Vec::new, |s| {
+            s.daily_plays
+                .iter()
+                .map(|day| StatisticsDay {
+                    label: day.date.format("%Y-%m-%d").to_string().into(),
+                    short_label: day.date.format("%m/%d").to_string().into(),
+                    plays: grouped_number(day.plays).into(),
+                    ratio: bar_ratio(day.plays, maximum),
+                })
+                .collect::<Vec<_>>()
+        });
+        ui.set_statistics_days(ModelRc::new(VecModel::from(days)));
+        let (total, artists, albums, tracks) = self.state.statistics_counts();
+        let detail = self.state.statistics_detail_info();
+        ui.set_statistics_summary(StatisticsSummary {
+            total: if snapshot.is_some() {
+                grouped_number(total).into()
+            } else {
+                "-".into()
+            },
+            artists: grouped_number(artists).into(),
+            albums: grouped_number(albums).into(),
+            tracks: grouped_number(tracks).into(),
+            range_label: self.text(self.state.statistics.range.label()),
+            footer: self.state.statistics_note().into(),
+            detail_title: detail.title.into(),
+            detail_subtitle: detail.subtitle.into(),
+            detail_artwork: detail
+                .artwork_id
+                .and_then(|id| self.thumbnails.cached(id))
+                .unwrap_or_default(),
+            chart_maximum: grouped_number(maximum).into(),
+            chart_middle: if maximum == 1 {
+                "0.5".into()
+            } else {
+                grouped_number(maximum / 2).into()
+            },
+        });
+    }
+
     fn toggle_track_details(&mut self, ui: &AppWindow) {
         if ui.get_track_details_open() {
             ui.set_track_details_open(false);
@@ -2186,20 +2262,14 @@ impl Controller {
                         self.state.statistics.loading = false;
                         self.state.statistics.failed = false;
                         self.state.clamp_statistics_selection();
-                        self.rows_dirty |= matches!(
-                            self.state.navigation.current().screen,
-                            Screen::Statistics(_)
-                        );
+                        self.rows_dirty |= self.state.navigation.current().screen.is_statistics();
                     }
                 }
                 StatisticsEvent::StatisticsFailed { range, error } => {
                     if range == self.state.statistics.range {
                         self.state.statistics.loading = false;
                         self.state.statistics.failed = true;
-                        self.rows_dirty |= matches!(
-                            self.state.navigation.current().screen,
-                            Screen::Statistics(_)
-                        );
+                        self.rows_dirty |= self.state.navigation.current().screen.is_statistics();
                         eprintln!("Statistics query failed: {error}");
                     }
                 }
@@ -2369,7 +2439,7 @@ impl Controller {
         let current_screen = self.state.navigation.current().screen.clone();
         let screen = &current_screen;
         let screen_changed = self.last_screen.as_ref() != Some(screen);
-        if matches!(screen, Screen::Statistics(_))
+        if screen.is_statistics()
             && (screen_changed || self.statistics.needs_query(self.state.statistics.range))
         {
             self.refresh_statistics(false);
@@ -2377,6 +2447,13 @@ impl Controller {
         if screen_changed && ui.get_track_details_open() {
             ui.set_track_details_open(false);
             self.details_path = None;
+        }
+        if screen.is_statistics() && screen.statistics_kind() == 5 {
+            let minute = chrono::Utc::now().timestamp() / 60;
+            if minute != self.last_statistics_minute {
+                self.rows_dirty = true;
+                self.last_statistics_minute = minute;
+            }
         }
         let home_page = self.state.home_page as i32;
         if matches!(screen, Screen::Home) && ui.get_home_page() != home_page {
@@ -2411,6 +2488,13 @@ impl Controller {
             ui.set_previous_shuffle_list(ui.get_shuffle_list());
             ui.set_previous_statistics_page(ui.get_statistics_page());
             ui.set_previous_statistics_note(ui.get_statistics_note());
+            ui.set_previous_statistics_kind(ui.get_statistics_kind());
+            ui.set_previous_statistics_range_index(ui.get_statistics_range_index());
+            ui.set_previous_statistics_items(ui.get_statistics_items());
+            ui.set_previous_statistics_days(ui.get_statistics_days());
+            ui.set_previous_statistics_summary(ui.get_statistics_summary());
+            ui.set_previous_statistics_loading(ui.get_statistics_loading());
+            ui.set_previous_statistics_failed(ui.get_statistics_failed());
             ui.set_previous_rating_visible(ui.get_rating_visible());
             ui.set_previous_rating_title(ui.get_rating_title());
             ui.set_previous_rating(ui.get_rating());
@@ -2465,12 +2549,22 @@ impl Controller {
             ) => screen.title().into(),
             _ => self.text(screen.title()),
         });
-        ui.set_statistics_page(matches!(screen, Screen::Statistics(_)));
-        ui.set_statistics_note(if matches!(screen, Screen::Statistics(_)) {
+        ui.set_statistics_page(screen.is_statistics());
+        ui.set_statistics_note(if screen.is_statistics() {
             self.state.statistics_note().into()
         } else {
             "".into()
         });
+        if screen.is_statistics() {
+            ui.set_statistics_kind(screen.statistics_kind());
+            ui.set_statistics_range_index(match self.state.statistics.range {
+                crate::library::statistics::StatisticsRange::Last7Days => 0,
+                crate::library::statistics::StatisticsRange::Last30Days => 1,
+                crate::library::statistics::StatisticsRange::AllTime => 2,
+            });
+            ui.set_statistics_loading(self.state.statistics.loading);
+            ui.set_statistics_failed(self.state.statistics.failed);
+        }
         ui.set_settings_root(*screen == Screen::Settings);
         ui.set_device_mode(self.state.device_mode);
         let rating_target = self.state.rating_target();
@@ -2649,7 +2743,7 @@ impl Controller {
                         _ => 0,
                     }
                         }),
-                        title: if matches!(screen, Screen::Statistics(_))
+                        title: if screen.is_statistics()
                             || *screen == Screen::LyricSongs
                             || (matches!(screen, Screen::LyricsSearch(_))
                                 && matches!(&row.target, Target::Screen(Screen::LyricSongs)))
@@ -2679,7 +2773,7 @@ impl Controller {
                         } else if matches!(screen, Screen::Groups(Group::Playlists)) {
                             i18n::notice(self.state.language, &row.subtitle).into()
                         } else {
-                            if matches!(screen, Screen::Statistics(_))
+                            if screen.is_statistics()
                                 || metadata_rows
                                 || *screen == Screen::LyricSongs
                                 || (matches!(screen, Screen::LyricsSearch(_))
@@ -2754,6 +2848,9 @@ impl Controller {
                     .collect::<Vec<_>>();
             self.library_rows = Rc::new(VecModel::from(rows));
             ui.set_rows(self.library_rows.clone().into());
+            if screen.is_statistics() {
+                self.sync_statistics_view(ui);
+            }
             self.last_query.clone_from(&self.state.query);
             self.rows_dirty = false;
             if screen_changed {
@@ -2769,6 +2866,7 @@ impl Controller {
                 screen,
                 Screen::Music
                     | Screen::Statistics(_)
+                    | Screen::StatisticsDetail { .. }
                     | Screen::Videos
                     | Screen::Groups(_)
                     | Screen::Artist(_)
@@ -2955,6 +3053,25 @@ impl Controller {
                         self.library_rows.set_row_data(index, row);
                     }
                 }
+                if let Some(id) = id
+                    && let Some(mut row) = self.statistics_items.row_data(index)
+                {
+                    let image = self.thumbnails.cached(*id).unwrap_or_default();
+                    if row.artwork != image {
+                        row.artwork = image;
+                        self.statistics_items.set_row_data(index, row);
+                    }
+                }
+            }
+            if screen.is_statistics() {
+                let mut summary = ui.get_statistics_summary();
+                summary.detail_artwork = self
+                    .state
+                    .statistics_detail_info()
+                    .artwork_id
+                    .and_then(|id| self.thumbnails.cached(id))
+                    .unwrap_or_default();
+                ui.set_statistics_summary(summary);
             }
             if let Some(path) = &self.details_path
                 && let Some(id) = self.state.tracks.iter().position(|t| &t.path == path)
@@ -2970,7 +3087,8 @@ impl Controller {
         let ids = if matches!(
             screen,
             Screen::Groups(Group::Albums | Group::Artists) | Screen::Artist(_)
-        ) {
+        ) || screen.is_statistics()
+        {
             let height = ui.get_list_row_height().max(1.0);
             let top = (-ui.get_list_scroll_y()).max(0.0);
             let prefix = usize::from(self.state.supports_list_shuffle());
@@ -2989,6 +3107,13 @@ impl Controller {
         };
         let mut ids = ids;
         let mut resolution = resolution;
+        if screen.is_statistics()
+            && let Some(id) = self.state.statistics_detail_info().artwork_id
+        {
+            ids.push(id);
+            resolution = resolution
+                .max((240.0 * ui.get_display_scale() * ui.window().scale_factor()).ceil() as u32);
+        }
         if ui.get_track_details_open()
             && let Some(path) = &self.details_path
             && let Some(id) = self.state.tracks.iter().position(|t| &t.path == path)
@@ -4063,6 +4188,65 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 ui.set_keyboard_navigation(false);
                 state.state.navigation.select(index as usize);
                 state.execute(&ui, Action::Activate);
+            }
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_statistics_range_selected(move |index| {
+        if let Some(ui) = weak.upgrade() {
+            let mut c = state.borrow_mut();
+            if !c.state.navigation.current().screen.is_statistics() {
+                return;
+            }
+            let range = match index {
+                0 => crate::library::statistics::StatisticsRange::Last7Days,
+                1 => crate::library::statistics::StatisticsRange::Last30Days,
+                2 => crate::library::statistics::StatisticsRange::AllTime,
+                _ => return,
+            };
+            if c.state.statistics.range == range {
+                return;
+            }
+            c.state.statistics.range = range;
+            c.state.statistics.snapshot = None;
+            c.state.navigation.select(0);
+            c.refresh_statistics(false);
+            ui.set_list_scroll_y(0.0);
+            c.sync(&ui);
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_statistics_open_page(move |index| {
+        if let Some(ui) = weak.upgrade() {
+            let mut c = state.borrow_mut();
+            if !c.state.navigation.current().screen.is_statistics() {
+                return;
+            }
+            let page = match index {
+                0 => StatisticsPage::Home,
+                1 => StatisticsPage::Overview,
+                2 => StatisticsPage::Artists,
+                3 => StatisticsPage::Albums,
+                4 => StatisticsPage::Tracks,
+                5 => StatisticsPage::Recent,
+                6 => StatisticsPage::Daily,
+                7 => StatisticsPage::Range,
+                _ => return,
+            };
+            c.state.navigation.open(Screen::Statistics(page));
+            c.sync(&ui);
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_statistics_refresh(move || {
+        if let Some(ui) = weak.upgrade() {
+            let mut c = state.borrow_mut();
+            if c.state.navigation.current().screen.is_statistics() {
+                c.refresh_statistics(true);
+                c.sync(&ui);
             }
         }
     });

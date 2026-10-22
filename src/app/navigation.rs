@@ -57,6 +57,34 @@ impl StatisticsPage {
     }
 }
 
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatisticsGroup {
+    pub name: String,
+    /// Some for an album, None for an artist.
+    pub artist: Option<String>,
+    pub paths: std::sync::Arc<std::collections::BTreeSet<std::path::PathBuf>>,
+}
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+impl StatisticsGroup {
+    pub fn filter(&self) -> Filter {
+        Filter::Statistics {
+            name: self.name.clone(),
+            album_order: self.artist.is_some(),
+            paths: self.paths.clone(),
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatisticsDetailPage {
+    Summary,
+    Albums,
+    Tracks,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsSection {
     Display,
@@ -87,6 +115,11 @@ pub enum Screen {
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     Statistics(StatisticsPage),
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    StatisticsDetail {
+        group: StatisticsGroup,
+        page: StatisticsDetailPage,
+    },
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     Podcasts(PodcastPage),
     Home,
     Music,
@@ -113,6 +146,18 @@ impl Screen {
         match self {
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
             Self::Statistics(page) => page.title(),
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::StatisticsDetail { group, page } => match page {
+                StatisticsDetailPage::Summary => {
+                    if group.artist.is_some() {
+                        "Album Details"
+                    } else {
+                        "Artist Details"
+                    }
+                }
+                StatisticsDetailPage::Albums => "Albums",
+                StatisticsDetailPage::Tracks => "Top Tracks",
+            },
             Self::Home => "iPod",
             Self::Music => "Music",
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
@@ -159,6 +204,39 @@ impl Screen {
             Self::LyricsSearch(_) => "Find Lyrics",
             Self::Languages => "Language",
             Self::Fonts => "Font",
+        }
+    }
+
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    pub fn is_statistics(&self) -> bool {
+        matches!(self, Self::Statistics(_) | Self::StatisticsDetail { .. })
+    }
+
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    pub fn statistics_kind(&self) -> i32 {
+        match self {
+            Self::Statistics(page) => match page {
+                StatisticsPage::Home => 0,
+                StatisticsPage::Overview => 1,
+                StatisticsPage::Artists => 2,
+                StatisticsPage::Albums => 3,
+                StatisticsPage::Tracks => 4,
+                StatisticsPage::Recent => 5,
+                StatisticsPage::Daily => 6,
+                StatisticsPage::Range => 7,
+            },
+            Self::StatisticsDetail { group, page } => match page {
+                StatisticsDetailPage::Summary => {
+                    if group.artist.is_some() {
+                        9
+                    } else {
+                        8
+                    }
+                }
+                StatisticsDetailPage::Albums => 3,
+                StatisticsDetailPage::Tracks => 4,
+            },
+            _ => 0,
         }
     }
 }

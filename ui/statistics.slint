@@ -1,6 +1,11 @@
-// Statistics uses the ordinary LibraryView for rows and input handling. Keep its
-// small range/retention/status note outside that shared component so every other
-// library page retains its original viewport and layout.
+import { ElasticFlickable } from "overscroll.slint";
+import { I18n } from "i18n.slint";
+
+export struct StatisticsItem { title: string, subtitle: string, value: string, artwork: image, rank: int, ratio: float, icon: int, chevron: bool }
+export struct StatisticsDay { label: string, short-label: string, plays: string, ratio: float }
+export struct StatisticsSummary { total: string, artists: string, albums: string, tracks: string, range-label: string, footer: string, detail-title: string, detail-subtitle: string, detail-artwork: image, chart-maximum: string, chart-middle: string }
+
+// Compatibility for the legacy outgoing snapshot while the shell migrates.
 export component StatisticsNote inherits Rectangle {
     in property <float> s: 1;
     in property <string> text;
@@ -15,5 +20,294 @@ export component StatisticsNote inherits Rectangle {
     Rectangle {
         y: parent.height - 1px * root.s; height: 1px * root.s;
         background: #c8d0d6;
+    }
+}
+
+component StatisticsArtwork inherits Rectangle {
+    in property <float> s: 1;
+    in property <image> artwork;
+    in property <bool> artist;
+    border-radius: 3px * root.s;
+    background: @linear-gradient(145deg, #71afe0, #2667a8 62%, #23496d);
+    clip: true;
+    if root.artwork.width > 0: Image { source: root.artwork; width: parent.width; height: parent.height; image-fit: cover; }
+    if root.artwork.width == 0: Image {
+        x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6;
+        source: root.artist ? @image-url("../assets/icons/nano/artists.png") : @image-url("../assets/icons/nano/songs.png");
+        image-fit: contain; colorize: #e7f3ff; opacity: 0.8;
+    }
+}
+
+component StatisticsGlyph inherits Image {
+    in property <int> icon;
+    source: root.icon == 1 || root.icon == 6 ? @image-url("../assets/icons/statistics.svg")
+        : root.icon == 2 ? @image-url("../assets/icons/nano/artists.png")
+        : root.icon == 3 || root.icon == 11 ? @image-url("../assets/icons/nano/albums.png")
+        : root.icon == 4 || root.icon == 12 || root.icon == 13 ? @image-url("../assets/icons/nano/songs.png")
+        : root.icon == 5 ? @image-url("../assets/icons/clock.svg")
+        : root.icon == 7 ? @image-url("../assets/statistics/calendar.svg")
+        : root.icon == 8 ? @image-url("../assets/statistics/refresh.svg")
+        : @image-url("../assets/icons/play.svg");
+    image-fit: contain;
+}
+
+component StatisticsRange inherits Rectangle {
+    in property <float> s: 1;
+    in property <int> selected;
+    in property <bool> enabled: true;
+    callback changed(int);
+    background: #f5f6f7;
+    Rectangle {
+        x: 8px * root.s; y: 6px * root.s; width: parent.width - 16px * root.s; height: 22px * root.s;
+        border-radius: 4px * root.s; border-width: 1px * root.s; border-color: #bbc6d0;
+        background: @linear-gradient(180deg, #edf0f3, #dbe2e8);
+        for label[index] in [I18n.tr("7 Days"), I18n.tr("30 Days"), I18n.tr("All Time")]: Rectangle {
+            x: index * parent.width / 3; width: parent.width / 3; height: parent.height;
+            border-radius: 4px * root.s;
+            background: root.selected == index ? @linear-gradient(180deg, #64b6ff, #0582ee) : transparent;
+            if index > 0 && root.selected != index && root.selected != index - 1: Rectangle { y: 3px * root.s; width: 1px * root.s; height: parent.height - 6px * root.s; background: #c1cad3; }
+            Text { text: label; font-size: 10px * root.s; color: root.selected == index ? white : #263847; horizontal-alignment: center; vertical-alignment: center; }
+            TouchArea { enabled: root.enabled; clicked => { root.changed(index); } }
+        }
+    }
+}
+
+component StatisticsChart inherits Rectangle {
+    in property <float> s: 1;
+    in property <[StatisticsDay]> days;
+    in property <string> maximum;
+    in property <string> middle;
+    in property <bool> title-visible: true;
+    in property <bool> enabled: true;
+    callback clicked;
+    private property <length> plot-top: root.title-visible ? 22px * root.s : 5px * root.s;
+    private property <length> plot-height: root.height - root.plot-top - 17px * root.s;
+    private property <length> plot-width: root.width - 29px * root.s;
+    private property <length> step: root.plot-width / max(1, root.days.length);
+    background: #f9fafb;
+    if root.title-visible: Text { x: 2px * root.s; y: 0px; height: 17px * root.s; text: I18n.tr("Plays per Day"); font-size: 12px * root.s; font-weight: 600; color: #151b20; }
+    if root.title-visible: Text { x: 90px * root.s; y: 2px * root.s; width: parent.width - self.x; height: 15px * root.s; text: I18n.tr("Last 30 Days"); font-size: 9px * root.s; color: #818991; }
+    for tick in 3: Rectangle { x: 24px * root.s; y: root.plot-top + tick * root.plot-height / 2; width: root.plot-width; height: 1px * root.s; background: #e1e6eb; }
+    for label[index] in [root.maximum, root.middle, "0"]: Text {
+        x: 0px; y: root.plot-top + index * root.plot-height / 2 - 6px * root.s; width: 19px * root.s; height: 12px * root.s;
+        text: label; font-size: 9px * root.s; color: #68727c; horizontal-alignment: right;
+    }
+    for day[index] in root.days: Rectangle {
+        x: 25px * root.s + index * root.step; y: root.plot-top + root.plot-height - self.height;
+        width: max(1px * root.s, root.step - 2px * root.s);
+        height: day.ratio > 0 ? max(1px * root.s, root.plot-height * clamp(day.ratio, 0, 1)) : 0px;
+        border-radius: 1px * root.s; background: @linear-gradient(180deg, #61afff, #0789f6);
+    }
+    for tick in 5: Text {
+        x: 16px * root.s + tick * (root.plot-width - 14px * root.s) / 4; y: root.plot-top + root.plot-height + 3px * root.s;
+        width: 33px * root.s; height: 12px * root.s;
+        text: root.days.length > 0 ? root.days[min(root.days.length - 1, floor(tick * (root.days.length - 1) / 4))].short-label : "";
+        font-size: 8px * root.s; color: #9099a2; horizontal-alignment: center;
+    }
+    if root.maximum == "0": Text { x: 26px * root.s; y: root.plot-top; width: root.plot-width; height: root.plot-height; text: I18n.tr("No plays yet"); font-size: 10px * root.s; color: #85919c; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+}
+
+component StatisticsRow inherits Rectangle {
+    in property <float> s: 1;
+    in property <StatisticsItem> item;
+    in property <int> page;
+    in property <bool> selected;
+    in property <bool> pressed;
+    in property <bool> checked;
+    in property <bool> click-enabled: true;
+    callback clicked;
+    private property <bool> ranking: root.page >= 1 && root.page <= 3;
+    private property <bool> tracks: root.page == 4;
+    private property <bool> recent: root.page == 5;
+    private property <bool> detail: root.page == 8 || root.page == 9;
+    private property <bool> action: root.detail && root.item.icon >= 10;
+    private property <bool> highlighted: root.selected || root.pressed;
+    private property <color> title-color: root.highlighted ? white : #171c22;
+    private property <color> subtitle-color: root.highlighted ? #e0efff : #7b838c;
+    background: root.highlighted ? @linear-gradient(180deg, #4aa1ef, #0c7cde) : white;
+    Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: root.highlighted ? #257bc8 : #e4e7ea; }
+    if root.page == 0: Rectangle {
+        x: 7px * root.s; y: 6px * root.s; width: 36px * root.s; height: self.width; border-radius: 4px * root.s;
+        background: root.item.icon == 1 ? @linear-gradient(180deg, #9d8fff, #5d4cbd)
+            : root.item.icon == 2 ? @linear-gradient(180deg, #45c5e5, #007eab)
+            : root.item.icon == 3 ? @linear-gradient(180deg, #8493ab, #334766)
+            : root.item.icon == 4 ? @linear-gradient(180deg, #9b76c3, #54336b)
+            : root.item.icon == 5 ? @linear-gradient(180deg, #ffcb55, #dc7108) : @linear-gradient(180deg, #67b9f4, #2785ca);
+        StatisticsGlyph { x: 7px * root.s; y: 7px * root.s; width: 22px * root.s; height: self.width; icon: root.item.icon; colorize: white; }
+    }
+    if root.page == 0: Text { x: 52px * root.s; y: 6px * root.s; width: parent.width - 73px * root.s; height: 20px * root.s; text: root.item.title; font-size: 13px * root.s; font-weight: 600; color: root.title-color; overflow: elide; }
+    if root.page == 0: Text { x: 52px * root.s; y: 26px * root.s; width: parent.width - 73px * root.s; height: 15px * root.s; text: root.item.subtitle; font-size: 10px * root.s; color: root.subtitle-color; overflow: elide; }
+    if root.ranking || root.tracks || (root.detail && !root.action): Text {
+        x: 4px * root.s; width: 17px * root.s; height: parent.height; text: root.item.rank > 0 ? root.item.rank : "";
+        font-size: 10px * root.s; color: root.title-color; horizontal-alignment: center; vertical-alignment: center;
+    }
+    if root.ranking || root.tracks || root.recent: StatisticsArtwork {
+        x: (root.recent ? 8px : 27px) * root.s; y: (parent.height - self.height) / 2;
+        width: (root.tracks ? 30px : root.page == 1 ? 32px : 36px) * root.s; height: self.width;
+        s: root.s; artwork: root.item.artwork; artist: root.page == 1 || root.page == 2;
+    }
+    if root.ranking: Text { x: 70px * root.s; y: 5px * root.s; width: parent.width - 89px * root.s; height: 17px * root.s; text: root.item.title; font-size: 13px * root.s; font-weight: 600; color: root.title-color; overflow: elide; }
+    if root.ranking: Text { x: 70px * root.s; y: 22px * root.s; width: parent.width - 90px * root.s; height: 12px * root.s; text: root.item.value; font-size: 10px * root.s; color: root.subtitle-color; overflow: elide; }
+    if root.ranking: Rectangle {
+        x: 70px * root.s; y: parent.height - 10px * root.s; width: parent.width - 96px * root.s; height: 4px * root.s; border-radius: 1px * root.s;
+        background: root.highlighted ? #ffffff50 : #e6e9ed;
+        Rectangle { width: parent.width * clamp(root.item.ratio, 0, 1); height: parent.height; border-radius: 1px * root.s; background: root.highlighted ? #e6f4ff : #078bfa; }
+    }
+    if root.tracks || root.recent: Text {
+        x: (root.recent ? 52px : 65px) * root.s; y: 8px * root.s; width: parent.width - self.x - (root.recent ? 77px : 60px) * root.s; height: 17px * root.s;
+        text: root.item.title; font-size: 11px * root.s; font-weight: 600; color: root.title-color; overflow: elide;
+    }
+    if root.tracks || root.recent: Text {
+        x: (root.recent ? 52px : 65px) * root.s; y: 26px * root.s; width: parent.width - self.x - (root.recent ? 77px : 60px) * root.s; height: 14px * root.s;
+        text: root.item.subtitle; font-size: 10px * root.s; color: root.subtitle-color; overflow: elide;
+    }
+    if root.tracks || root.recent: Text {
+        x: parent.width - (root.recent ? 78px : 61px) * root.s; y: 7px * root.s; width: (root.recent ? 65px : 54px) * root.s; height: parent.height - 14px * root.s;
+        text: root.item.value; font-size: 9px * root.s; color: root.subtitle-color; horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+    }
+    if root.page == 6: Text { x: 8px * root.s; width: 95px * root.s; height: parent.height; text: root.item.title; font-size: 10px * root.s; color: root.title-color; vertical-alignment: center; overflow: elide; }
+    if root.page == 6: Text { x: 108px * root.s; width: 24px * root.s; height: parent.height; text: root.item.value; font-size: 10px * root.s; color: root.subtitle-color; vertical-alignment: center; horizontal-alignment: right; overflow: elide; }
+    if root.page == 6: Rectangle { x: 140px * root.s; y: (parent.height - self.height) / 2; width: (parent.width - 150px * root.s) * clamp(root.item.ratio, 0, 1); height: 7px * root.s; border-radius: 1px * root.s; background: root.highlighted ? #e2f1ff : @linear-gradient(90deg, #aed5ff, #6db6ff); }
+    if root.page == 7: Text { x: 12px * root.s; width: parent.width - 45px * root.s; height: parent.height; text: root.item.title; font-size: 13px * root.s; color: root.title-color; vertical-alignment: center; }
+    if root.page == 7 && root.checked: Text { x: parent.width - 31px * root.s; width: 20px * root.s; height: parent.height; text: "✓"; font-size: 16px * root.s; color: root.highlighted ? white : #0789f0; vertical-alignment: center; }
+    if root.action && root.item.icon == 10: Rectangle {
+        x: 9px * root.s; y: (parent.height - self.height) / 2; width: 20px * root.s; height: self.width; border-radius: self.width / 2; background: #078cfc;
+        Image { x: 7px * root.s; y: 5px * root.s; width: 8px * root.s; height: 10px * root.s; source: @image-url("../assets/icons/play.svg"); colorize: white; image-fit: contain; }
+    }
+    if root.action && root.item.icon != 10: StatisticsGlyph { x: 10px * root.s; y: (parent.height - self.height) / 2; width: 18px * root.s; height: self.width; icon: root.item.icon; colorize: root.highlighted ? white : #315573; }
+    if root.detail: Text {
+        x: (root.action ? 39px : 30px) * root.s; y: root.action ? 0px : 3px * root.s;
+        width: parent.width - self.x - (root.action ? 46px : 21px) * root.s; height: root.action ? parent.height : 17px * root.s;
+        text: root.item.title; font-size: 11px * root.s; font-weight: 600; color: root.title-color; vertical-alignment: center; overflow: elide;
+    }
+    if root.detail && !root.action: Text { x: 30px * root.s; y: 20px * root.s; width: parent.width - 50px * root.s; height: 12px * root.s; text: root.item.value; font-size: 9px * root.s; color: root.subtitle-color; overflow: elide; }
+    if root.action: Text { x: parent.width - 49px * root.s; width: 27px * root.s; height: parent.height; text: root.item.value; font-size: 10px * root.s; color: root.subtitle-color; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+    if root.item.chevron && !root.tracks && root.page != 6 && root.page != 7: Image { x: parent.width - 14px * root.s; y: (parent.height - self.height) / 2; width: 5px * root.s; height: 9px * root.s; source: @image-url("../assets/icons/chevron-right.svg"); colorize: root.highlighted ? #e9f5ff : #8d99a5; image-fit: contain; }
+    TouchArea { enabled: root.click-enabled; clicked => { root.clicked(); } }
+}
+
+export component StatisticsView inherits Rectangle {
+    in property <float> s: 1;
+    in property <int> page;
+    in property <[StatisticsItem]> items;
+    in property <[StatisticsDay]> days;
+    in property <StatisticsSummary> summary;
+    in property <int> range-index: 2;
+    in property <bool> loading;
+    in property <bool> failed;
+    in property <bool> enabled: true;
+    in property <bool> touch-mode;
+    in property <bool> keyboard-navigation;
+    in property <int> selected;
+    in property <int> navigation-generation;
+    in property <string> text-font-family;
+    in-out property <length> scroll-y;
+    out property <length> row-height: (root.page == 6 ? 24px : root.page == 8 || root.page == 9 ? 36px : root.page == 7 ? 42px : root.page == 1 ? 44px : 48px) * root.s;
+    out property <length> header-height: (root.page == 0 ? 118px : root.page == 1 ? 254px : root.page >= 2 && root.page <= 4 ? 34px : root.page == 6 ? 146px : root.page == 8 ? 126px : root.page == 9 ? 92px : 0px) * root.s;
+    out property <length> list-height: max(0px, root.height - root.header-height - 26px * root.s);
+    out property <int> first-visible-row: max(0, floor(-root.scroll-y / max(1px, root.row-height)));
+    out property <int> visible-row-count: ceil(root.list-height / max(1px, root.row-height)) + 1;
+    out property <length> overshoot: list.overshoot;
+    out property <length> navigation-offset: list.navigation-offset;
+    private property <int> first-rendered-row: min(root.items.length, max(0, floor(-list.visual-position / max(1px, root.row-height)) - 1));
+    private property <int> rendered-row-count: max(0, min(root.items.length - root.first-rendered-row, root.visible-row-count + 2));
+    callback activated(int);
+    callback back;
+    callback range-selected(int);
+    callback open-page(int);
+    callback refresh;
+    background: #fff;
+    clip: true;
+
+    if root.page == 0: Rectangle {
+        x: 6px * root.s; y: 6px * root.s; width: parent.width - 12px * root.s; height: 104px * root.s;
+        border-radius: 5px * root.s; clip: true; background: #4c95ef;
+        Image { width: parent.width; height: parent.height; source: @image-url("../assets/statistics/listening-landscape.svg"); image-fit: cover; }
+        Text { x: 10px * root.s; y: 10px * root.s; width: parent.width - 20px * root.s; height: 21px * root.s; text: I18n.tr("Total Plays"); font-size: 15px * root.s; color: white; }
+        Text { x: 10px * root.s; y: 32px * root.s; width: parent.width - 20px * root.s; height: 40px * root.s; text: root.summary.total; font-size: 32px * root.s; font-weight: 700; color: white; overflow: elide; }
+        Rectangle { y: parent.height - 25px * root.s; height: 25px * root.s; background: #175cbb60; }
+        Text { x: 10px * root.s; y: parent.height - 25px * root.s; width: parent.width - 35px * root.s; height: 25px * root.s; text: root.summary.range-label; font-size: 10px * root.s; color: white; vertical-alignment: center; }
+        Image { x: parent.width - 16px * root.s; y: parent.height - 18px * root.s; width: 6px * root.s; height: 10px * root.s; source: @image-url("../assets/icons/chevron-right.svg"); colorize: white; }
+        TouchArea { enabled: root.enabled; clicked => { root.open-page(1); } }
+    }
+    if root.page >= 1 && root.page <= 4: StatisticsRange { x: 0px; y: 0px; width: root.width; height: 34px * root.s; s: root.s; selected: root.range-index; enabled: root.enabled; changed(index) => { root.range-selected(index); } }
+    if root.page == 1: Rectangle {
+        x: 0px; y: 34px * root.s; width: root.width; height: 220px * root.s; background: #f9fafb;
+        for entry[index] in [
+            {label: I18n.tr("Total Plays"), value: root.summary.total, icon: 1, destination: 1},
+            {label: I18n.tr("Artists"), value: root.summary.artists, icon: 2, destination: 2},
+            {label: I18n.tr("Albums"), value: root.summary.albums, icon: 3, destination: 3},
+            {label: I18n.tr("Tracks"), value: root.summary.tracks, icon: 4, destination: 4},
+        ]: Rectangle {
+            x: (8px + mod(index, 2) * 116px) * root.s; y: (6px + floor(index / 2) * 54px) * root.s;
+            width: 108px * root.s; height: 49px * root.s; border-radius: 4px * root.s; border-width: 1px * root.s; border-color: #dce2e8;
+            background: @linear-gradient(180deg, #fff, #fbfcfd);
+            Text { x: 8px * root.s; y: 5px * root.s; width: parent.width - 16px * root.s; height: 15px * root.s; text: entry.label; font-size: 9px * root.s; color: #7b858f; overflow: elide; }
+            Text { x: 8px * root.s; y: 21px * root.s; width: parent.width - 32px * root.s; height: 24px * root.s; text: entry.value; font-size: 20px * root.s; font-weight: 700; color: #151a1f; overflow: elide; }
+            StatisticsGlyph { x: parent.width - 27px * root.s; y: 25px * root.s; width: 18px * root.s; height: self.width; icon: entry.icon; colorize: #78baff; }
+            TouchArea { enabled: root.enabled; clicked => { root.open-page(entry.destination); } }
+        }
+        StatisticsChart { x: 8px * root.s; y: 114px * root.s; width: parent.width - 16px * root.s; height: 80px * root.s; s: root.s; days: root.days; maximum: root.summary.chart-maximum; middle: root.summary.chart-middle; enabled: root.enabled; clicked => { root.open-page(6); } }
+        Text { x: 10px * root.s; y: 198px * root.s; height: 20px * root.s; width: 150px * root.s; text: I18n.tr("Top Artists"); font-size: 12px * root.s; font-weight: 600; color: #151b20; vertical-alignment: center; }
+        Text { x: parent.width - 70px * root.s; y: 198px * root.s; height: 20px * root.s; width: 58px * root.s; text: I18n.tr("See All"); font-size: 10px * root.s; color: #078afa; horizontal-alignment: right; vertical-alignment: center; }
+        Image { x: parent.width - 10px * root.s; y: 205px * root.s; width: 4px * root.s; height: 7px * root.s; source: @image-url("../assets/icons/chevron-right.svg"); colorize: #078afa; }
+        TouchArea { x: parent.width - 80px * root.s; y: 194px * root.s; width: 80px * root.s; height: 26px * root.s; enabled: root.enabled; clicked => { root.open-page(2); } }
+    }
+    if root.page == 6: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: 146px * root.s; background: #f9fafb;
+        Text { y: 8px * root.s; height: 22px * root.s; text: I18n.tr("Last 30 Days"); font-size: 12px * root.s; font-weight: 600; horizontal-alignment: center; color: #1b252d; }
+        StatisticsChart { x: 8px * root.s; y: 34px * root.s; width: parent.width - 16px * root.s; height: 104px * root.s; s: root.s; days: root.days; maximum: root.summary.chart-maximum; middle: root.summary.chart-middle; title-visible: false; enabled: false; }
+    }
+    if root.page == 8: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: 126px * root.s; clip: true; background: @linear-gradient(140deg, #70a8d5, #244e75);
+        if root.summary.detail-artwork.width > 0: Image { width: parent.width; height: parent.height; source: root.summary.detail-artwork; image-fit: cover; }
+        if root.summary.detail-artwork.width == 0: Image { x: parent.width - 98px * root.s; y: 10px * root.s; width: 86px * root.s; height: 86px * root.s; source: @image-url("../assets/icons/nano/artists.png"); colorize: #c6e3ff; opacity: 0.55; image-fit: contain; }
+        Rectangle { width: parent.width; height: parent.height; background: @linear-gradient(180deg, #10203000 25%, #102030ba); }
+        Text { x: 10px * root.s; y: 82px * root.s; width: parent.width - 20px * root.s; height: 27px * root.s; text: root.summary.detail-title; font-size: 20px * root.s; font-weight: 700; color: white; overflow: elide; }
+        Text { x: 10px * root.s; y: 109px * root.s; width: parent.width - 20px * root.s; height: 14px * root.s; text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #f0f3f6; overflow: elide; }
+    }
+    if root.page == 9: Rectangle {
+        x: 0px; y: 0px; width: root.width; height: 92px * root.s; background: @linear-gradient(180deg, #fff, #f4f6f8);
+        StatisticsArtwork { x: 8px * root.s; y: 6px * root.s; width: 80px * root.s; height: self.width; s: root.s; artwork: root.summary.detail-artwork; }
+        Text { x: 96px * root.s; y: 16px * root.s; width: parent.width - 104px * root.s; height: 19px * root.s; text: root.summary.detail-title; font-size: 12px * root.s; font-weight: 600; color: #161c22; overflow: elide; }
+        Text { x: 96px * root.s; y: 39px * root.s; width: parent.width - 104px * root.s; height: 40px * root.s; text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #79828b; wrap: word-wrap; overflow: elide; }
+        Rectangle { y: parent.height - 1px * root.s; height: 1px * root.s; background: #dfe4e9; }
+    }
+    list := ElasticFlickable {
+        x: 0px; y: root.header-height; width: root.width; height: root.list-height;
+        s: root.s; enabled: root.enabled; back-enabled: true;
+        touch-navigation: root.touch-mode; forward-enabled: root.touch-mode;
+        navigation-generation: root.navigation-generation;
+        content-height: max(self.height, root.items.length * root.row-height);
+        content-y <=> root.scroll-y;
+        back => { root.back(); }
+        can-forward(content-y) => { let index = floor(content-y / max(1px, root.row-height)); return index >= 0 && index < root.items.length && root.items[index].chevron; }
+        forward(content-y) => { let index = floor(content-y / max(1px, root.row-height)); if index >= 0 && index < root.items.length { root.activated(index); } }
+        tapped(content-y) => { let index = floor(content-y / max(1px, root.row-height)); if index >= 0 && index < root.items.length { root.activated(index); } }
+        for slot in root.rendered-row-count: row := StatisticsRow {
+            private property <int> row-index: root.first-rendered-row + slot;
+            x: 0px; y: self.row-index * root.row-height; width: root.width; height: root.row-height;
+            s: root.s; page: root.page; item: root.items[self.row-index];
+            selected: root.keyboard-navigation && root.selected == self.row-index;
+            pressed: root.touch-mode && list.touch-pressed && floor(list.pressed-content-y / max(1px, root.row-height)) == self.row-index;
+            // The keyboard range list keeps its original All / 7 / 30 order;
+            // the segmented control follows the reference's 7 / 30 / All.
+            checked: (root.range-index == 2 ? 0 : root.range-index + 1) == self.row-index;
+            click-enabled: root.enabled && !root.touch-mode;
+            clicked => { root.activated(self.row-index); }
+        }
+        if root.items.length == 0 && !root.loading: Text {
+            x: 12px * root.s; y: 12px * root.s; width: root.width - 24px * root.s; height: max(32px * root.s, root.list-height - 24px * root.s);
+            text: root.failed ? I18n.tr("Unable to load statistics") : I18n.tr("No plays yet");
+            font-size: 12px * root.s; color: #85909b; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap;
+        }
+    }
+    Rectangle {
+        y: root.height - 26px * root.s; height: 26px * root.s; background: root.failed ? #fff0e6 : #f1f4f6;
+        Rectangle { height: 1px * root.s; background: #d5dde4; }
+        Text { x: 7px * root.s; y: 2px * root.s; width: parent.width - (root.failed ? 29px : 14px) * root.s; height: parent.height - 4px * root.s; text: root.summary.footer; font-size: 9px * root.s; color: root.failed ? #9b5c37 : #778592; wrap: word-wrap; vertical-alignment: center; }
+        if root.failed: Image { x: parent.width - 19px * root.s; y: 7px * root.s; width: 12px * root.s; height: 12px * root.s; source: @image-url("../assets/statistics/refresh.svg"); colorize: #ab6239; }
+        TouchArea { enabled: root.enabled && root.failed; clicked => { root.refresh(); } }
     }
 }

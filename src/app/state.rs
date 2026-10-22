@@ -19,6 +19,7 @@ pub enum Target {
     None,
     RefreshStatistics,
     StatisticsRange(crate::library::statistics::StatisticsRange),
+    PlayStatisticsGroup(super::navigation::StatisticsGroup),
     Screen(Screen),
     Play(usize),
     PlayVideo(usize),
@@ -271,8 +272,12 @@ impl State {
     }
 
     fn list_rows(&self) -> Vec<Row> {
-        if let Screen::Statistics(page) = self.navigation.current().screen {
-            return self.statistics_rows(page);
+        if self.navigation.current().screen.is_statistics() {
+            return self
+                .statistics_entries()
+                .into_iter()
+                .map(|entry| entry.row)
+                .collect();
         }
         if let Some(rows) = self.podcast_rows() {
             return rows;
@@ -1366,6 +1371,12 @@ impl State {
                                     self.statistics.failed = false;
                                     self.navigation.back();
                                     return Vec::new();
+                                }
+                                Target::PlayStatisticsGroup(group) => {
+                                    self.navigation.open(Screen::Songs(group.filter()));
+                                    self.navigation
+                                        .select(usize::from(self.supports_list_shuffle()));
+                                    return self.apply(Activate);
                                 }
                                 Target::Screen(screen) => {
                                     if self.playlist_list_editing

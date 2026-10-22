@@ -6,7 +6,7 @@ use nano_music_player::{
         config::Settings,
         controller::{Controller, connect},
         i18n::{Language, has_translation},
-        navigation::{Filter, Screen, StatisticsPage},
+        navigation::{Filter, Screen, StatisticsDetailPage, StatisticsPage},
         state::{State, Target},
     },
     audio::PlaybackStatus,
@@ -66,7 +66,51 @@ fn open(c: &RefCell<Controller>, ui: &AppWindow, page: StatisticsPage) {
         .open(Screen::Statistics(page));
     c.borrow_mut().poll(ui);
 }
-fn click(ui: &AppWindow, x: f32, y: f32) {
+fn activate_title(state: &mut State, title: &str) {
+    let selected = state
+        .rows()
+        .iter()
+        .position(|row| row.title == title)
+        .unwrap();
+    state.navigation.select(selected);
+    state.apply(Action::Activate);
+}
+fn open_detail(c: &RefCell<Controller>, ui: &AppWindow, page: StatisticsPage) {
+    open(c, ui, page);
+    ready(c, ui);
+    let index = c
+        .borrow()
+        .state
+        .rows()
+        .iter()
+        .position(|row| {
+            matches!(
+                row.target,
+                Target::Screen(Screen::StatisticsDetail {
+                    page: StatisticsDetailPage::Summary,
+                    ..
+                })
+            )
+        })
+        .unwrap();
+    ui.invoke_item_clicked(index as i32);
+    assert!(matches!(
+        c.borrow().state.navigation.current().screen,
+        Screen::StatisticsDetail {
+            page: StatisticsDetailPage::Summary,
+            ..
+        }
+    ));
+}
+fn activate_icon(ui: &AppWindow, icon: i32) {
+    let index = ui
+        .get_statistics_items()
+        .iter()
+        .position(|item| item.icon == icon)
+        .unwrap();
+    ui.invoke_item_clicked(index as i32);
+}
+fn nano_position(ui: &AppWindow, x: f32, y: f32) -> slint::LogicalPosition {
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     let scale = ui.get_display_scale();
     let content = ui.get_content_height();
@@ -76,15 +120,47 @@ fn click(ui: &AppWindow, x: f32, y: f32) {
         432.0
     };
     let top = size.height - content + (content - body * scale) / 2.0;
-    let position = slint::LogicalPosition::new(
+    slint::LogicalPosition::new(
         (size.width - 240.0 * scale) / 2.0 + x * scale,
         top + (y + if ui.get_device_mode() { 36.0 } else { 0.0 }) * scale,
-    );
+    )
+}
+fn click(ui: &AppWindow, x: f32, y: f32) {
+    let position = nano_position(ui, x, y);
     let button = slint::platform::PointerEventButton::Left;
     ui.window()
         .dispatch_event(slint::platform::WindowEvent::PointerPressed { position, button });
     ui.window()
         .dispatch_event(slint::platform::WindowEvent::PointerReleased { position, button });
+}
+
+fn assert_range_checkmark(ui: &AppWindow, expected_row: usize) {
+    ui.set_keyboard_navigation(false);
+    let shot = ui.window().take_snapshot().unwrap();
+    let factor = ui.window().scale_factor();
+    for row in 0..3 {
+        let top = nano_position(ui, 205.0, 64.0 + row as f32 * 42.0 + 3.0);
+        let bottom = nano_position(ui, 234.0, 64.0 + row as f32 * 42.0 + 39.0);
+        let mut blue_pixels = 0;
+        for y in ((top.y * factor) as u32).min(shot.height())
+            ..((bottom.y * factor) as u32).min(shot.height())
+        {
+            for x in ((top.x * factor) as u32).min(shot.width())
+                ..((bottom.x * factor) as u32).min(shot.width())
+            {
+                let offset = ((y * shot.width() + x) * 4) as usize;
+                let pixel = &shot.as_bytes()[offset..offset + 4];
+                if pixel[0] < 80 && pixel[1] > 70 && pixel[2] > 160 {
+                    blue_pixels += 1;
+                }
+            }
+        }
+        assert_eq!(
+            blue_pixels > 1,
+            row == expected_row,
+            "range checkmark row {row}"
+        );
+    }
 }
 
 fn snapshot(ui: &AppWindow, name: &str) {
@@ -100,6 +176,46 @@ fn snapshot(ui: &AppWindow, name: &str) {
         image::ColorType::Rgba8,
     )
     .unwrap();
+    // Catch a native-layout regression where a header's implicit centered y
+    // puts it underneath the opaque list. These fixed fixtures use the blue
+    // artwork fallback, and populated daily charts must contain blue bars.
+    let region = if ui.get_statistics_page() {
+        match ui.get_statistics_kind() {
+            8 => Some((12.0, 70.0, 228.0, 180.0, 0.1)),
+            9 => Some((12.0, 74.0, 84.0, 146.0, 0.1)),
+            6 if ui.get_statistics_days().iter().any(|day| day.ratio > 0.0) => {
+                Some((24.0, 102.0, 230.0, 198.0, 0.005))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    if let Some((left, top, right, bottom, minimum)) = region {
+        let first = nano_position(ui, left, top);
+        let last = nano_position(ui, right, bottom);
+        let factor = ui.window().scale_factor();
+        let mut blue = 0;
+        let mut pixels = 0;
+        for y in ((first.y * factor) as u32).min(shot.height())
+            ..((last.y * factor) as u32).min(shot.height())
+        {
+            for x in ((first.x * factor) as u32).min(shot.width())
+                ..((last.x * factor) as u32).min(shot.width())
+            {
+                let offset = ((y * shot.width() + x) * 4) as usize;
+                let pixel = &shot.as_bytes()[offset..offset + 4];
+                pixels += 1;
+                if pixel[2] > pixel[0].saturating_add(30) && pixel[2] > 130 && pixel[1] > 60 {
+                    blue += 1;
+                }
+            }
+        }
+        assert!(
+            pixels > 0 && blue as f32 / pixels as f32 > minimum,
+            "{name}: statistics header/chart is obscured ({blue}/{pixels} blue pixels)"
+        );
+    }
 }
 
 #[test]
@@ -136,8 +252,10 @@ fn statistics_drilldown_preserves_identity_album_order_and_existing_playback_flo
         .open(Screen::Statistics(StatisticsPage::Artists));
     state.apply(Action::Activate);
     assert!(
-        matches!(&state.navigation.current().screen, Screen::Songs(Filter::Statistics {paths, ..}) if paths.len() == 2)
+        matches!(&state.navigation.current().screen, Screen::StatisticsDetail {group, page: StatisticsDetailPage::Summary} if group.artist.is_none() && group.paths.len() == 2)
     );
+    assert!(state.queue.order.is_empty(), "opening details only browses");
+    activate_title(&mut state, "See All Tracks");
     assert_eq!(
         state
             .rows()
@@ -155,6 +273,10 @@ fn statistics_drilldown_preserves_identity_album_order_and_existing_playback_flo
         "same-name albums from different artists stay separate"
     );
     state.apply(Action::Activate);
+    assert!(
+        matches!(&state.navigation.current().screen, Screen::StatisticsDetail { group, page: StatisticsDetailPage::Summary } if group.artist.is_some() && group.paths.len() == 2)
+    );
+    activate_title(&mut state, "See All Tracks");
     assert!(
         !state.supports_list_shuffle(),
         "album keeps the existing album browsing behavior"
@@ -248,6 +370,17 @@ fn home_statistics_entry_and_copy_follow_existing_navigation_and_localization() 
         "History: latest 1,000 plays.\nDate totals may be incomplete.",
         "Unable to load. Refresh to retry.",
         "No plays yet",
+        "7 Days",
+        "30 Days",
+        "Summary and charts",
+        "Artist Details",
+        "Album Details",
+        "Play Artist",
+        "Play Album",
+        "See All Tracks",
+        "Latest 1,000 plays; date totals may be partial.",
+        "{0} plays · {1} tracks",
+        "Load failed. Tap to retry.",
     ] {
         assert!(has_translation(text), "missing {text}");
     }
@@ -278,30 +411,31 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
     ui.show().unwrap();
     open(&c, &ui, StatisticsPage::Home);
     ready(&c, &ui);
-    assert_eq!(ui.get_rows().row_count(), 8);
-    assert_eq!(
-        c.borrow()
-            .state
-            .statistics
-            .snapshot
-            .as_ref()
-            .unwrap()
-            .total_plays,
-        0
-    );
+    assert_eq!(ui.get_statistics_items().row_count(), 8);
+    assert_eq!(ui.get_statistics_summary().total, "0");
     snapshot(&ui, "empty-home");
-    click(&ui, 80.0, 152.0); // Banner shifts pointer hit testing down by 64px.
+    click(&ui, 80.0, 120.0); // The illustrated total-play banner opens Overview.
     assert_eq!(
         c.borrow().state.navigation.current().screen,
         Screen::Statistics(StatisticsPage::Overview)
     );
+    assert_eq!(ui.get_statistics_summary().artists, "0");
+    snapshot(&ui, "empty-overview");
     c.borrow_mut().execute(&ui, Action::Back);
     open(&c, &ui, StatisticsPage::Tracks);
-    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "No plays yet");
-    snapshot(&ui, "empty");
+    ready(&c, &ui);
+    assert_eq!(
+        ui.get_statistics_items().row_data(0).unwrap().title,
+        "No plays yet"
+    );
+    snapshot(&ui, "empty-tracks");
     open(&c, &ui, StatisticsPage::Daily);
-    assert_eq!(ui.get_rows().row_count(), 30);
-    assert!(ui.get_rows().iter().all(|r| r.subtitle == "0 plays"));
+    ready(&c, &ui);
+    assert_eq!(ui.get_statistics_items().row_count(), 30);
+    assert!(ui.get_statistics_items().iter().all(|row| row.value == "0"));
+    assert_eq!(ui.get_statistics_days().row_count(), 30);
+    assert!(ui.get_statistics_days().iter().all(|day| day.ratio == 0.0));
+    snapshot(&ui, "empty-daily");
 
     let db = tmp.path().join("library.sqlite3");
     let store = StatisticsStore::open(&db).unwrap();
@@ -326,64 +460,157 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
         })
         .collect();
     let now = chrono::Utc::now().timestamp();
-    for (i, t) in tracks.iter().enumerate() {
+    for (i, track) in tracks.iter().enumerate() {
+        // Eight real daily buckets across the complete 30-day chart, making
+        // 7-day/30-day selection visibly and numerically different.
         for _ in 0..=i {
-            store.record_play(&t.path, now, 30).unwrap();
+            store
+                .record_play(&track.path, now - i as i64 * 4 * 86_400, 30)
+                .unwrap();
         }
     }
     let removed = tmp.path().join("removed.wav");
     store.record_play(&removed, now, 30).unwrap();
     {
-        let mut c = c.borrow_mut();
-        c.state.merge_library(tracks);
-        c.state.notice.clear();
-        c.state.current = Some(0);
-        c.state.status = PlaybackStatus::Playing;
-        c.state.paused = false;
-        c.state.position = 42.0;
-        c.state.queue.set(vec![0, 1], 0, false);
+        let mut controller = c.borrow_mut();
+        controller.state.merge_library(tracks);
+        controller.state.notice.clear();
+        controller.state.current = Some(0);
+        controller.state.status = PlaybackStatus::Playing;
+        controller.state.paused = false;
+        controller.state.position = 42.0;
+        controller.state.queue.set(vec![0, 1], 0, false);
     }
     open(&c, &ui, StatisticsPage::Home);
-    ui.invoke_item_clicked(7); // Explicit refresh sees plays made via another connection.
-    open(&c, &ui, StatisticsPage::Overview); // Refresh must survive immediate subpage navigation.
+    ui.invoke_statistics_refresh();
+    open(&c, &ui, StatisticsPage::Overview); // Refresh survives immediate subpage navigation.
     ready(&c, &ui);
+    let summary = ui.get_statistics_summary();
+    assert_eq!(summary.total, "37");
+    assert_eq!(summary.artists, "2");
+    assert_eq!(summary.albums, "2");
+    assert_eq!(summary.tracks, "8");
+    assert_eq!(ui.get_statistics_days().row_count(), 30);
     assert_eq!(
-        c.borrow()
-            .state
-            .statistics
-            .snapshot
-            .as_ref()
-            .unwrap()
-            .total_plays,
-        37
+        ui.get_statistics_days()
+            .iter()
+            .filter(|day| day.ratio > 0.0)
+            .count(),
+        8
     );
-    assert_eq!(ui.get_rows().row_data(0).unwrap().subtitle, "37 plays");
     snapshot(&ui, "overview");
     assert_eq!(c.borrow().state.status, PlaybackStatus::Playing);
     assert_eq!(c.borrow().state.position, 42.0);
-    assert_eq!(c.borrow().state.queue.order, vec![0, 1]);
-    c.borrow_mut().execute(&ui, Action::Back);
+    assert_eq!(c.borrow().state.queue.order, [0, 1]);
+
+    // Exercise the visible segmented control by pointer, not only its callback.
+    for (x, index, range, total) in [
+        (45.0, 0, StatisticsRange::Last7Days, "4"),
+        (120.0, 1, StatisticsRange::Last30Days, "37"),
+        (195.0, 2, StatisticsRange::AllTime, "37"),
+    ] {
+        click(&ui, x, 81.0);
+        ready(&c, &ui);
+        assert_eq!(c.borrow().state.statistics.range, range);
+        assert_eq!(ui.get_statistics_range_index(), index);
+        assert_eq!(ui.get_statistics_summary().total, total);
+        assert_eq!(
+            c.borrow().state.navigation.current().screen,
+            Screen::Statistics(StatisticsPage::Overview)
+        );
+        assert_eq!(c.borrow().state.position, 42.0);
+        assert_eq!(c.borrow().state.queue.order, [0, 1]);
+        assert!(ui.get_statistics_summary().footer.contains("1,000"));
+        snapshot(&ui, &format!("overview-range-{index}"));
+    }
+    ui.invoke_statistics_range_selected(-1);
+    ui.invoke_statistics_range_selected(3);
+    assert_eq!(c.borrow().state.statistics.range, StatisticsRange::AllTime);
+
+    // The legacy list uses All/7/30 order while the tabs use 7/30/All.
+    // Check both semantic selection and the actual rendered checkmark.
+    for (row, range, tab_index) in [
+        (1, StatisticsRange::Last7Days, 0),
+        (2, StatisticsRange::Last30Days, 1),
+        (0, StatisticsRange::AllTime, 2),
+    ] {
+        open(&c, &ui, StatisticsPage::Range);
+        ui.invoke_item_clicked(row);
+        ready(&c, &ui);
+        assert_eq!(c.borrow().state.statistics.range, range);
+        open(&c, &ui, StatisticsPage::Range);
+        assert_eq!(ui.get_statistics_range_index(), tab_index);
+        assert_eq!(
+            ui.get_statistics_items()
+                .row_data(row as usize)
+                .unwrap()
+                .subtitle,
+            "Selected"
+        );
+        assert_range_checkmark(&ui, row as usize);
+        snapshot(&ui, &format!("range-list-{row}"));
+    }
+    open(&c, &ui, StatisticsPage::Overview);
+
+    // Summary cards and the first artist row use the production pointer path.
+    click(&ui, 170.0, 126.0);
     assert_eq!(
         c.borrow().state.navigation.current().screen,
-        Screen::Statistics(StatisticsPage::Home)
+        Screen::Statistics(StatisticsPage::Artists)
     );
-    assert_eq!(ui.get_selected(), 7);
-    snapshot(&ui, "home");
-
-    ui.invoke_item_clicked(6); // Range.
-    ui.invoke_item_clicked(1); // Last 7 Days.
     ready(&c, &ui);
-    assert_eq!(
-        c.borrow().state.statistics.range,
-        StatisticsRange::Last7Days
+    click(&ui, 100.0, 122.0);
+    assert_eq!(ui.get_statistics_kind(), 8);
+    assert!(
+        ui.get_statistics_summary()
+            .detail_subtitle
+            .contains("35 plays")
     );
-    assert!(ui.get_statistics_note().contains("1,000"));
+    snapshot(&ui, "artist-details");
+    activate_icon(&ui, 11); // Artist albums.
+    assert!(matches!(
+        c.borrow().state.navigation.current().screen,
+        Screen::StatisticsDetail {
+            page: StatisticsDetailPage::Albums,
+            ..
+        }
+    ));
+    ui.invoke_item_clicked(0);
+    assert_eq!(ui.get_statistics_kind(), 9);
+    snapshot(&ui, "album-details");
+    activate_icon(&ui, 13); // Exact-path album browsing.
+    assert!(matches!(
+        c.borrow().state.navigation.current().screen,
+        Screen::Songs(Filter::Statistics {
+            album_order: true,
+            ..
+        })
+    ));
+    assert_eq!(ui.get_rows().row_count(), 7);
+    assert_eq!(c.borrow().state.queue.order, [0, 1]);
+    c.borrow_mut().execute(&ui, Action::Back);
+    assert_eq!(ui.get_statistics_kind(), 9);
+
     open(&c, &ui, StatisticsPage::Recent);
+    ready(&c, &ui);
     let unavailable = ui
-        .get_rows()
+        .get_statistics_items()
         .iter()
-        .position(|r| r.subtitle.contains("Unavailable"))
+        .position(|row| row.subtitle == "Unavailable")
         .unwrap();
+    assert!(
+        !ui.get_statistics_items()
+            .row_data(unavailable)
+            .unwrap()
+            .chevron
+    );
+    assert!(
+        !ui.get_statistics_items()
+            .row_data(unavailable)
+            .unwrap()
+            .value
+            .is_empty()
+    );
     ui.invoke_item_clicked(unavailable as i32);
     assert_eq!(
         c.borrow().state.navigation.current().screen,
@@ -395,9 +622,9 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
         for device in [false, true] {
             for zoom in [0.75, 1.0, 1.5] {
                 {
-                    let mut c = c.borrow_mut();
-                    c.state.zoom = zoom;
-                    c.execute(
+                    let mut controller = c.borrow_mut();
+                    controller.state.zoom = zoom;
+                    controller.execute(
                         &ui,
                         if device {
                             Action::DeviceMode
@@ -406,36 +633,73 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
                         },
                     );
                 }
-                open(&c, &ui, StatisticsPage::Tracks);
-                assert!(
-                    ui.get_rows().row_data(0).unwrap().subtitle.starts_with('8'),
-                    "play count remains visible before long artist metadata"
-                );
-                assert!(ui.get_list_viewport_height() > 280.0 * ui.get_display_scale());
-                snapshot(&ui, &format!("tracks-{}-{device}-{zoom}", language.code()));
+                for (page, name) in [
+                    (StatisticsPage::Overview, "overview"),
+                    (StatisticsPage::Artists, "artists"),
+                    (StatisticsPage::Albums, "albums"),
+                    (StatisticsPage::Tracks, "tracks"),
+                    (StatisticsPage::Recent, "recent"),
+                ] {
+                    open(&c, &ui, page);
+                    ready(&c, &ui);
+                    assert!(ui.get_list_viewport_height() > 280.0 * ui.get_display_scale());
+                    if page == StatisticsPage::Tracks {
+                        assert!(
+                            ui.get_statistics_items()
+                                .row_data(0)
+                                .unwrap()
+                                .value
+                                .starts_with('8'),
+                            "play count has its own column beside long metadata"
+                        );
+                    }
+                    if matches!(page, StatisticsPage::Artists | StatisticsPage::Albums) {
+                        assert!(
+                            ui.get_statistics_items()
+                                .row_data(0)
+                                .unwrap()
+                                .value
+                                .starts_with("35"),
+                            "rank values must remain populated after projection"
+                        );
+                    }
+                    snapshot(&ui, &format!("{name}-{}-{device}-{zoom}", language.code()));
+                }
+                for (page, name, kind) in [
+                    (StatisticsPage::Artists, "artist-details", 8),
+                    (StatisticsPage::Albums, "album-details", 9),
+                ] {
+                    open_detail(&c, &ui, page);
+                    assert_eq!(ui.get_statistics_kind(), kind);
+                    assert!(!ui.get_statistics_summary().detail_title.is_empty());
+                    snapshot(&ui, &format!("{name}-{}-{device}-{zoom}", language.code()));
+                }
                 open(&c, &ui, StatisticsPage::Daily);
+                ready(&c, &ui);
                 for _ in 0..30 {
                     c.borrow_mut().execute(&ui, Action::SelectNext);
                 }
                 assert_eq!(ui.get_selected(), 29);
                 assert!(ui.get_list_scroll_y() < 0.0);
+                let viewport = ui.get_list_viewport_height() - ui.get_list_header_height();
                 assert!(
-                    (30.0 * ui.get_list_row_height() + ui.get_list_scroll_y())
-                        <= ui.get_list_viewport_height() + 1.0,
-                    "last row must remain visible to keyboard users"
+                    (30.0 * ui.get_list_row_height() + ui.get_list_scroll_y()) <= viewport + 1.0,
+                    "last daily row must remain visible to keyboard users"
                 );
                 snapshot(&ui, &format!("daily-{}-{device}-{zoom}", language.code()));
-                c.borrow_mut().execute(&ui, Action::Back);
             }
         }
     }
-    // Database failure reaches the UI, does not stop playback, and can recover.
+    assert_eq!(c.borrow().state.position, 42.0);
+    assert_eq!(c.borrow().state.queue.order, [0, 1]);
+
+    // Database failure changes only statistics presentation and can be retried.
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute_batch("ALTER TABLE listening_history RENAME TO saved_history")
         .unwrap();
     open(&c, &ui, StatisticsPage::Home);
-    ui.invoke_item_clicked(7);
+    ui.invoke_statistics_refresh();
     let deadline = Instant::now() + Duration::from_secs(10);
     while !c.borrow().state.statistics.failed {
         c.borrow_mut().poll(&ui);
@@ -443,47 +707,43 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(!c.borrow().state.statistics.loading);
+    assert!(ui.get_statistics_failed());
     assert_eq!(c.borrow().state.position, 42.0);
     snapshot(&ui, "query-error");
     rusqlite::Connection::open(&db)
         .unwrap()
         .execute_batch("ALTER TABLE saved_history RENAME TO listening_history")
         .unwrap();
-    ui.invoke_item_clicked(7);
+    ui.invoke_statistics_refresh();
     ready(&c, &ui);
     assert!(!c.borrow().state.statistics.failed);
-    assert_eq!(
-        c.borrow()
-            .state
-            .statistics
-            .snapshot
-            .as_ref()
-            .unwrap()
-            .total_plays,
-        37
-    );
-    // Rankings shrinking after a refresh must clamp keyboard selection.
+    assert_eq!(ui.get_statistics_summary().total, "37");
+
+    // Rankings shrinking after refresh clamp the keyboard selection.
     open(&c, &ui, StatisticsPage::Tracks);
     for _ in 0..8 {
         c.borrow_mut().execute(&ui, Action::SelectNext);
     }
     assert_eq!(ui.get_selected(), 7);
     {
-        let mut c = c.borrow_mut();
-        let paths: Vec<_> = c.state.tracks.iter().map(|t| t.path.clone()).collect();
+        let mut controller = c.borrow_mut();
+        let paths: Vec<_> = controller
+            .state
+            .tracks
+            .iter()
+            .map(|track| track.path.clone())
+            .collect();
         for path in paths {
-            c.state.mark_track_available(&path, false);
+            controller.state.mark_track_available(&path, false);
         }
     }
-    open(&c, &ui, StatisticsPage::Home);
-    ui.invoke_item_clicked(7);
-    open(&c, &ui, StatisticsPage::Tracks);
+    ui.invoke_statistics_refresh();
     ready(&c, &ui);
-    assert_eq!(ui.get_rows().row_count(), 2);
+    assert_eq!(ui.get_statistics_items().row_count(), 2);
     assert!(ui.get_selected() < 2);
     c.borrow_mut().execute(&ui, Action::Home);
     assert!(!ui.get_statistics_page());
-    assert_eq!(c.borrow().state.queue.order, vec![0, 1]);
+    assert_eq!(c.borrow().state.queue.order, [0, 1]);
     c.borrow_mut().execute(&ui, Action::Right);
     c.borrow_mut().execute(&ui, Action::Right);
     assert_eq!(ui.get_home_page(), 1);
@@ -496,5 +756,39 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
     c.borrow_mut().execute(&ui, Action::Back);
     assert_eq!(ui.get_home_page(), 1);
     assert_eq!(ui.get_selected(), 2);
+
+    // Finally exercise both detail Play actions through the controller. The
+    // preceding browsing/failure checks have already verified playback isolation.
+    {
+        let mut controller = c.borrow_mut();
+        controller.state.language = Language::English;
+        let paths: Vec<_> = controller
+            .state
+            .tracks
+            .iter()
+            .map(|track| track.path.clone())
+            .collect();
+        for path in paths {
+            controller.state.mark_track_available(&path, true);
+        }
+    }
+    open(&c, &ui, StatisticsPage::Home);
+    ui.invoke_statistics_refresh();
+    ready(&c, &ui);
+    for page in [StatisticsPage::Artists, StatisticsPage::Albums] {
+        open_detail(&c, &ui, page);
+        activate_icon(&ui, 10);
+        assert_eq!(
+            c.borrow().state.navigation.current().screen,
+            Screen::NowPlaying
+        );
+        assert_eq!(c.borrow().state.current, Some(1));
+        assert_eq!(c.borrow().state.queue.order, [1, 2, 3, 4, 5, 6, 7]);
+        c.borrow_mut().execute(&ui, Action::Back);
+        assert!(matches!(
+            c.borrow().state.navigation.current().screen,
+            Screen::Songs(Filter::Statistics { .. })
+        ));
+    }
     ui.hide().unwrap();
 }
