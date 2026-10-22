@@ -1602,6 +1602,16 @@ impl Controller {
         let (width, height) = self.base_size();
         let scale_factor = ui.window().scale_factor();
         self.last_window_scale_factor = scale_factor;
+        // Before our first request there is no pending resize. Synchronous
+        // adapters already have a matching native/layout pair (and may draw
+        // their MenuBar inside the window); retain that initial inset.
+        if self.window_menu_height.is_none() && self.last_window_size.width == 0.0 {
+            let native = ui.window().size().to_logical(scale_factor);
+            let content = ui.get_content_height();
+            if native.width > 0.0 && native.height > 0.0 && content > 0.0 {
+                self.window_menu_height = Some((native.height - content).max(0.0));
+            }
+        }
         let menu_height = self.window_menu_height.unwrap_or(0.0);
         self.last_window_size = slint::LogicalSize::new(
             width * self.state.zoom,
