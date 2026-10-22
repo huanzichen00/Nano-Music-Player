@@ -1,3 +1,5 @@
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+pub mod artist_images;
 pub mod database;
 pub mod desktop_sync;
 pub mod lyrics;
