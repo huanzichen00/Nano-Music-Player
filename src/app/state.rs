@@ -18,6 +18,7 @@ use std::{
 pub enum Target {
     None,
     RefreshStatistics,
+    RetryArtistImages,
     StatisticsRange(crate::library::statistics::StatisticsRange),
     PlayStatisticsGroup(super::navigation::StatisticsGroup),
     Screen(Screen),
@@ -46,6 +47,7 @@ pub struct Row {
 }
 
 pub enum Effect {
+    RetryArtistImages,
     DeviceInformation,
     TrackDetails,
     RefreshStatistics,
@@ -88,6 +90,8 @@ pub enum Effect {
 }
 
 pub struct State {
+    pub artist_image_queue: crate::library::artist_images::QueueSnapshot,
+    pub artist_image_error: Option<String>,
     pub statistics: super::statistics_state::StatisticsState,
     pub podcasts: super::podcast_state::PodcastState,
     pub language: Language,
@@ -150,6 +154,8 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            artist_image_queue: Default::default(),
+            artist_image_error: None,
             statistics: super::statistics_state::StatisticsState::default(),
             podcasts: super::podcast_state::PodcastState::default(),
             language: Language::English,
@@ -1364,6 +1370,9 @@ impl State {
                                 Target::None => {}
                                 Target::RefreshStatistics => {
                                     return vec![Effect::RefreshStatistics];
+                                }
+                                Target::RetryArtistImages => {
+                                    return vec![Effect::RetryArtistImages];
                                 }
                                 Target::StatisticsRange(range) => {
                                     self.statistics.range = range;

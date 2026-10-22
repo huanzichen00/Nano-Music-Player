@@ -307,6 +307,7 @@ export component AppWindow inherits Window {
     callback statistics-range-selected(int);
     callback statistics-open-page(int);
     callback statistics-refresh;
+    callback statistics-photo-credits;
     callback details-close;
     out property <float> lyric-content-height: now-playing.lyric-content-height / 1px;
     private property <float> s: min(keyboard.width / root.base-width, keyboard.height / root.base-height);
@@ -652,6 +653,7 @@ export component AppWindow inherits Window {
                 range-selected(index) => { root.statistics-range-selected(index); keyboard.focus(); }
                 open-page(index) => { root.statistics-open-page(index); keyboard.focus(); }
                 refresh => { root.statistics-refresh(); keyboard.focus(); }
+                photo-credits => { root.statistics-photo-credits(); keyboard.focus(); }
             }
             library := LibraryView {
                 navigation-generation: root.screen-transition-generation;

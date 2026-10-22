@@ -411,7 +411,7 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
     ui.show().unwrap();
     open(&c, &ui, StatisticsPage::Home);
     ready(&c, &ui);
-    assert_eq!(ui.get_statistics_items().row_count(), 8);
+    assert_eq!(ui.get_statistics_items().row_count(), 9);
     assert_eq!(ui.get_statistics_summary().total, "0");
     snapshot(&ui, "empty-home");
     click(&ui, 80.0, 120.0); // The illustrated total-play banner opens Overview.

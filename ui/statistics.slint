@@ -3,7 +3,7 @@ import { I18n } from "i18n.slint";
 
 export struct StatisticsItem { title: string, subtitle: string, value: string, artwork: image, rank: int, ratio: float, icon: int, chevron: bool }
 export struct StatisticsDay { label: string, short-label: string, plays: string, ratio: float }
-export struct StatisticsSummary { total: string, artists: string, albums: string, tracks: string, range-label: string, footer: string, detail-title: string, detail-subtitle: string, detail-artwork: image, chart-maximum: string, chart-middle: string }
+export struct StatisticsSummary { total: string, artists: string, albums: string, tracks: string, range-label: string, footer: string, detail-title: string, detail-subtitle: string, detail-artwork: image, chart-maximum: string, chart-middle: string, photo-credit: string, photo-url: string }
 
 // Compatibility for the legacy outgoing snapshot while the shell migrates.
 export component StatisticsNote inherits Rectangle {
@@ -41,7 +41,7 @@ component StatisticsArtwork inherits Rectangle {
 component StatisticsGlyph inherits Image {
     in property <int> icon;
     source: root.icon == 1 || root.icon == 6 ? @image-url("../assets/icons/statistics.svg")
-        : root.icon == 2 ? @image-url("../assets/icons/nano/artists.png")
+        : root.icon == 2 || root.icon == 9 || root.icon == 14 ? @image-url("../assets/icons/nano/artists.png")
         : root.icon == 3 || root.icon == 11 ? @image-url("../assets/icons/nano/albums.png")
         : root.icon == 4 || root.icon == 12 || root.icon == 13 ? @image-url("../assets/icons/nano/songs.png")
         : root.icon == 5 ? @image-url("../assets/icons/clock.svg")
@@ -120,6 +120,7 @@ component StatisticsRow inherits Rectangle {
     private property <bool> ranking: root.page >= 1 && root.page <= 3;
     private property <bool> tracks: root.page == 4;
     private property <bool> recent: root.page == 5;
+    private property <bool> photo-queue: root.page == 10;
     private property <bool> detail: root.page == 8 || root.page == 9;
     private property <bool> action: root.detail && root.item.icon >= 10;
     private property <bool> highlighted: root.selected || root.pressed;
@@ -164,6 +165,18 @@ component StatisticsRow inherits Rectangle {
     }
     if root.tracks || root.recent: Text {
         x: parent.width - (root.recent ? 78px : 61px) * root.s; y: 7px * root.s; width: (root.recent ? 65px : 54px) * root.s; height: parent.height - 14px * root.s;
+        text: root.item.value; font-size: 9px * root.s; color: root.subtitle-color; horizontal-alignment: right; vertical-alignment: center; overflow: elide;
+    }
+    if root.photo-queue: Text {
+        x: 10px * root.s; y: 6px * root.s; width: parent.width - 93px * root.s; height: 19px * root.s;
+        text: root.item.title; font-size: 12px * root.s; font-weight: 600; color: root.title-color; overflow: elide;
+    }
+    if root.photo-queue: Text {
+        x: 10px * root.s; y: 27px * root.s; width: parent.width - 34px * root.s; height: 15px * root.s;
+        text: root.item.subtitle; font-size: 9px * root.s; color: root.subtitle-color; overflow: elide;
+    }
+    if root.photo-queue: Text {
+        x: parent.width - 80px * root.s; y: 6px * root.s; width: 58px * root.s; height: 19px * root.s;
         text: root.item.value; font-size: 9px * root.s; color: root.subtitle-color; horizontal-alignment: right; vertical-alignment: center; overflow: elide;
     }
     if root.page == 6: Text { x: 8px * root.s; width: 95px * root.s; height: parent.height; text: root.item.title; font-size: 10px * root.s; color: root.title-color; vertical-alignment: center; overflow: elide; }
@@ -217,6 +230,7 @@ export component StatisticsView inherits Rectangle {
     callback range-selected(int);
     callback open-page(int);
     callback refresh;
+    callback photo-credits;
     background: #fff;
     clip: true;
 
@@ -266,6 +280,18 @@ export component StatisticsView inherits Rectangle {
         Rectangle { width: parent.width; height: parent.height; background: @linear-gradient(180deg, #10203000 25%, #102030ba); }
         Text { x: 10px * root.s; y: 82px * root.s; width: parent.width - 20px * root.s; height: 27px * root.s; text: root.summary.detail-title; font-size: 20px * root.s; font-weight: 700; color: white; overflow: elide; }
         Text { x: 10px * root.s; y: 109px * root.s; width: parent.width - 20px * root.s; height: 14px * root.s; text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #f0f3f6; overflow: elide; }
+        if root.summary.photo-credit != "": Rectangle {
+            x: 0px; y: 0px; width: parent.width; height: 16px * root.s; background: #102030a0;
+            accessible-role: button;
+            accessible-label: root.summary.photo-credit + ". " + root.summary.photo-url;
+            accessible-action-default => { if root.enabled && root.summary.photo-url != "" { root.photo-credits(); } }
+            Text {
+                x: 7px * root.s; y: 0px; width: parent.width - 22px * root.s; height: parent.height;
+                text: root.summary.photo-credit; font-size: 8px * root.s; color: #f0f3f6; vertical-alignment: center; overflow: elide;
+            }
+            Image { x: parent.width - 12px * root.s; y: 4px * root.s; width: 4px * root.s; height: 8px * root.s; source: @image-url("../assets/icons/chevron-right.svg"); colorize: #f0f3f6; image-fit: contain; }
+            TouchArea { enabled: root.enabled && root.summary.photo-url != ""; mouse-cursor: pointer; clicked => { root.photo-credits(); } }
+        }
     }
     if root.page == 9: Rectangle {
         x: 0px; y: 0px; width: root.width; height: 92px * root.s; background: @linear-gradient(180deg, #fff, #f4f6f8);
@@ -305,7 +331,7 @@ export component StatisticsView inherits Rectangle {
     }
     Rectangle {
         y: root.height - 26px * root.s; height: 26px * root.s; background: root.failed ? #fff0e6 : #f1f4f6;
-        Rectangle { height: 1px * root.s; background: #d5dde4; }
+        Rectangle { x: 0px; y: 0px; height: 1px * root.s; background: #d5dde4; }
         Text { x: 7px * root.s; y: 2px * root.s; width: parent.width - (root.failed ? 29px : 14px) * root.s; height: parent.height - 4px * root.s; text: root.summary.footer; font-size: 9px * root.s; color: root.failed ? #9b5c37 : #778592; wrap: word-wrap; vertical-alignment: center; }
         if root.failed: Image { x: parent.width - 19px * root.s; y: 7px * root.s; width: 12px * root.s; height: 12px * root.s; source: @image-url("../assets/statistics/refresh.svg"); colorize: #ab6239; }
         TouchArea { enabled: root.enabled && root.failed; clicked => { root.refresh(); } }

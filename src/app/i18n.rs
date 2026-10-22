@@ -41,6 +41,159 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    (
+        "Image lookup failed; queued for retry",
+        "图片查找失败，已保留待重试",
+        "画像の検索に失敗しました。再試行待ちです",
+    ),
+    (
+        "No exact artist identity found; queued for retry",
+        "未找到匹配艺人，已保留待重试",
+        "一致するアーティストが見つかりません。再試行待ちです",
+    ),
+    (
+        "Too many matching artist identities; queued for retry",
+        "同名艺人过多，已保留待重试",
+        "同名候補が多すぎます。再試行待ちです",
+    ),
+    (
+        "Artist identity is ambiguous; import an album to resolve it",
+        "艺人身份不明，请导入专辑提供线索",
+        "同名候補があります。アルバムを読み込んでください",
+    ),
+    (
+        "Artist identity is ambiguous; configure DeepSeek or add album context",
+        "存在同名艺人，请配置 DeepSeek 或补充专辑",
+        "同名候補があります。DeepSeek の設定またはアルバム情報が必要です",
+    ),
+    (
+        "DeepSeek did not resolve the artist identity",
+        "DeepSeek 未能确认艺人身份",
+        "DeepSeek でアーティストを特定できませんでした",
+    ),
+    (
+        "Selected artist has no verified matching album; queued for retry",
+        "未能验证专辑归属，已保留待重试",
+        "一致するアルバムを確認できません。再試行待ちです",
+    ),
+    (
+        "Artist has no current public portrait on Wikidata",
+        "Wikidata 暂无该艺人的公开图片",
+        "Wikidata に現在利用できる写真がありません",
+    ),
+    (
+        "Artist has no public portrait on Wikidata",
+        "Wikidata 暂无该艺人的公开图片",
+        "Wikidata に公開写真がありません",
+    ),
+    (
+        "Artist has no unique Wikidata image source",
+        "未找到唯一的 Wikidata 图片来源",
+        "Wikidata の画像情報を特定できません",
+    ),
+    (
+        "Artist image has no reusable license or attribution",
+        "图片缺少可用许可或作者信息",
+        "画像の利用許諾または作者情報がありません",
+    ),
+    (
+        "Artist image provider is rate limited; queued for retry",
+        "图片服务限流，已保留待重试",
+        "画像サービスの制限中です。再試行待ちです",
+    ),
+    (
+        "Artist image provider request failed",
+        "图片服务请求失败",
+        "画像サービスへのリクエストに失敗しました",
+    ),
+    (
+        "Artist image provider returned an untrusted URL",
+        "图片服务返回的链接不可信",
+        "画像サービスのリンクを確認できません",
+    ),
+    (
+        "Artist image request timed out",
+        "艺人图片请求超时",
+        "画像のリクエストがタイムアウトしました",
+    ),
+    (
+        "Cannot connect to artist image provider",
+        "无法连接艺人图片服务",
+        "画像サービスに接続できません",
+    ),
+    (
+        "Artist image response exceeds size limit",
+        "图片响应超过大小限制",
+        "画像の応答がサイズ制限を超えています",
+    ),
+    (
+        "Artist metadata provider returned invalid JSON",
+        "艺人元数据响应无效",
+        "アーティスト情報の応答が無効です",
+    ),
+    (
+        "Commons returned no artist image",
+        "Commons 暂无该艺人的图片",
+        "Commons に写真がありません",
+    ),
+    (
+        "Commons returned no unique artist image",
+        "Commons 未返回唯一图片",
+        "Commons の写真を特定できません",
+    ),
+    (
+        "Commons returned an untrusted artist image URL",
+        "Commons 图片链接未通过验证",
+        "Commons の画像リンクを確認できません",
+    ),
+    (
+        "Wikidata artist identity does not match MusicBrainz",
+        "Wikidata 与 MusicBrainz 艺人身份不一致",
+        "Wikidata と MusicBrainz のアーティストが一致しません",
+    ),
+    (
+        "Wikidata returned an invalid portrait filename",
+        "Wikidata 图片文件名无效",
+        "Wikidata の画像ファイル名が無効です",
+    ),
+    (
+        "Cached artist image is missing or invalid",
+        "缓存图片丢失或损坏，将重新查找",
+        "キャッシュ画像が無効です。再取得します",
+    ),
+    ("Artist Images", "艺人图片", "アーティスト画像"),
+    ("Background image queue", "后台图片队列", "画像の取得キュー"),
+    (
+        "Retry Failed Images",
+        "重试失败图片",
+        "失敗した画像を再試行",
+    ),
+    (
+        "Pending tasks are saved automatically",
+        "未完成任务自动保存",
+        "未完了の処理は自動保存",
+    ),
+    (
+        "No artists queued",
+        "暂无艺人图片任务",
+        "取得待ちの画像はありません",
+    ),
+    ("Queued", "排队中", "待機中"),
+    ("Finding…", "查找中…", "検索中…"),
+    ("Retry later", "待重试", "再試行待ち"),
+    ("Ready", "已就绪", "取得済み"),
+    ("Photo credits", "图片来源与许可", "画像のクレジット"),
+    ("Photo: {0} · {1}", "图片：{0} · {1}", "写真：{0} · {1}"),
+    (
+        "Photos: {0} queued · {1} ready. Failed jobs retry.",
+        "图片：{0} 项待处理 · {1} 项就绪，失败任务自动重试。",
+        "画像：待機{0}件・取得{1}件。失敗時は再試行。",
+    ),
+    (
+        "Image queue unavailable. Retry later.",
+        "图片队列暂不可用，请稍后重试。",
+        "画像キューを利用できません。後で再試行してください。",
+    ),
     ("Title", "标题", "タイトル"),
     ("Artist", "艺术家", "アーティスト"),
     ("Album", "专辑", "アルバム"),

@@ -1,4 +1,4 @@
-//! DeepSeek's JSON chat API. Only explicit user actions make network requests.
+//! DeepSeek's JSON chat API, shared by user actions and the desktop artist-photo queue.
 use reqwest::{blocking::Client, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

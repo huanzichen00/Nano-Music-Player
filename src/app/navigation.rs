@@ -39,6 +39,7 @@ pub enum StatisticsPage {
     Recent,
     Daily,
     Range,
+    ArtistImages,
 }
 
 #[cfg(not(any(target_os = "ios", feature = "mobile")))]
@@ -53,6 +54,7 @@ impl StatisticsPage {
             Self::Recent => "Recently Played",
             Self::Daily => "Daily Plays",
             Self::Range => "Time Range",
+            Self::ArtistImages => "Artist Images",
         }
     }
 }
@@ -224,6 +226,7 @@ impl Screen {
                 StatisticsPage::Recent => 5,
                 StatisticsPage::Daily => 6,
                 StatisticsPage::Range => 7,
+                StatisticsPage::ArtistImages => 10,
             },
             Self::StatisticsDetail { group, page } => match page {
                 StatisticsDetailPage::Summary => {

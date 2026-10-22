@@ -1,3 +1,4 @@
+mod artist_images;
 mod genius;
 mod library;
 mod lyrics;
@@ -81,6 +82,9 @@ pub struct Controller {
     device_status: crate::platform::desktop_status::Monitor,
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
     statistics: StatisticsService,
+    artist_images: crate::library::artist_images::ArtistImages,
+    artist_images_enabled: bool,
+    artist_photos: artist_images::ArtistPhotoCache,
     playback_session: Option<crate::library::statistics::ListeningSession>,
     prefetched: Option<(usize, usize, u64)>,
     prefetch_token: u64,
@@ -182,6 +186,9 @@ impl Controller {
             handoff: 0,
             last_landscape: false,
             last_video_generation: 0,
+            artist_images: crate::library::artist_images::ArtistImages::new(directory.clone()),
+            artist_images_enabled: false,
+            artist_photos: Default::default(),
             directory,
             settings,
             iphone_sync: None,
@@ -743,6 +750,9 @@ impl Controller {
     fn effects(&mut self, ui: &AppWindow, effects: Vec<Effect>) {
         for effect in effects {
             match effect {
+                Effect::RetryArtistImages => {
+                    self.artist_images.retry_failed();
+                }
                 Effect::DeviceInformation => {
                     ui.set_track_details_open(false);
                     self.details_path = None;
@@ -1761,6 +1771,7 @@ impl Controller {
     }
 
     pub fn poll(&mut self, ui: &AppWindow) {
+        self.poll_artist_images();
         if self.device_status.poll() {
             self.pause_for_output_change(ui);
         }
@@ -1808,6 +1819,7 @@ impl Controller {
                     self.state.notice = message;
                 }
                 LibraryLoadEvent::Complete { missing_cached } => {
+                    self.enqueue_library_artist_images();
                     if missing_cached {
                         self.state.notice =
                             "Library loading stopped before cached tracks arrived".into();
@@ -2068,6 +2080,7 @@ impl Controller {
             .map(|track| track.path.clone())
             .collect();
         self.statistics.set_library(paths);
+        self.enqueue_library_artist_images();
     }
 
     pub fn set_rating(&mut self, ui: &AppWindow, path: &std::path::Path, stars: u8) {
@@ -2117,11 +2130,12 @@ impl Controller {
                         | Target::StatisticsRange(_)
                         | Target::RefreshStatistics
                         | Target::PlayStatisticsGroup(_)
+                        | Target::RetryArtistImages
                 ),
-                artwork: e
-                    .row
-                    .artwork_id
-                    .and_then(|id| self.thumbnails.cached(id))
+                artwork: self
+                    .artist_photo_for_target(&e.row.target)
+                    .map(|p| p.image.clone())
+                    .or_else(|| e.row.artwork_id.and_then(|id| self.thumbnails.cached(id)))
                     .unwrap_or_default(),
             })
             .collect::<Vec<_>>();
@@ -2145,6 +2159,7 @@ impl Controller {
         ui.set_statistics_days(ModelRc::new(VecModel::from(days)));
         let (total, artists, albums, tracks) = self.state.statistics_counts();
         let detail = self.state.statistics_detail_info();
+        let photo = self.current_artist_photo();
         ui.set_statistics_summary(StatisticsSummary {
             total: if snapshot.is_some() {
                 grouped_number(total).into()
@@ -2158,10 +2173,21 @@ impl Controller {
             footer: self.state.statistics_note().into(),
             detail_title: detail.title.into(),
             detail_subtitle: detail.subtitle.into(),
-            detail_artwork: detail
-                .artwork_id
-                .and_then(|id| self.thumbnails.cached(id))
+            detail_artwork: photo
+                .map(|p| p.image.clone())
+                .or_else(|| detail.artwork_id.and_then(|id| self.thumbnails.cached(id)))
                 .unwrap_or_default(),
+            photo_credit: photo.map_or_else(
+                || "".into(),
+                |p| {
+                    translate(self.state.language, "Photo: {0} · {1}")
+                        .replace("{0}", &p.credit.author)
+                        .replace("{1}", &p.credit.license)
+                        .into()
+                },
+            ),
+            photo_url: photo
+                .map_or_else(|| "".into(), |p| p.credit.description_url.as_str().into()),
             chart_maximum: grouped_number(maximum).into(),
             chart_middle: if maximum == 1 {
                 "0.5".into()
@@ -2440,6 +2466,7 @@ impl Controller {
         let screen = &current_screen;
         let screen_changed = self.last_screen.as_ref() != Some(screen);
         if screen.is_statistics()
+            && *screen != Screen::Statistics(StatisticsPage::ArtistImages)
             && (screen_changed || self.statistics.needs_query(self.state.statistics.range))
         {
             self.refresh_statistics(false);
@@ -2562,8 +2589,9 @@ impl Controller {
                 crate::library::statistics::StatisticsRange::Last30Days => 1,
                 crate::library::statistics::StatisticsRange::AllTime => 2,
             });
-            ui.set_statistics_loading(self.state.statistics.loading);
-            ui.set_statistics_failed(self.state.statistics.failed);
+            let image_queue = *screen == Screen::Statistics(StatisticsPage::ArtistImages);
+            ui.set_statistics_loading(self.state.statistics.loading && !image_queue);
+            ui.set_statistics_failed(self.state.statistics.failed && !image_queue);
         }
         ui.set_settings_root(*screen == Screen::Settings);
         ui.set_device_mode(self.state.device_mode);
@@ -3042,6 +3070,18 @@ impl Controller {
 
     fn refresh_thumbnails(&mut self, ui: &AppWindow, screen: &Screen) {
         if self.thumbnails.poll() {
+            let artist_images: Vec<_> = if screen.is_statistics() {
+                self.state
+                    .statistics_entries()
+                    .iter()
+                    .map(|e| {
+                        self.artist_photo_for_target(&e.row.target)
+                            .map(|p| p.image.clone())
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
             for (index, id) in self.row_artwork.iter().enumerate() {
                 if let Some(id) = id
                     && let Some(mut row) = self.library_rows.row_data(index)
@@ -3056,7 +3096,11 @@ impl Controller {
                 if let Some(id) = id
                     && let Some(mut row) = self.statistics_items.row_data(index)
                 {
-                    let image = self.thumbnails.cached(*id).unwrap_or_default();
+                    let image = artist_images
+                        .get(index)
+                        .and_then(|image| image.clone())
+                        .or_else(|| self.thumbnails.cached(*id))
+                        .unwrap_or_default();
                     if row.artwork != image {
                         row.artwork = image;
                         self.statistics_items.set_row_data(index, row);
@@ -3066,10 +3110,14 @@ impl Controller {
             if screen.is_statistics() {
                 let mut summary = ui.get_statistics_summary();
                 summary.detail_artwork = self
-                    .state
-                    .statistics_detail_info()
-                    .artwork_id
-                    .and_then(|id| self.thumbnails.cached(id))
+                    .current_artist_photo()
+                    .map(|p| p.image.clone())
+                    .or_else(|| {
+                        self.state
+                            .statistics_detail_info()
+                            .artwork_id
+                            .and_then(|id| self.thumbnails.cached(id))
+                    })
                     .unwrap_or_default();
                 ui.set_statistics_summary(summary);
             }
@@ -3124,6 +3172,7 @@ impl Controller {
         }
         self.thumbnails
             .set_visible(&self.state.tracks, &ids, resolution);
+        self.request_visible_artist_photos(ui, screen);
     }
 
     fn refresh_playlist_candidates(&mut self) {
@@ -4248,6 +4297,14 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
                 c.refresh_statistics(true);
                 c.sync(&ui);
             }
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_statistics_photo_credits(move || {
+        if let Some(ui) = weak.upgrade() {
+            state.borrow_mut().open_artist_photo_credits();
+            ui.invoke_focus_screen();
         }
     });
     let weak = ui.as_weak();

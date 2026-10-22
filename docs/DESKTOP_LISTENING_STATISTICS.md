@@ -5,7 +5,7 @@ provided Statistics reference while retaining the existing Home icon grid; it
 does not recreate the reference's Home list. The first-page icons and
 Clock/Settings positions remain unchanged. The Statistics landing page has a blue
 Total Plays landscape card and entries for Overview, Top Artists, Top Albums,
-Top Tracks, Recently Played, Daily Plays, Time Range and Refresh.
+Top Tracks, Recently Played, Daily Plays, Time Range, Refresh and Artist Images.
 
 **Overview** shows the selected range's Total Plays, Artists, Albums and Tracks
 in four compact counters, followed by a native 30-day bar chart and a Top Artists
@@ -16,7 +16,8 @@ and All Time; the same choices remain available through Time Range.
 
 Rankings show rank, representative artwork, play count and a proportional blue
 bar; Top Tracks places the artist below the title and the count at the right.
-Artist details show a cover hero, Play Artist, Albums, Top Tracks and See All
+Artist details prefer a verified artist portrait with clickable photo credits,
+falling back to a cover hero. They show Play Artist, Albums, Top Tracks and See All
 Tracks. Album details show an 80px cover header, Play Album, Top Tracks, See All
 Tracks and a short track preview. Missing artwork uses a local placeholder.
 Browsing details does not change playback; play actions and song lists reuse the
@@ -31,6 +32,10 @@ on failure it offers a click-to-retry action, and Refresh also retries or reload
 external changes. New controls have English, Simplified Chinese and Japanese
 translations. This UI and the shortcuts below are desktop-only; iOS screens and
 mobile behavior are unchanged.
+
+The **Artist Images** page shows background photo jobs separately from listening
+data. See [artist images](ARTIST_IMAGES.md) for automatic import/startup lookup,
+DeepSeek identity assistance, persistent queue recovery and attribution.
 
 ## Counts and retention
 
@@ -53,7 +58,7 @@ its historical daylight-saving rules, rather than subtracting 24-hour periods.
 Changing timezone can move historical events between dates.
 
 **Date-range and daily totals can be incomplete because of the history cap.** The
-warning remains visible on every statistics page, even when the store cannot
+warning remains visible on statistics pages showing listening data, even when the store cannot
 prove that history was pruned. All Time cumulative counters survive pruning.
 Recently Played displays up to 100 retained events in the selected range. Repeated
 plays remain separate events; a missing song displays its filename and an

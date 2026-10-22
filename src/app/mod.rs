@@ -27,6 +27,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let ui = crate::ui::AppWindow::new()?;
     let controller = Rc::new(RefCell::new(controller::Controller::new(directory)));
     controller::connect(&ui, &controller);
+    controller.borrow_mut().enable_artist_images();
     #[cfg(target_os = "macos")]
     let focus_hotkey = match crate::platform::macos_hotkey::GlobalHotkey::register_focus() {
         Ok(hotkey) => Some(hotkey),

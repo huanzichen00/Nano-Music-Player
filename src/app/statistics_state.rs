@@ -85,6 +85,21 @@ impl State {
 
     pub fn statistics_note(&self) -> String {
         let tr = |key| translate(self.language, key);
+        if self.navigation.current().screen == Screen::Statistics(StatisticsPage::ArtistImages) {
+            return if self.artist_image_error.is_some() {
+                tr("Image queue unavailable. Retry later.")
+            } else {
+                tr("Photos: {0} queued · {1} ready. Failed jobs retry.")
+                    .replace(
+                        "{0}",
+                        &(self.artist_image_queue.pending
+                            + self.artist_image_queue.running
+                            + self.artist_image_queue.failed)
+                            .to_string(),
+                    )
+                    .replace("{1}", &self.artist_image_queue.ready.to_string())
+            };
+        }
         let prefix = if self.statistics.failed {
             tr("Load failed. Tap to retry.")
         } else if self.statistics.loading {
@@ -337,7 +352,71 @@ impl State {
                 e.icon = 8;
                 e
             }))
+            .chain(std::iter::once({
+                let mut e = entry(
+                    tr("Artist Images"),
+                    tr("Background image queue"),
+                    None,
+                    Target::Screen(Screen::Statistics(StatisticsPage::ArtistImages)),
+                );
+                e.icon = 9;
+                e
+            }))
             .collect(),
+            Screen::Statistics(StatisticsPage::ArtistImages) => {
+                use crate::library::artist_images::JobState;
+                let mut jobs: Vec<_> = self.artist_image_queue.jobs.iter().collect();
+                jobs.sort_by_key(|job| {
+                    (
+                        match job.state {
+                            JobState::Running => 0,
+                            JobState::Failed => 1,
+                            JobState::Pending => 2,
+                            JobState::Ready => 3,
+                        },
+                        &job.key,
+                    )
+                });
+                let mut entries = vec![entry(
+                    tr("Retry Failed Images"),
+                    tr("Pending tasks are saved automatically"),
+                    None,
+                    Target::RetryArtistImages,
+                )];
+                entries.extend(jobs.into_iter().map(|job| {
+                    let mut e = entry(
+                        job.artist.clone(),
+                        job.error
+                            .as_deref()
+                            .map(|error| {
+                                tr(if super::i18n::has_translation(error) {
+                                    error
+                                } else {
+                                    "Image lookup failed; queued for retry"
+                                })
+                            })
+                            .unwrap_or_else(|| job.albums.join(" · ")),
+                        None,
+                        Target::None,
+                    );
+                    e.value = tr(match job.state {
+                        JobState::Pending => "Queued",
+                        JobState::Running => "Finding…",
+                        JobState::Failed => "Retry later",
+                        JobState::Ready => "Ready",
+                    });
+                    e
+                }));
+                if entries.len() == 1 {
+                    entries.push(entry(
+                        tr("No artists queued"),
+                        String::new(),
+                        None,
+                        Target::None,
+                    ));
+                }
+                entries
+            }
             Screen::Statistics(StatisticsPage::Range) => StatisticsRange::ALL
                 .into_iter()
                 .map(|range| {
