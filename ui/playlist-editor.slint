@@ -1,3 +1,4 @@
+import { DesktopStyle, DesktopSurface, DesktopCard, SurfaceText } from "desktop-surfaces.slint";
 import { ElasticFlickable } from "overscroll.slint";
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
@@ -71,40 +72,41 @@ export component PlaylistEditor inherits Rectangle {
             candidate-scroll.content-y = min(0px, clamp(candidate-scroll.content-y, -root.selected-row * 48px * root.s, candidate-scroll.height - (root.selected-row + 1) * 48px * root.s));
         }
     }
-    visible: root.open; background: #f4f5f6;
+    visible: root.open; background: root.touch-mode ? #f4f5f6 : #20252b;
+    if !root.touch-mode: DesktopSurface { x: 4px * root.s; y: 4px * root.s; width: root.width - 8px * root.s; height: root.height - 8px * root.s; s: root.s; background: #edf1f6; }
     focus-sink := FocusScope { x: 0px; y: 0px; width: 0px; height: 0px; }
     TouchArea {}
     Rectangle {
         x: 0px; y: 0px; width: root.width; height: root.title-height;
-        background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
-        Text { x: 68px * root.s; width: parent.width - (root.touch-mode ? 136px : 78px) * root.s; text: root.editing && root.review ? root.name : I18n.tr(root.review ? "Review Playlist" : root.editing ? "Edit Playlist" : "New Playlist"); color: #252a30; font-size: 14px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-        Text { x: 6px * root.s; width: 56px * root.s; text: I18n.tr("Cancel"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; TouchArea { clicked => { root.command("cancel", ""); } } }
-        if root.touch-mode: NanoActionButton { x: parent.width - 62px * root.s; y: 0px; width: 56px * root.s; height: parent.height; s: root.s; label: "Done"; clicked => { root.dismiss-editor(); } }
+        background: root.touch-mode ? @linear-gradient(180deg, #f1f2f3, #aeb3b8) : transparent;
+        SurfaceText { modern: !root.touch-mode; x: 68px * root.s; width: parent.width - (root.touch-mode ? 136px : 78px) * root.s; text: root.editing && root.review ? root.name : I18n.tr(root.review ? "Review Playlist" : root.editing ? "Edit Playlist" : "New Playlist"); color: root.touch-mode ? #252a30 : DesktopStyle.text; font-size: 14px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+        SurfaceText { modern: !root.touch-mode; x: (root.touch-mode ? 6px : 14px) * root.s; width: 56px * root.s; text: I18n.tr("Cancel"); color: root.touch-mode ? #286dac : DesktopStyle.accent; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; TouchArea { clicked => { root.command("cancel", ""); } } }
+        if root.touch-mode: NanoActionButton { modern: !root.touch-mode; x: parent.width - 62px * root.s; y: 0px; width: 56px * root.s; height: parent.height; s: root.s; label: "Done"; clicked => { root.dismiss-editor(); } }
     }
     Rectangle {
         visible: !root.review;
         x: 0px; y: root.title-height; width: root.width; height: 101px * root.s;
-        Text { x: 10px * root.s; y: 9px * root.s; width: parent.width - 20px * root.s; height: 18px * root.s; text: I18n.tr("Playlist Name"); color: #647181; font-size: 11px * root.s; }
+        SurfaceText { modern: !root.touch-mode; x: 10px * root.s; y: 9px * root.s; width: parent.width - 20px * root.s; height: 18px * root.s; text: I18n.tr("Playlist Name"); color: #647181; font-size: 11px * root.s; }
         Rectangle {
             x: 10px * root.s; y: 33px * root.s; width: parent.width - 20px * root.s; height: root.touch-mode ? max(32px * root.s, 44px) : 32px * root.s;
-            background: white; border-color: name-input.has-focus ? #4b96da : #b6bbc0; border-width: 1px * root.s; border-radius: 4px * root.s;
-            if root.name == "": Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr("Name (optional)"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
+            background: white; border-color: name-input.has-focus ? #4b96da : #b6bbc0; border-width: 1px * root.s; border-radius: (root.touch-mode ? 4px : 10px) * root.s;
+            if root.name == "": SurfaceText { modern: !root.touch-mode; x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr("Name (optional)"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
             // Keep padding clickable without covering TextInput's selection.
             TouchArea { enabled: root.open && !root.review && !root.saving; clicked => { name-input.focus(); } }
-            name-input := TextInput { enabled: root.open && !root.review && !root.saving; x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text <=> root.name; font-size: 12px * root.s; color: #263441; single-line: true; vertical-alignment: center; accepted => { if root.touch-mode { root.dismiss-editor(); } } }
+            name-input := TextInput { enabled: root.open && !root.review && !root.saving; x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text <=> root.name; font-size: 12px * root.s; color: root.touch-mode ? #263441 : DesktopStyle.text; single-line: true; vertical-alignment: center; accepted => { if root.touch-mode { root.dismiss-editor(); } } }
         }
-        Text { x: 10px * root.s; y: 75px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr("Choose Songs") + " · " + root.draft.length; font-size: 11px * root.s; color: #49637c; vertical-alignment: center; }
+        SurfaceText { modern: !root.touch-mode; x: 10px * root.s; y: 75px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr("Choose Songs") + " · " + root.draft.length; font-size: 11px * root.s; color: root.touch-mode ? #49637c : DesktopStyle.secondary; vertical-alignment: center; }
     }
     if root.editing && root.review: Rectangle {
         x: 0px; y: root.title-height; width: root.width; height: root.edit-actions-height;
-        background: @linear-gradient(180deg, #8badcf, #446b93);
-        NanoActionButton { x: 6px * root.s; y: root.touch-mode ? 0px : 4px * root.s; width: 108px * root.s; height: root.touch-mode ? parent.height : 24px * root.s; s: root.s; primary: true; label: root.saving ? "Saving…" : "Done"; enabled: !root.saving && root.name != ""; clicked => { root.command("create", ""); } }
-        NanoActionButton { x: 126px * root.s; y: root.touch-mode ? 0px : 4px * root.s; width: 108px * root.s; height: root.touch-mode ? parent.height : 24px * root.s; s: root.s; primary: true; label: "Add"; enabled: !root.saving; clicked => { root.back-to-selection(); root.focus-name(); } }
+        background: root.touch-mode ? @linear-gradient(180deg, #8badcf, #446b93) : transparent;
+        NanoActionButton { modern: !root.touch-mode; x: 6px * root.s; y: root.touch-mode ? 0px : 4px * root.s; width: 108px * root.s; height: root.touch-mode ? parent.height : 24px * root.s; s: root.s; primary: true; label: root.saving ? "Saving…" : "Done"; enabled: !root.saving && root.name != ""; clicked => { root.command("create", ""); } }
+        NanoActionButton { modern: !root.touch-mode; x: 126px * root.s; y: root.touch-mode ? 0px : 4px * root.s; width: 108px * root.s; height: root.touch-mode ? parent.height : 24px * root.s; s: root.s; primary: true; label: "Add"; enabled: !root.saving; clicked => { root.back-to-selection(); root.focus-name(); } }
     }
     if root.review && !root.editing: Rectangle {
         x: 0px; y: root.title-height; width: root.width; height: 65px * root.s;
-        Text { x: 10px * root.s; y: 8px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s; text: root.name; color: #263441; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
-        Text { x: 10px * root.s; y: 35px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: root.draft.length + I18n.tr(" songs"); color: #49637c; font-size: 10px * root.s; vertical-alignment: center; }
+        SurfaceText { modern: !root.touch-mode; x: 10px * root.s; y: 8px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s; text: root.name; color: root.touch-mode ? #263441 : DesktopStyle.text; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
+        SurfaceText { modern: !root.touch-mode; x: 10px * root.s; y: 35px * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: root.draft.length + I18n.tr(" songs"); color: root.touch-mode ? #49637c : DesktopStyle.secondary; font-size: 10px * root.s; vertical-alignment: center; }
     }
     candidate-scroll := ElasticFlickable {
         s: root.s; enabled: root.open && !root.review && !root.saving;
@@ -112,14 +114,15 @@ export component PlaylistEditor inherits Rectangle {
         content-height: max(self.height, root.candidates.length * 48px * root.s);
         for song[index] in root.candidates: Rectangle {
             x: 0px; y: index * 48px * root.s; width: root.width; height: 48px * root.s;
-            background: root.selected-row == index && !root.name-focused ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
-            Rectangle { x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
-            Rectangle { x: 10px * root.s; y: 15px * root.s; width: 18px * root.s; height: self.width; border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #93a4b5; background: song.selected ? #3183cc : #f5f8fb; Text { text: song.selected ? "✓" : ""; color: white; font-size: 13px * root.s; horizontal-alignment: center; vertical-alignment: center; } }
-            Text { x: 38px * root.s; y: 5px * root.s; width: parent.width - 48px * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.selected-row == index && !root.name-focused ? white : #263441; overflow: elide; }
-            Text { x: 38px * root.s; y: 28px * root.s; width: parent.width - 48px * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.selected-row == index && !root.name-focused ? #e1efff : #929292; overflow: elide; }
+            background: root.touch-mode ? (root.selected-row == index && !root.name-focused ? @linear-gradient(180deg, #4794e4, #1666bb) : white) : transparent;
+            if !root.touch-mode: DesktopCard { x: 6px * root.s; y: 1px * root.s; width: parent.width - 12px * root.s; height: 46px * root.s; s: root.s; border-radius: 10px * root.s; background: root.selected-row == index && !root.name-focused ? DesktopStyle.selection : DesktopStyle.card; }
+            Rectangle { visible: root.touch-mode; x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
+            Rectangle { x: 10px * root.s; y: 15px * root.s; width: 18px * root.s; height: self.width; border-radius: 3px * root.s; border-width: 1px * root.s; border-color: #93a4b5; background: song.selected ? #3183cc : #f5f8fb; SurfaceText { modern: !root.touch-mode; text: song.selected ? "✓" : ""; color: white; font-size: 13px * root.s; horizontal-alignment: center; vertical-alignment: center; } }
+            SurfaceText { modern: !root.touch-mode; x: 38px * root.s; y: 5px * root.s; width: parent.width - 48px * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.touch-mode ? (root.selected-row == index && !root.name-focused ? white : #263441) : DesktopStyle.text; overflow: elide; }
+            SurfaceText { modern: !root.touch-mode; x: 38px * root.s; y: 28px * root.s; width: parent.width - 48px * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.touch-mode ? (root.selected-row == index && !root.name-focused ? #e1efff : #929292) : DesktopStyle.secondary; overflow: elide; }
             TouchArea { clicked => { if !root.saving && !root.library-loading { root.selected-row = index; root.command("toggle", song.id); } } }
         }
-        if root.candidates.length == 0: Text { x: 16px * root.s; width: root.width - 32px * root.s; height: 170px * root.s; text: I18n.tr(root.library-loading ? "Loading music library…" : "Import music to choose songs."); color: #788390; font-size: 12px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
+        if root.candidates.length == 0: SurfaceText { modern: !root.touch-mode; x: 16px * root.s; width: root.width - 32px * root.s; height: 170px * root.s; text: I18n.tr(root.library-loading ? "Loading music library…" : "Import music to choose songs."); color: root.touch-mode ? #788390 : DesktopStyle.secondary; font-size: 12px * root.s; wrap: word-wrap; horizontal-alignment: center; vertical-alignment: center; }
     }
     draft-scroll := ElasticFlickable {
         s: root.s; enabled: root.open && root.review && root.drag-id == "" && !root.saving;
@@ -128,11 +131,12 @@ export component PlaylistEditor inherits Rectangle {
         for song[index] in root.draft: Rectangle {
             opacity: root.drag-id == song.id ? 0.45 : 1;
             x: 0px; y: index * 48px * root.s; width: root.width; height: 48px * root.s;
-            background: root.selected-row == index ? @linear-gradient(180deg, #4794e4, #1666bb) : white;
-            Rectangle { x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
-            if !root.editing: Text { x: 9px * root.s; width: 20px * root.s; text: index + 1; font-size: 11px * root.s; color: root.selected-row == index ? #e1efff : #93a0ae; vertical-alignment: center; }
-            Text { x: 34px * root.s; y: 5px * root.s; width: parent.width - (root.editing ? (root.pending-remove == song.id ? 104px : 64px) : 44px) * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.selected-row == index ? white : #263441; overflow: elide; }
-            Text { x: 34px * root.s; y: 28px * root.s; width: parent.width - (root.editing ? (root.pending-remove == song.id ? 104px : 64px) : 44px) * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.selected-row == index ? #e1efff : #929292; overflow: elide; }
+            background: root.touch-mode ? (root.selected-row == index ? @linear-gradient(180deg, #4794e4, #1666bb) : white) : transparent;
+            if !root.touch-mode: DesktopCard { x: 6px * root.s; y: 1px * root.s; width: parent.width - 12px * root.s; height: 46px * root.s; s: root.s; border-radius: 10px * root.s; background: root.selected-row == index ? DesktopStyle.selection : DesktopStyle.card; }
+            Rectangle { visible: root.touch-mode; x: 0px; y: parent.height - 1px * root.s; width: root.width; height: 1px * root.s; background: #d5d5d5; }
+            if !root.editing: SurfaceText { modern: !root.touch-mode; x: 9px * root.s; width: 20px * root.s; text: index + 1; font-size: 11px * root.s; color: root.touch-mode ? (root.selected-row == index ? #e1efff : #93a0ae) : DesktopStyle.secondary; vertical-alignment: center; }
+            SurfaceText { modern: !root.touch-mode; x: 34px * root.s; y: 5px * root.s; width: parent.width - (root.editing ? (root.pending-remove == song.id ? 104px : 64px) : 44px) * root.s; height: 22px * root.s; text: song.title; font-size: 13px * root.s; font-weight: 600; color: root.touch-mode ? (root.selected-row == index ? white : #263441) : DesktopStyle.text; overflow: elide; }
+            SurfaceText { modern: !root.touch-mode; x: 34px * root.s; y: 28px * root.s; width: parent.width - (root.editing ? (root.pending-remove == song.id ? 104px : 64px) : 44px) * root.s; height: 16px * root.s; text: song.artist; font-size: 11px * root.s; color: root.touch-mode ? (root.selected-row == index ? #e1efff : #929292) : DesktopStyle.secondary; overflow: elide; }
             TouchArea { clicked => { root.selected-row = index; } }
             if root.editing: Rectangle {
                 x: 8px * root.s; y: 16px * root.s; width: 17px * root.s; height: self.width;
@@ -141,13 +145,13 @@ export component PlaylistEditor inherits Rectangle {
             }
             if root.editing && root.pending-remove != song.id: Rectangle {
                 x: parent.width - 30px * root.s; width: 30px * root.s; height: parent.height;
-                Text { text: "≡"; color: #a5a9ae; font-size: 18px * root.s; horizontal-alignment: center; vertical-alignment: center; }
+                SurfaceText { modern: !root.touch-mode; text: "≡"; color: #a5a9ae; font-size: 18px * root.s; horizontal-alignment: center; vertical-alignment: center; }
 
             }
             if root.editing && root.pending-remove == song.id: Rectangle {
                 x: parent.width - 65px * root.s; y: root.touch-mode ? 8px : 10px * root.s; width: 60px * root.s; height: root.touch-mode ? 44px : 28px * root.s;
-                border-radius: 4px * root.s; border-width: 1px * root.s; border-color: #9a2727; background: @linear-gradient(180deg, #e88876, #b72c22);
-                Text { text: I18n.tr("Delete"); color: white; font-size: 11px * root.s; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                border-radius: (root.touch-mode ? 4px : 10px) * root.s; border-width: root.touch-mode ? 1px * root.s : 0px; border-color: #9a2727; background: root.touch-mode ? @linear-gradient(180deg, #e88876, #b72c22) : #ff3b30;
+                SurfaceText { modern: !root.touch-mode; text: I18n.tr("Delete"); color: white; font-size: 11px * root.s; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
                 TouchArea { clicked => { if !root.saving { root.command("remove", song.id); root.pending-remove = ""; root.selected-row = max(0, min(root.selected-row, root.draft.length - 1)); } } }
             }
         }
@@ -183,11 +187,11 @@ export component PlaylistEditor inherits Rectangle {
     }
     if root.review: Rectangle {
         x: 0px; y: root.height - (root.editing ? 60px : 105px) * root.s; width: root.width; height: 36px * root.s;
-        NanoActionButton { x: (root.editing ? 6px : 10px) * root.s; width: (root.editing ? 108px : 64px) * root.s; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; text-size: 10px * root.s; label: "Move Up"; enabled: root.selected-row > 0 && !root.persisted && !root.saving; clicked => { root.command("up", root.draft[root.selected-row].id); root.selected-row -= 1; } }
-        NanoActionButton { x: (root.editing ? 126px : 82px) * root.s; width: (root.editing ? 108px : 64px) * root.s; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; text-size: 10px * root.s; label: "Move Down"; enabled: root.selected-row + 1 < root.draft.length && !root.persisted && !root.saving; clicked => { root.command("down", root.draft[root.selected-row].id); root.selected-row += 1; } }
-        if !root.editing: NanoActionButton { x: 154px * root.s; width: 76px * root.s; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; label: "Remove"; enabled: root.selected-row < root.draft.length && !root.persisted && !root.saving; clicked => { root.command("remove", root.draft[root.selected-row].id); root.selected-row = max(0, min(root.selected-row, root.draft.length - 1)); } }
+        NanoActionButton { modern: !root.touch-mode; x: (root.editing ? 6px : 10px) * root.s; width: (root.editing ? 108px : 64px) * root.s; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; text-size: 10px * root.s; label: "Move Up"; enabled: root.selected-row > 0 && !root.persisted && !root.saving; clicked => { root.command("up", root.draft[root.selected-row].id); root.selected-row -= 1; } }
+        NanoActionButton { modern: !root.touch-mode; x: (root.editing ? 126px : 82px) * root.s; width: (root.editing ? 108px : 64px) * root.s; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; text-size: 10px * root.s; label: "Move Down"; enabled: root.selected-row + 1 < root.draft.length && !root.persisted && !root.saving; clicked => { root.command("down", root.draft[root.selected-row].id); root.selected-row += 1; } }
+        if !root.editing: NanoActionButton { modern: !root.touch-mode; x: 154px * root.s; width: 76px * root.s; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; label: "Remove"; enabled: root.selected-row < root.draft.length && !root.persisted && !root.saving; clicked => { root.command("remove", root.draft[root.selected-row].id); root.selected-row = max(0, min(root.selected-row, root.draft.length - 1)); } }
     }
-    Text { x: 10px * root.s; y: root.height - (root.editing && root.review ? 24px : 64px) * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr(root.instruction); color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
-    if !root.editing || !root.review: NanoActionButton { x: 10px * root.s; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; label: root.review ? "Back" : "Cancel"; enabled: !root.saving; clicked => { if root.review { root.back-to-selection(); } else { root.command("cancel", ""); } } }
-    if !root.editing || !root.review: NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; primary: true; label: root.saving ? "Saving…" : (root.review ? (root.editing ? "Done" : "Create") : "Review"); enabled: (!root.review || root.name != "") && (root.editing || root.draft.length > 0) && !root.persisted && !root.saving; clicked => { if root.review { root.command("create", ""); } else { root.review-draft(); } } }
+    SurfaceText { modern: !root.touch-mode; x: 10px * root.s; y: root.height - (root.editing && root.review ? 24px : 64px) * root.s; width: parent.width - 20px * root.s; height: 20px * root.s; text: I18n.tr(root.instruction); color: root.touch-mode ? #49637c : DesktopStyle.secondary; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
+    if !root.editing || !root.review: NanoActionButton { modern: !root.touch-mode; x: 10px * root.s; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; label: root.review ? "Back" : "Cancel"; enabled: !root.saving; clicked => { if root.review { root.back-to-selection(); } else { root.command("cancel", ""); } } }
+    if !root.editing || !root.review: NanoActionButton { modern: !root.touch-mode; x: (parent.width + 8px * root.s) / 2; y: root.height - 39px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; height: root.touch-mode ? 44px : 32px * root.s; primary: true; label: root.saving ? "Saving…" : (root.review ? (root.editing ? "Done" : "Create") : "Review"); enabled: (!root.review || root.name != "") && (root.editing || root.draft.length > 0) && !root.persisted && !root.saving; clicked => { if root.review { root.command("create", ""); } else { root.review-draft(); } } }
 }

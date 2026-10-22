@@ -1,3 +1,4 @@
+import { DesktopStyle, DesktopSurface, DesktopCard, SurfaceText } from "desktop-surfaces.slint";
 import { ElasticFlickable } from "overscroll.slint";
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
@@ -15,28 +16,32 @@ export component GeniusPreview inherits Rectangle {
     in-out property <int> stage;
     in-out property <int> variation;
     callback command(string);
-    background: #f4f5f6;
+    background: root.touch-mode ? #f4f5f6 : #20252b;
+    if !root.touch-mode: DesktopSurface { x: 4px * root.s; y: 4px * root.s; width: root.width - 8px * root.s; height: root.height - 8px * root.s; s: root.s; background: #edf1f6; }
     TouchArea {}
     Rectangle {
         x: 0px; y: 0px; width: root.width; height: 32px * root.s;
-        background: @linear-gradient(180deg, #f1f2f3, #aeb3b8);
-        Text { x: 48px * root.s; width: parent.width - 96px * root.s; text: "Genius"; color: #252a30; font-size: 16px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-        Text { x: 6px * root.s; width: 44px * root.s; text: I18n.tr("Close"); color: #286dac; font-size: 11px * root.s; vertical-alignment: center; TouchArea { width: root.touch-mode ? max(parent.width, 44px) : parent.width; height: root.touch-mode ? max(parent.height, 44px) : parent.height; clicked => { root.command("close"); } } }
+        background: root.touch-mode ? @linear-gradient(180deg, #f1f2f3, #aeb3b8) : transparent;
+        SurfaceText { modern: !root.touch-mode; x: 48px * root.s; width: parent.width - 96px * root.s; text: "Genius"; color: root.touch-mode ? #252a30 : DesktopStyle.text; font-size: 16px * root.s; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+        SurfaceText { modern: !root.touch-mode; x: (root.touch-mode ? 6px : 14px) * root.s; width: 44px * root.s; text: I18n.tr("Close"); color: root.touch-mode ? #286dac : DesktopStyle.accent; font-size: 11px * root.s; vertical-alignment: center; TouchArea { width: root.touch-mode ? max(parent.width, 44px) : parent.width; height: root.touch-mode ? max(parent.height, 44px) : parent.height; clicked => { root.command("close"); } } }
     }
     Rectangle {
-        x: 0px; width: root.width; y: 32px * root.s; height: 26px * root.s; background: #e1ebf5;
-        Text { x: 10px * root.s; width: parent.width - 20px * root.s; text: root.busy ? I18n.tr("Generating…") : I18n.tr("Genius playlist"); color: #49637c; font-size: 10px * root.s; horizontal-alignment: center; vertical-alignment: center; }
+        x: 0px; width: root.width; y: 32px * root.s; height: 26px * root.s; background: transparent;
+        Rectangle { x: root.touch-mode ? 0px : 8px * root.s; width: parent.width - (root.touch-mode ? 0px : 16px * root.s); height: parent.height; border-radius: root.touch-mode ? 0px : 10px * root.s; background: root.touch-mode ? #e1ebf5 : DesktopStyle.selection; }
+        SurfaceText { modern: !root.touch-mode; x: 10px * root.s; width: parent.width - 20px * root.s; text: root.busy ? I18n.tr("Generating…") : I18n.tr("Genius playlist"); color: root.touch-mode ? #49637c : DesktopStyle.secondary; font-size: 10px * root.s; horizontal-alignment: center; vertical-alignment: center; }
     }
-    Text { x: 10px * root.s; y: 64px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s; text: root.seed-title; color: #263441; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
-    Text { x: 10px * root.s; y: 87px * root.s; width: parent.width - 20px * root.s; height: 17px * root.s; text: root.seed-artist; color: #788390; font-size: 11px * root.s; overflow: elide; }
-    Text {
-        x: 10px * root.s; y: 107px * root.s; width: parent.width - 20px * root.s; height: 24px * root.s;
+    if !root.touch-mode: DesktopCard { x: 8px * root.s; y: 62px * root.s; width: root.width - 16px * root.s; height: 69px * root.s; s: root.s; }
+    SurfaceText { modern: !root.touch-mode; x: (root.touch-mode ? 10px : 16px) * root.s; y: 64px * root.s; width: parent.width - (root.touch-mode ? 20px : 32px) * root.s; height: 22px * root.s; text: root.seed-title; color: root.touch-mode ? #263441 : DesktopStyle.text; font-size: 14px * root.s; font-weight: 700; overflow: elide; }
+    SurfaceText { modern: !root.touch-mode; x: (root.touch-mode ? 10px : 16px) * root.s; y: 87px * root.s; width: parent.width - (root.touch-mode ? 20px : 32px) * root.s; height: 17px * root.s; text: root.seed-artist; color: root.touch-mode ? #788390 : DesktopStyle.secondary; font-size: 11px * root.s; overflow: elide; }
+    SurfaceText { modern: !root.touch-mode;
+        x: (root.touch-mode ? 10px : 16px) * root.s; y: 107px * root.s; width: parent.width - (root.touch-mode ? 20px : 32px) * root.s; height: 24px * root.s;
         text: root.message != "" ? root.message : I18n.tr(root.stage == 0 ? "Create Genius playlist" : (root.stage == 2 ? "Playing Genius playlist" : (root.stage == 3 ? "Genius playlist saved" : "Genius playlist ready")));
-        color: #49637c; font-size: 10px * root.s; overflow: elide; vertical-alignment: center;
+        color: root.touch-mode ? #49637c : DesktopStyle.secondary; font-size: 10px * root.s; overflow: elide; vertical-alignment: center;
     }
-    if root.stage == 0: Text {
+    if root.stage == 0 && !root.touch-mode: DesktopCard { x: 8px * root.s; y: 139px * root.s; width: root.width - 16px * root.s; height: max(0px, root.height - self.y - 90px * root.s); s: root.s; }
+    if root.stage == 0: SurfaceText { modern: !root.touch-mode;
         x: 16px * root.s; y: (root.touch-mode ? 133px : 151px) * root.s; width: parent.width - 32px * root.s;
-        height: root.touch-mode ? max(0px, parent.height - self.y - 82px * root.s) : 163px * root.s;
+        height: max(0px, parent.height - self.y - (root.touch-mode ? 82px : 90px) * root.s);
         text: root.seed-available ? I18n.tr("Create a playlist based on this song.") : I18n.tr("Choose a song from Music");
         color: #6c7885; font-size: 12px * root.s; wrap: word-wrap; vertical-alignment: center; horizontal-alignment: center;
     }
@@ -45,16 +50,17 @@ export component GeniusPreview inherits Rectangle {
         x: 0px; width: root.width; y: 133px * root.s; height: max(0px, root.height - self.y - 82px * root.s);
         content-height: root.songs.length * 36px * root.s;
         for song[index] in root.songs: Rectangle {
-            x: 0px; width: root.width; y: index * 36px * root.s; height: 36px * root.s; background: mod(index, 2) == 0 ? #fff : #edf0f3;
-            Text { x: 8px * root.s; width: 18px * root.s; text: index + 1; color: #93a0ae; font-size: 10px * root.s; vertical-alignment: center; }
-            Text { x: 30px * root.s; y: 3px * root.s; width: parent.width - 40px * root.s; height: 18px * root.s; text: song.title; color: #263441; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
-            Text { x: 30px * root.s; y: 21px * root.s; width: parent.width - 40px * root.s; height: 12px * root.s; text: song.artist; color: #788390; font-size: 9px * root.s; overflow: elide; }
+            x: 0px; width: root.width; y: index * 36px * root.s; height: 36px * root.s; background: root.touch-mode ? (mod(index, 2) == 0 ? #fff : #edf0f3) : transparent;
+            if !root.touch-mode: DesktopCard { x: 8px * root.s; width: parent.width - 16px * root.s; height: 34px * root.s; s: root.s; border-radius: 9px * root.s; }
+            SurfaceText { modern: !root.touch-mode; x: (root.touch-mode ? 8px : 14px) * root.s; width: 18px * root.s; text: index + 1; color: #93a0ae; font-size: 10px * root.s; vertical-alignment: center; }
+            SurfaceText { modern: !root.touch-mode; x: 30px * root.s; y: 3px * root.s; width: parent.width - 40px * root.s; height: 18px * root.s; text: song.title; color: root.touch-mode ? #263441 : DesktopStyle.text; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
+            SurfaceText { modern: !root.touch-mode; x: 30px * root.s; y: 21px * root.s; width: parent.width - 40px * root.s; height: 12px * root.s; text: song.artist; color: root.touch-mode ? #788390 : DesktopStyle.secondary; font-size: 9px * root.s; overflow: elide; }
         }
     }
     Rectangle {
-        x: 0px; width: root.width; y: root.height - 82px * root.s; height: 82px * root.s; background: @linear-gradient(180deg, #e4e8ec, #cad1d9);
-        NanoActionButton { x: 10px * root.s; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; enabled: root.seed-available && !root.busy; label: I18n.tr(root.songs.length == 0 ? "Create" : "Refresh"); clicked => { root.command(root.songs.length == 0 ? "create" : "refresh"); } }
-        NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; enabled: root.songs.length > 0 && !root.busy; label: I18n.tr("Play"); clicked => { root.command("play"); } }
-        NanoActionButton { x: 10px * root.s; y: 45px * root.s; width: parent.width - 20px * root.s; s: root.s; enabled: root.songs.length > 0 && !root.busy; label: I18n.tr("Save"); clicked => { root.command("save"); } }
+        x: 0px; width: root.width; y: root.height - 82px * root.s; height: 82px * root.s; background: root.touch-mode ? @linear-gradient(180deg, #e4e8ec, #cad1d9) : transparent;
+        NanoActionButton { modern: !root.touch-mode; x: 10px * root.s; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; primary: true; enabled: root.seed-available && !root.busy; label: I18n.tr(root.songs.length == 0 ? "Create" : "Refresh"); clicked => { root.command(root.songs.length == 0 ? "create" : "refresh"); } }
+        NanoActionButton { modern: !root.touch-mode; x: (parent.width + 8px * root.s) / 2; y: 7px * root.s; width: (parent.width - 28px * root.s) / 2; s: root.s; enabled: root.songs.length > 0 && !root.busy; label: I18n.tr("Play"); clicked => { root.command("play"); } }
+        NanoActionButton { modern: !root.touch-mode; x: 10px * root.s; y: 45px * root.s; width: parent.width - 20px * root.s; s: root.s; enabled: root.songs.length > 0 && !root.busy; label: I18n.tr("Save"); clicked => { root.command("save"); } }
     }
 }
