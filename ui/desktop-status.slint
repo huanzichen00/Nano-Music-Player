@@ -51,7 +51,7 @@ component BatteryCell inherits Rectangle {
     SystemLabel { y: 94px * root.s; width: parent.width; height: 24px * root.s; text: root.level < 0 ? "—" : root.level + "%"; font-size: 19px * root.s; font-weight: 600; color: root.level < 0 ? #989ba2 : #161719; horizontal-alignment: center; }
     Rectangle {
         x: (parent.width - self.width) / 2; y: 121px * root.s; width: 28px * root.s; height: 5px * root.s; border-radius: 2.5px * root.s; background: #dce0e5;
-        Rectangle { width: parent.width * max(0, min(100, root.level)) / 100; height: parent.height; border-radius: 2.5px * root.s; background: root.level <= 20 ? #ff9f0a : #08c54b; }
+        Rectangle { x: 0px; y: 0px; width: parent.width * max(0, min(100, root.level)) / 100; height: parent.height; border-radius: 2.5px * root.s; background: root.level <= 20 ? #ff9f0a : #08c54b; }
     }
 }
 

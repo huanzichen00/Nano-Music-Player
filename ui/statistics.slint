@@ -152,7 +152,7 @@ component StatisticsRow inherits Rectangle {
     if root.ranking: Rectangle {
         x: 70px * root.s; y: parent.height - 10px * root.s; width: parent.width - 96px * root.s; height: 4px * root.s; border-radius: 1px * root.s;
         background: root.highlighted ? #ffffff50 : #e6e9ed;
-        Rectangle { width: parent.width * clamp(root.item.ratio, 0, 1); height: parent.height; border-radius: 1px * root.s; background: root.highlighted ? #e6f4ff : #078bfa; }
+        Rectangle { x: 0px; y: 0px; width: parent.width * clamp(root.item.ratio, 0, 1); height: parent.height; border-radius: 1px * root.s; background: root.highlighted ? #e6f4ff : #078bfa; }
     }
     if root.tracks || root.recent: Text {
         x: (root.recent ? 52px : 65px) * root.s; y: 8px * root.s; width: parent.width - self.x - (root.recent ? 77px : 60px) * root.s; height: 17px * root.s;
