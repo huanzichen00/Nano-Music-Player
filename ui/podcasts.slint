@@ -1,3 +1,4 @@
+import { DesktopStyle, DesktopSurface, DesktopCard, SurfaceText } from "desktop-surfaces.slint";
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
 
@@ -15,20 +16,20 @@ export component PodcastSubscription inherits Rectangle {
     out property <bool> editor-focused: url-input.has-focus;
     public function focus-editor() { url-input.focus(); }
     public function dismiss-editor() { focus-sink.focus(); }
-    visible: root.open; background: #0008;
+    visible: root.open; background: #0004;
     changed open => { if !root.open { root.dismiss-editor(); } }
     TouchArea {}
     focus-sink := FocusScope { width: 0px; height: 0px; }
-    Rectangle {
+    DesktopSurface {
+        s: root.s;
         x: 8px * root.s; y: (parent.height - self.height) / 2;
         width: parent.width - 16px * root.s; height: 330px * root.s;
-        background: @linear-gradient(180deg, #f9fafc, #e5e9ee);
-        border-radius: 8px * root.s; border-width: 1px * root.s; border-color: #9ba6b2;
-        Text { x: 12px * root.s; y: 14px * root.s; width: parent.width - 24px * root.s; height: 26px * root.s; text: I18n.tr("Add Subscription…"); font-size: 16px * root.s; font-weight: 700; color: #313441; }
-        Text { x: 12px * root.s; y: 49px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s; text: I18n.tr("Paste the show's RSS feed URL"); font-size: 12px * root.s; wrap: word-wrap; color: #5e6572; }
+        DesktopCard { x: 8px * root.s; y: 130px * root.s; width: parent.width - 16px * root.s; height: 106px * root.s; s: root.s; }
+        SurfaceText { x: 12px * root.s; y: 14px * root.s; width: parent.width - 24px * root.s; height: 26px * root.s; text: I18n.tr("Add Subscription…"); font-size: 16px * root.s; font-weight: 700; color: DesktopStyle.text; }
+        SurfaceText { x: 12px * root.s; y: 49px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s; text: I18n.tr("Paste the show's RSS feed URL"); font-size: 12px * root.s; wrap: word-wrap; color: DesktopStyle.secondary; }
         Rectangle {
             x: 12px * root.s; y: 88px * root.s; width: parent.width - 24px * root.s; height: 34px * root.s;
-            border-width: 1px * root.s; border-color: url-input.has-focus ? #9054bd : #b8bdc6; border-radius: 4px * root.s; background: white;
+            border-width: 1px * root.s; border-color: url-input.has-focus ? #007aff : #d2dae4; border-radius: 10px * root.s; background: white;
             url-input := TextInput {
                 x: 7px * root.s; width: parent.width - 14px * root.s; height: parent.height;
                 text <=> root.url; single-line: true; font-size: 12px * root.s; color: #222; vertical-alignment: center;
@@ -37,15 +38,15 @@ export component PodcastSubscription inherits Rectangle {
             }
         }
         if root.ready: Rectangle {
-            x: 12px * root.s; y: 136px * root.s; width: 42px * root.s; height: 42px * root.s; background: #a06ac0; border-radius: 4px * root.s;
+            x: 12px * root.s; y: 136px * root.s; width: 42px * root.s; height: 42px * root.s; background: #a06ac0; border-radius: 10px * root.s;
             clip: true;
             Image { x: 7px * root.s; y: 7px * root.s; width: 28px * root.s; height: 28px * root.s; source: @image-url("../assets/icons/podcast.svg"); colorize: white; image-fit: contain; }
             Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.artwork; image-fit: contain; }
         }
-        Text { x: root.ready ? 64px * root.s : 12px * root.s; y: 136px * root.s; width: parent.width - self.x - 12px * root.s; height: 42px * root.s; text: root.show-title; font-size: 15px * root.s; font-weight: 700; color: #503171; wrap: word-wrap; overflow: elide; }
-        Text { x: 12px * root.s; y: 181px * root.s; width: parent.width - 24px * root.s; height: 55px * root.s; text: root.show-description; font-size: 11px * root.s; color: #5e6572; wrap: word-wrap; overflow: elide; }
-        Text { x: 12px * root.s; y: 240px * root.s; width: parent.width - 24px * root.s; height: 38px * root.s; text: root.message; font-size: 11px * root.s; color: #5e6572; wrap: word-wrap; overflow: elide; }
-        NanoActionButton { x: 12px * root.s; y: 286px * root.s; width: (parent.width - 32px * root.s) / 2; height: 32px * root.s; s: root.s; label: "Cancel"; clicked => { root.command("close"); } }
-        NanoActionButton { x: (parent.width + 8px * root.s) / 2; y: 286px * root.s; width: (parent.width - 32px * root.s) / 2; height: 32px * root.s; s: root.s; primary: true; enabled: !root.busy; label: root.ready ? "Subscribe" : "Preview Feed"; clicked => { root.command(root.ready ? "subscribe" : "preview"); } }
+        SurfaceText { x: root.ready ? 64px * root.s : 12px * root.s; y: 136px * root.s; width: parent.width - self.x - 12px * root.s; height: 42px * root.s; text: root.show-title; font-size: 15px * root.s; font-weight: 700; color: DesktopStyle.text; wrap: word-wrap; overflow: elide; }
+        SurfaceText { x: 12px * root.s; y: 181px * root.s; width: parent.width - 24px * root.s; height: 55px * root.s; text: root.show-description; font-size: 11px * root.s; color: DesktopStyle.secondary; wrap: word-wrap; overflow: elide; }
+        SurfaceText { x: 12px * root.s; y: 240px * root.s; width: parent.width - 24px * root.s; height: 38px * root.s; text: root.message; font-size: 11px * root.s; color: DesktopStyle.secondary; wrap: word-wrap; overflow: elide; }
+        NanoActionButton { modern: true; x: 12px * root.s; y: 286px * root.s; width: (parent.width - 32px * root.s) / 2; height: 32px * root.s; s: root.s; label: "Cancel"; clicked => { root.command("close"); } }
+        NanoActionButton { modern: true; x: (parent.width + 8px * root.s) / 2; y: 286px * root.s; width: (parent.width - 32px * root.s) / 2; height: 32px * root.s; s: root.s; primary: true; enabled: !root.busy; label: root.ready ? "Subscribe" : "Preview Feed"; clicked => { root.command(root.ready ? "subscribe" : "preview"); } }
     }
 }

@@ -1,3 +1,4 @@
+import { DesktopStyle, DesktopSurface, SurfaceText } from "desktop-surfaces.slint";
 import { DesktopBattery, DesktopStatusPanel } from "desktop-status.slint";
 import { BackScroll } from "back-scroll.slint";
 export { BackScroll }
@@ -662,14 +663,14 @@ export component AppWindow inherits Window {
             y: root.screen == 9 ? video-device.display-y : display.y;
             width: root.screen == 9 ? video-device.display-width : display.width;
             height: root.screen == 9 ? video-device.display-height : display.height;
-            background: #0009;
+            background: #0006;
             TouchArea { clicked => { root.subtitle-command("close"); } }
-            Rectangle {
+            DesktopSurface {
+                s: root.s; dark: true;
                 x: 16px * root.s; y: 18px * root.s;
                 width: parent.width - 32px * root.s;
                 height: min(parent.height - 36px * root.s, 260px * root.s);
-                background: #22252b; border-width: 1px * root.s; border-color: #69717e; border-radius: 8px * root.s;
-                Text { x: 12px * root.s; y: 8px * root.s; width: parent.width - 24px * root.s; height: 24px * root.s; text: I18n.tr("Subtitles"); color: white; font-size: 15px * root.s; font-weight: 700; }
+                SurfaceText { x: 12px * root.s; y: 8px * root.s; width: parent.width - 24px * root.s; height: 24px * root.s; text: I18n.tr("Subtitles"); color: white; font-size: 15px * root.s; font-weight: 700; }
                 ElasticFlickable {
                     x: 8px * root.s; y: 36px * root.s;
                     width: parent.width - 16px * root.s;
@@ -679,27 +680,27 @@ export component AppWindow inherits Window {
                     for choice[index] in root.subtitle-choices: Rectangle {
                         x: 0px; y: index * 28px * root.s;
                         width: parent.width; height: 26px * root.s;
-                        background: choice.selected ? #3478c8 : #343943; border-radius: 4px * root.s;
-                        Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: choice.label; color: white; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; }
+                        background: choice.selected ? #007aff : #ffffff12; border-radius: 9px * root.s;
+                        SurfaceText { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: choice.label; color: white; font-size: 11px * root.s; vertical-alignment: center; overflow: elide; }
                         TouchArea { clicked => { root.subtitle-select(choice.id); } }
                     }
                 }
                 Rectangle {
                     x: 8px * root.s; y: parent.height - 98px * root.s;
-                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
-                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Import ASS/SSA…"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
+                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #ffffff12; border-radius: 9px * root.s;
+                    SurfaceText { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Import ASS/SSA…"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
                     TouchArea { clicked => { root.subtitle-command("import"); } }
                 }
                 Rectangle {
                     x: 8px * root.s; y: parent.height - 66px * root.s;
-                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
-                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Remove External Subtitle"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
+                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #ffffff12; border-radius: 9px * root.s;
+                    SurfaceText { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Remove External Subtitle"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
                     TouchArea { clicked => { root.subtitle-command("remove"); } }
                 }
                 Rectangle {
                     x: 8px * root.s; y: parent.height - 34px * root.s;
-                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #343943; border-radius: 4px * root.s;
-                    Text { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Close"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
+                    width: parent.width - 16px * root.s; height: 26px * root.s; background: #ffffff12; border-radius: 9px * root.s;
+                    SurfaceText { x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text: I18n.tr("Close"); color: white; font-size: 11px * root.s; vertical-alignment: center; }
                     TouchArea { clicked => { root.subtitle-command("close"); } }
                 }
             }
@@ -751,23 +752,31 @@ export component AppWindow inherits Window {
             Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
         }
         if root.reference-open: Rectangle {
-            background: #0008;
+            x: root.screen == 9 ? video-device.display-x : display.x;
+            y: root.screen == 9 ? video-device.display-y : display.y;
+            width: root.screen == 9 ? video-device.display-width : display.width;
+            height: root.screen == 9 ? video-device.display-height : display.height;
+            background: #0004;
             TouchArea { clicked => { root.command("close_shortcuts"); } }
-            Rectangle {
-                x: 12px; y: 16px; width: parent.width - 24px; height: parent.height - 32px;
-                background: #f4f5f6; border-radius: 6px; border-width: 1px; border-color: #899098;
-                Text { x: 16px; y: 10px; height: 24px; text: I18n.tr("Keyboard Shortcuts"); font-size: 18px; font-weight: 700; color: #222; }
-                Text { x: parent.width - 38px; y: 10px; width: 26px; height: 24px; text: "×"; font-size: 22px; color: #555; horizontal-alignment: center; TouchArea { clicked => { root.command("close_shortcuts"); } } }
-                Text { x: 16px; y: 40px; width: parent.width - 32px; height: 64px; text: I18n.tr("Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nDefaults: H/J/K/L = back/down/up/open.\nY: lyrics. Shift + H: Home."); font-size: 11px; color: #666; }
+            DesktopSurface {
+                x: 8px * root.s; y: 16px * root.s; width: parent.width - 16px * root.s; height: parent.height - 32px * root.s; s: root.s;
+                TouchArea { }
+                SurfaceText { x: 12px * root.s; y: 12px * root.s; width: parent.width - 48px * root.s; height: 25px * root.s; text: I18n.tr("Keyboard Shortcuts"); font-size: 14px * root.s; font-weight: 600; color: DesktopStyle.text; overflow: elide; }
+                Rectangle {
+                    x: parent.width - 34px * root.s; y: 12px * root.s; width: 24px * root.s; height: self.width; border-radius: self.width / 2; background: #dfe4eb;
+                    SurfaceText { text: "×"; font-size: 20px * root.s; color: DesktopStyle.secondary; horizontal-alignment: center; vertical-alignment: center; }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.command("close_shortcuts"); } }
+                }
+                SurfaceText { x: 12px * root.s; y: 44px * root.s; width: parent.width - 24px * root.s; height: 64px * root.s; text: I18n.tr("Shortcuts pause while editing search.\nEnter / Escape returns focus to results.\nDefaults: H/J/K/L = back/down/up/open.\nY: lyrics. Shift + H: Home."); font-size: 9px * root.s; color: DesktopStyle.secondary; wrap: word-wrap; }
                 ElasticFlickable {
-                    x: 12px; y: 112px; width: parent.width - 24px; height: parent.height - 126px;
-                    content-height: root.shortcuts.length * 46px;
+                    x: 8px * root.s; y: 114px * root.s; width: parent.width - 16px * root.s; height: parent.height - 126px * root.s; s: root.s;
+                    content-height: root.shortcuts.length * 61px * root.s;
                     for shortcut[index] in root.shortcuts: Rectangle {
-                        y: index * 46px; height: 46px;
-                        background: mod(index, 2) == 0 ? #fff : #eef0f2;
-                        Text { x: 8px; y: 4px; height: 12px; text: shortcut.category; color: #697785; font-size: 9px; }
-                        Text { x: 8px; y: 19px; height: 22px; width: parent.width - 138px; text: shortcut.title; font-size: 11px; color: #222; overflow: elide; }
-                        Text { x: parent.width - 122px; width: 114px; text: shortcut.keys; horizontal-alignment: right; vertical-alignment: center; color: #30649c; font-size: 11px; }
+                        y: index * 61px * root.s; height: 55px * root.s;
+                        background: DesktopStyle.card; border-radius: 10px * root.s;
+                        SurfaceText { x: 10px * root.s; y: 5px * root.s; height: 11px * root.s; text: shortcut.category; color: DesktopStyle.secondary; font-size: 8px * root.s; }
+                        SurfaceText { x: 10px * root.s; y: 18px * root.s; height: 17px * root.s; width: parent.width - 20px * root.s; text: shortcut.title; font-size: 11px * root.s; font-weight: 600; color: DesktopStyle.text; overflow: elide; }
+                        SurfaceText { x: 10px * root.s; y: 36px * root.s; height: 15px * root.s; width: parent.width - 20px * root.s; text: shortcut.keys; color: DesktopStyle.accent; font-size: 10px * root.s; overflow: elide; }
                     }
                 }
             }

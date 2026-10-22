@@ -6,15 +6,16 @@ export component NanoActionButton inherits Rectangle {
     in property <float> s: 1;
     in property <string> label;
     in property <bool> primary;
+    in property <bool> modern: false;
     in property <bool> enabled: true;
     in property <length> text-size: 12px * root.s;
     callback clicked;
     height: 32px * root.s;
-    border-radius: 5px * root.s; border-width: 1px * root.s;
+    border-radius: (root.modern ? 10px : 5px) * root.s; border-width: (root.modern ? 0px : 1px) * root.s;
     border-color: root.primary ? #255e99 : #9ba3ab;
-    background: !root.enabled ? #d9dee3 : (touch.pressed ? #8795a4 : (root.primary ? @linear-gradient(180deg, #619ed7, #2b6caf) : @linear-gradient(180deg, #fff, #d7dce2)));
-    Text { text: I18n.tr(root.label); font-size: root.text-size; font-weight: 600; color: !root.enabled ? #88929d : (root.primary ? white : #263441); horizontal-alignment: center; vertical-alignment: center; }
-    touch := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    background: root.modern ? (!root.enabled ? #e2e6ec : root.primary ? (touch.pressed ? #0061d0 : #007aff) : (touch.pressed ? #d7e6fc : #ffffffe0)) : (!root.enabled ? #d9dee3 : (touch.pressed ? #8795a4 : (root.primary ? @linear-gradient(180deg, #619ed7, #2b6caf) : @linear-gradient(180deg, #fff, #d7dce2))));
+    Text { text: I18n.tr(root.label); font-family: root.modern ? "Helvetica Neue" : ""; font-size: root.text-size; font-weight: 600; color: !root.enabled ? #88929d : root.modern ? (root.primary ? white : #007aff) : (root.primary ? white : #263441); horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { enabled: root.enabled; mouse-cursor: root.modern ? pointer : default; clicked => { root.clicked(); } }
 }
 
 // Scale the rounded caps with the UI, stretching only the straight center.

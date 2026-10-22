@@ -1,3 +1,4 @@
+import { DesktopStyle, DesktopSurface, DesktopCard, SurfaceText } from "desktop-surfaces.slint";
 import { NanoActionButton } from "components.slint";
 import { I18n } from "i18n.slint";
 
@@ -14,7 +15,7 @@ export component DeepSeekSettings inherits Rectangle {
     public function focus-editor() { key-input.focus(); }
     public function dismiss-editor() { focus-sink.focus(); }
     visible: root.open;
-    background: #080e1baa;
+    background: root.touch-mode ? #080e1baa : #0004;
     changed open => { if !root.open { root.dismiss-editor(); } }
     focus-sink := FocusScope { x: 0px; y: 0px; width: 0px; height: 0px; }
     TouchArea {}
@@ -23,8 +24,9 @@ export component DeepSeekSettings inherits Rectangle {
         y: root.touch-mode ? 0px : (parent.height - self.height) / 2;
         width: parent.width - (root.touch-mode ? 0px : 20px * root.s);
         height: root.touch-mode ? parent.height : 350px * root.s;
-        background: @linear-gradient(180deg, #f9fafc, #e5e9ee);
-        border-radius: 8px * root.s; border-width: 1px * root.s; border-color: #9ba6b2;
+        background: root.touch-mode ? @linear-gradient(180deg, #f9fafc, #e5e9ee) : transparent;
+        border-radius: (root.touch-mode ? 8px : 20px) * root.s; border-width: root.touch-mode ? 1px * root.s : 0px; border-color: #9ba6b2;
+        if !root.touch-mode: DesktopSurface { width: parent.width; height: parent.height; s: root.s; }
         Rectangle {
             x: 0px; y: root.touch-mode ? 52px : 0px; width: parent.width;
             height: root.touch-mode ? max(0px, parent.height - 116px) : 295px * root.s;
@@ -35,40 +37,42 @@ export component DeepSeekSettings inherits Rectangle {
                 content-width: self.width; content-height: max(self.height, (root.touch-mode ? 252px : 295px) * root.s);
                 Rectangle {
                 x: 0px; y: root.touch-mode ? -43px * root.s : 0px; width: parent.width; height: 295px * root.s;
-                Text { visible: !root.touch-mode; x: 12px * root.s; y: 12px * root.s; width: parent.width - 24px * root.s; height: 27px * root.s; text: I18n.tr("AI Services"); font-size: 16px * root.s; font-weight: 700; color: #23313e; overflow: elide; }
-                Text { x: 12px * root.s; y: 43px * root.s; width: parent.width - 24px * root.s; height: 23px * root.s; text: I18n.tr("Lyrics, translation, romaji & Genius"); font-size: 11px * root.s; color: #647181; overflow: elide; }
-                Text { x: 12px * root.s; y: 74px * root.s; width: parent.width - 24px * root.s; height: 18px * root.s; text: I18n.tr("API Key"); font-size: 12px * root.s; font-weight: 600; color: #36475b; }
+                if !root.touch-mode: DesktopCard { x: 8px * root.s; y: 65px * root.s; width: parent.width - 16px * root.s; height: 104px * root.s; s: root.s; }
+                if !root.touch-mode: DesktopCard { x: 8px * root.s; y: 170px * root.s; width: parent.width - 16px * root.s; height: 61px * root.s; s: root.s; }
+                SurfaceText { modern: !root.touch-mode; visible: !root.touch-mode; x: 12px * root.s; y: 12px * root.s; width: parent.width - 24px * root.s; height: 27px * root.s; text: I18n.tr("AI Services"); font-size: 16px * root.s; font-weight: 700; color: root.touch-mode ? #23313e : DesktopStyle.text; overflow: elide; }
+                SurfaceText { modern: !root.touch-mode; x: 12px * root.s; y: 43px * root.s; width: parent.width - 24px * root.s; height: 23px * root.s; text: I18n.tr("Lyrics, translation, romaji & Genius"); font-size: 11px * root.s; color: root.touch-mode ? #647181 : DesktopStyle.secondary; overflow: elide; }
+                SurfaceText { modern: !root.touch-mode; x: 12px * root.s; y: 74px * root.s; width: parent.width - 24px * root.s; height: 18px * root.s; text: I18n.tr("API Key"); font-size: 12px * root.s; font-weight: 600; color: root.touch-mode ? #36475b : DesktopStyle.text; }
                 Rectangle {
                     x: 12px * root.s; y: 95px * root.s; width: parent.width - 24px * root.s;
                     height: root.touch-mode ? max(32px * root.s, 44px) : 32px * root.s;
-                    background: #fff; border-radius: 4px * root.s; border-width: 1px * root.s; border-color: key-input.has-focus ? #4b96da : #b6bbc0;
-                    if root.api-key == "": Text { x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr(root.key-configured ? "Saved key configured" : "Enter API key"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
-                    key-input := TextInput { enabled: root.open; x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text <=> root.api-key; single-line: true; input-type: password; font-size: 12px * root.s; color: #23313e; vertical-alignment: center; accepted => { if root.touch-mode { model-input.focus(); } } }
+                    background: #fff; border-radius: (root.touch-mode ? 4px : 9px) * root.s; border-width: 1px * root.s; border-color: key-input.has-focus ? #4b96da : #b6bbc0;
+                    if root.api-key == "": SurfaceText { modern: !root.touch-mode; x: 8px * root.s; width: parent.width - 16px * root.s; text: I18n.tr(root.key-configured ? "Saved key configured" : "Enter API key"); font-size: 12px * root.s; color: #8793a0; vertical-alignment: center; }
+                    key-input := TextInput { enabled: root.open; x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text <=> root.api-key; single-line: true; input-type: password; font-size: 12px * root.s; color: root.touch-mode ? #23313e : DesktopStyle.text; vertical-alignment: center; accepted => { if root.touch-mode { model-input.focus(); } } }
                 }
-                Text { x: 12px * root.s; y: 133px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s; text: I18n.tr(root.key-configured ? "Leave blank to keep the saved key." : "Your key is required for DeepSeek requests."); font-size: 10px * root.s; color: #647181; wrap: word-wrap; }
-                Text { x: 12px * root.s; y: 173px * root.s; width: parent.width - 24px * root.s; height: 18px * root.s; text: I18n.tr("Model"); font-size: 12px * root.s; font-weight: 600; color: #36475b; }
+                SurfaceText { modern: !root.touch-mode; x: 12px * root.s; y: 133px * root.s; width: parent.width - 24px * root.s; height: 32px * root.s; text: I18n.tr(root.key-configured ? "Leave blank to keep the saved key." : "Your key is required for DeepSeek requests."); font-size: 10px * root.s; color: root.touch-mode ? #647181 : DesktopStyle.secondary; wrap: word-wrap; }
+                SurfaceText { modern: !root.touch-mode; x: 12px * root.s; y: 173px * root.s; width: parent.width - 24px * root.s; height: 18px * root.s; text: I18n.tr("Model"); font-size: 12px * root.s; font-weight: 600; color: root.touch-mode ? #36475b : DesktopStyle.text; }
                 Rectangle {
                     x: 12px * root.s; y: 194px * root.s; width: parent.width - 24px * root.s;
                     height: root.touch-mode ? max(32px * root.s, 44px) : 32px * root.s;
-                    background: #fff; border-radius: 4px * root.s; border-width: 1px * root.s; border-color: model-input.has-focus ? #4b96da : #b6bbc0;
-                    model-input := TextInput { enabled: root.open; x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text <=> root.model; single-line: true; font-size: 12px * root.s; color: #23313e; vertical-alignment: center; accepted => { if root.touch-mode { root.dismiss-editor(); } } }
+                    background: #fff; border-radius: (root.touch-mode ? 4px : 9px) * root.s; border-width: 1px * root.s; border-color: model-input.has-focus ? #4b96da : #b6bbc0;
+                    model-input := TextInput { enabled: root.open; x: 8px * root.s; width: parent.width - 16px * root.s; height: parent.height; text <=> root.model; single-line: true; font-size: 12px * root.s; color: root.touch-mode ? #23313e : DesktopStyle.text; vertical-alignment: center; accepted => { if root.touch-mode { root.dismiss-editor(); } } }
                 }
-                Text { x: 12px * root.s; y: 236px * root.s; width: parent.width - 24px * root.s; height: 55px * root.s; text: root.message; font-size: 11px * root.s; color: #52647a; wrap: word-wrap; }
+                SurfaceText { modern: !root.touch-mode; x: 12px * root.s; y: 236px * root.s; width: parent.width - 24px * root.s; height: 55px * root.s; text: root.message; font-size: 11px * root.s; color: #52647a; wrap: word-wrap; }
                 }
             }
         }
         if root.touch-mode: Rectangle {
             x: 0px; y: 0px; width: parent.width; height: 52px; background: #f1f3f6;
-            Text { x: 12px * root.s; y: 0px; width: parent.width - 200px; height: parent.height; text: I18n.tr("AI Services"); font-size: 16px * root.s; font-weight: 700; color: #23313e; vertical-alignment: center; overflow: elide; }
-            NanoActionButton { x: parent.width - 176px; y: 4px; width: 80px; height: 44px; s: root.s; label: "Paste"; clicked => { root.command("paste-api-key"); } }
-            NanoActionButton { x: parent.width - 88px; y: 4px; width: 80px; height: 44px; s: root.s; label: "Done"; clicked => { root.dismiss-editor(); } }
+            SurfaceText { modern: !root.touch-mode; x: 12px * root.s; y: 0px; width: parent.width - 200px; height: parent.height; text: I18n.tr("AI Services"); font-size: 16px * root.s; font-weight: 700; color: root.touch-mode ? #23313e : DesktopStyle.text; vertical-alignment: center; overflow: elide; }
+            NanoActionButton { modern: !root.touch-mode; x: parent.width - 176px; y: 4px; width: 80px; height: 44px; s: root.s; label: "Paste"; clicked => { root.command("paste-api-key"); } }
+            NanoActionButton { modern: !root.touch-mode; x: parent.width - 88px; y: 4px; width: 80px; height: 44px; s: root.s; label: "Done"; clicked => { root.dismiss-editor(); } }
         }
-        NanoActionButton {
+        NanoActionButton { modern: !root.touch-mode;
             x: 12px * root.s; y: root.touch-mode ? parent.height - 54px : 305px * root.s;
             width: (parent.width - 32px * root.s) / 2; height: root.touch-mode ? 44px : 32px * root.s;
             s: root.s; label: "Cancel"; clicked => { root.dismiss-editor(); root.command("cancel"); }
         }
-        NanoActionButton {
+        NanoActionButton { modern: !root.touch-mode;
             x: (parent.width + 8px * root.s) / 2; y: root.touch-mode ? parent.height - 54px : 305px * root.s;
             width: (parent.width - 32px * root.s) / 2; height: root.touch-mode ? 44px : 32px * root.s;
             s: root.s; primary: true; label: "Save"; clicked => { root.dismiss-editor(); root.command("save"); }

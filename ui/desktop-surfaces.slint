@@ -1,0 +1,33 @@
+// Shared materials for added desktop tools. Classic nano controls opt out by default.
+export global DesktopStyle {
+    out property <color> surface: #edf1f6fa;
+    out property <color> card: #ffffffe0;
+    out property <color> text: #1d1d1f;
+    out property <color> secondary: #737985;
+    out property <color> accent: #007aff;
+    out property <color> separator: #dce2e9;
+    out property <color> selection: #e0edff;
+}
+
+export component SurfaceText inherits Text {
+    in property <bool> modern: true;
+    font-family: root.modern ? "Helvetica Neue" : "";
+}
+
+export component DesktopSurface inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> dark;
+    background: root.dark ? #252a32fa : DesktopStyle.surface;
+    border-radius: 20px * root.s;
+    border-width: 1px * root.s;
+    border-color: root.dark ? #ffffff30 : #ffffffb0;
+    drop-shadow-blur: 12px * root.s;
+    drop-shadow-offset-y: 4px * root.s;
+    drop-shadow-color: #0004;
+}
+
+export component DesktopCard inherits Rectangle {
+    in property <float> s: 1;
+    background: DesktopStyle.card;
+    border-radius: 12px * root.s;
+}
