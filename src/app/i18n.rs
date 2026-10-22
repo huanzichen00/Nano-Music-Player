@@ -171,6 +171,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
         "音声処理が停止しました。再生をタップして再試行してください",
     ),
     // Desktop iPhone sync window and its structured CLI statuses.
+    ("Summary", "概览", "概要"),
     ("Sync to iPhone", "同步到 iPhone", "iPhone に同期"),
     ("USB Devices", "USB 设备", "USB デバイス"),
     (

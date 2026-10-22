@@ -8,11 +8,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         app::i18n::{Language, translate},
         ui::{
             AppWindow, GeniusRow, I18n, IPhoneSyncWindow, PlaylistCandidate, ShortcutRow,
-            SubtitleChoice, SyncDeviceRow,
+            SubtitleChoice, SyncDeviceRow, SyncPlaylistRow,
         },
     };
     use slint::{ComponentHandle, ModelRc, VecModel};
     use std::path::Path;
+
+    fn click(window: &slint::Window, x: f32, y: f32) {
+        use slint::platform::{PointerEventButton, WindowEvent};
+        let position = slint::LogicalPosition::new(x, y);
+        window.dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        window.dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+    }
 
     fn save(
         window: &slint::Window,
@@ -160,6 +173,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &format!("playlist-review-{suffix}"),
             )?;
             ui.set_playlist_editor_open(false);
+            ui.set_playlist_editing(true);
+            ui.invoke_open_saved_playlist_editor();
+            save(ui.window(), &directory, &format!("playlist-edit-{suffix}"))?;
+            ui.set_playlist_editor_open(false);
+            ui.set_playlist_editing(false);
             ui.set_subtitle_choices(ModelRc::new(VecModel::from(vec![
                 SubtitleChoice {
                     id: -1,
@@ -203,11 +221,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             subtitle: "USB".into(),
             selected: true,
         }])));
+        sync.set_playlists(ModelRc::new(VecModel::from(vec![SyncPlaylistRow {
+            id: "fixture".into(),
+            name: "Evening Mix".into(),
+            detail: "24 songs".into(),
+            selected: true,
+        }])));
+        sync.set_scope_all(false);
         sync.show()?;
         save(
             sync.window(),
             &directory,
             &format!("iphone-sync-{}", language.code()),
+        )?;
+        sync.window()
+            .set_size(slint::LogicalSize::new(720.0, 560.0));
+        save(
+            sync.window(),
+            &directory,
+            &format!("iphone-sync-small-{}", language.code()),
+        )?;
+        // Exercise the real tab with fixture state; there are no sync callbacks or jobs.
+        click(sync.window(), 410.0, 95.0);
+        save(
+            sync.window(),
+            &directory,
+            &format!("iphone-sync-music-{}", language.code()),
+        )?;
+        sync.set_busy(true);
+        sync.set_can_cancel(true);
+        sync.set_progress_known(true);
+        sync.set_progress(0.42);
+        sync.set_phase(translate(language, "Transferring over USB").into());
+        sync.set_conflicts("Evening Light · rating kept on iPhone".into());
+        save(
+            sync.window(),
+            &directory,
+            &format!("iphone-sync-busy-{}", language.code()),
         )?;
         sync.hide()?;
     }

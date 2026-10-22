@@ -1,12 +1,13 @@
+import { DesktopStyle, SurfaceText } from "desktop-surfaces.slint";
 import { Button, CheckBox, ProgressIndicator, RadioGroup, ScrollView } from "std-widgets.slint";
 import { I18n } from "i18n.slint";
 
 export struct SyncDeviceRow { id: string, name: string, subtitle: string, selected: bool }
 export struct SyncPlaylistRow { id: string, name: string, detail: string, selected: bool }
 
-component SyncCopy inherits Text {
+component SyncCopy inherits SurfaceText {
     font-size: 12px;
-    color: #66717f;
+    color: DesktopStyle.secondary;
     wrap: word-wrap;
     height: self.preferred-height;
 }
@@ -14,24 +15,24 @@ component SyncCopy inherits Text {
 component SyncStat inherits Rectangle {
     in property <string> value;
     in property <string> label;
-    height: 64px;
-    background: transparent;
-    Text { y: 0px; height: 35px; text: root.value; font-size: 25px; font-weight: 600; color: #26374d; }
-    SyncCopy { y: 41px; width: parent.width; text: root.label; font-size: 11px; }
+    height: 82px;
+    background: white; border-radius: 14px;
+    SurfaceText { x: 12px; y: 8px; width: parent.width - 24px; height: 35px; text: root.value; font-size: 25px; font-weight: 600; color: DesktopStyle.text; }
+    SyncCopy { x: 12px; y: 49px; width: parent.width - 24px; text: root.label; font-size: 11px; }
 }
 
 // A code-native device illustration: no downloaded assets or brand artwork.
 component SyncPhone inherits Rectangle {
     width: 92px; height: 172px;
-    background: @linear-gradient(120deg, #b2c3d2, #eff3f7 48%, #8da3b7);
-    border-radius: 18px; border-width: 1px; border-color: #9caebf;
+    background: #c8cdd4;
+    border-radius: 18px; border-width: 1px; border-color: #adb4bf;
     Rectangle {
         x: 4px; y: 4px; width: parent.width - 8px; height: parent.height - 8px;
         border-radius: 15px; background: #1d2530;
         Rectangle { x: 30px; y: 8px; width: 24px; height: 4px; border-radius: 2px; background: #535f6e; }
         Rectangle {
             x: 5px; y: 22px; width: parent.width - 10px; height: parent.height - 45px;
-            border-radius: 4px; background: @linear-gradient(155deg, #81c5e5, #4168ad 55%, #3c3f84);
+            border-radius: 6px; background: #688bd6;
             Image {
                 x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2 - 4px;
                 width: 32px; height: 38px;
@@ -48,7 +49,8 @@ export component IPhoneSyncWindow inherits Window {
     title: I18n.tr("Sync to iPhone");
     preferred-width: 1000px; preferred-height: 680px;
     min-width: 720px; min-height: 560px;
-    background: #fff;
+    background: #f5f6f8;
+    default-font-family: "Helvetica Neue";
     default-font-size: 13px;
 
     in property <[SyncDeviceRow]> devices;
@@ -86,10 +88,10 @@ export component IPhoneSyncWindow inherits Window {
 
     Rectangle {
         x: 0px; y: 0px; width: root.sidebar-width; height: root.height;
-        background: #f2f4f7;
+        background: #edf0f4;
         Rectangle { x: parent.width - 1px; width: 1px; height: parent.height; background: #dce1e7; }
-        Text { x: 20px; y: 23px; width: parent.width - 40px; height: 23px; text: "nano Music"; font-size: 17px; font-weight: 600; color: #27384c; }
-        Text { x: 20px; y: 68px; width: parent.width - 40px; height: 18px; text: I18n.tr("USB Devices"); font-size: 11px; font-weight: 600; color: #778392; }
+        SurfaceText { x: 20px; y: 23px; width: parent.width - 40px; height: 23px; text: "nano Music"; font-size: 17px; font-weight: 600; color: DesktopStyle.text; }
+        SurfaceText { x: 20px; y: 68px; width: parent.width - 40px; height: 18px; text: I18n.tr("USB Devices"); font-size: 11px; font-weight: 600; color: DesktopStyle.secondary; }
         ScrollView {
             x: 10px; y: 99px; width: parent.width - 20px; height: max(80px, parent.height - 286px);
             content-width: self.visible-width;
@@ -97,11 +99,11 @@ export component IPhoneSyncWindow inherits Window {
             horizontal-scrollbar-policy: always-off;
             for device[index] in root.devices: Rectangle {
                 x: 0px; y: index * 72px; width: parent.width; height: 66px;
-                border-radius: 7px;
-                background: device.selected ? #dce8f9 : (device-touch.has-hover ? #e7ebf0 : transparent);
-                Rectangle { x: 11px; y: 15px; width: 18px; height: 32px; border-radius: 4px; border-width: 1.5px; border-color: device.selected ? #3675bf : #7f8d9b; background: transparent; Rectangle { x: 5px; y: 25px; width: 8px; height: 2px; border-radius: 1px; background: parent.border-color; } }
-                Text { x: 40px; y: 9px; width: parent.width - 49px; height: 23px; text: device.name; color: #26394e; font-size: 13px; font-weight: 600; overflow: elide; }
-                Text { x: 40px; y: 33px; width: parent.width - 49px; height: 27px; text: device.subtitle; color: #66788b; font-size: 10px; wrap: word-wrap; }
+                border-radius: 12px;
+                background: device.selected ? DesktopStyle.selection : (device-touch.has-hover ? #e2e6ed : transparent);
+                Rectangle { x: 11px; y: 15px; width: 18px; height: 32px; border-radius: 4px; border-width: 1.5px; border-color: device.selected ? DesktopStyle.accent : #7f8d9b; background: transparent; Rectangle { x: 5px; y: 25px; width: 8px; height: 2px; border-radius: 1px; background: parent.border-color; } }
+                SurfaceText { x: 40px; y: 9px; width: parent.width - 49px; height: 23px; text: device.name; color: DesktopStyle.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                SurfaceText { x: 40px; y: 33px; width: parent.width - 49px; height: 27px; text: device.subtitle; color: DesktopStyle.secondary; font-size: 10px; wrap: word-wrap; }
                 accessible-role: list-item; accessible-label: device.name; accessible-item-selected: device.selected;
                 device-touch := TouchArea { enabled: root.editing-enabled; clicked => { root.device-selected(device.id); } }
             }
@@ -119,8 +121,8 @@ export component IPhoneSyncWindow inherits Window {
     // Device header and native, keyboard-accessible segmented tabs.
     Rectangle {
         x: root.sidebar-width; y: 0px; width: root.pane-width; height: 112px;
-        background: #fbfcfe;
-        Text { x: 28px; y: 20px; width: parent.width - 56px; height: 28px; text: root.device-name != "" ? root.device-name : I18n.tr("Sync to iPhone"); font-size: 22px; font-weight: 600; color: #26374a; overflow: elide; }
+        background: white;
+        SurfaceText { x: 28px; y: 20px; width: parent.width - 56px; height: 28px; text: root.device-name != "" ? root.device-name : I18n.tr("Sync to iPhone"); font-size: 22px; font-weight: 600; color: DesktopStyle.text; overflow: elide; }
         SyncCopy { x: 28px; y: 54px; width: parent.width - 56px; text: root.device-detail != "" ? root.device-detail : I18n.tr("Choose a connected iPhone to review your sync settings."); font-size: 11px; }
         HorizontalLayout {
             x: 28px; y: 81px; width: min(260px, parent.width - 56px); height: 28px; spacing: 0px;
@@ -145,13 +147,13 @@ export component IPhoneSyncWindow inherits Window {
             spacing: 12px; padding: 6px;
             Rectangle {
                 height: max(170px, hero-note.y + hero-note.preferred-height + 18px);
-                background: #f7f9fc; border-radius: 10px; border-width: 1px; border-color: #e4e9f0;
+                background: white; border-radius: 18px;
                 SyncPhone { x: 20px; y: 15px; width: 76px; height: 140px; }
-                hero-title := Text { x: 116px; y: 18px; width: parent.width - 138px; height: self.preferred-height; text: I18n.tr("Your music, on your iPhone"); color: #26374d; font-size: 18px; font-weight: 600; wrap: word-wrap; }
+                hero-title := SurfaceText { x: 116px; y: 18px; width: parent.width - 138px; height: self.preferred-height; text: I18n.tr("Your music, on your iPhone"); color: DesktopStyle.text; font-size: 18px; font-weight: 600; wrap: word-wrap; }
                 hero-description := SyncCopy { x: 116px; y: hero-title.y + hero-title.preferred-height + 12px; width: parent.width - 138px; text: I18n.tr("Bring your computer library, playlists and listening data with you. Preview changes before starting the transfer."); }
                 hero-note := SyncCopy { x: 116px; y: hero-description.y + hero-description.preferred-height + 18px; width: parent.width - 138px; color: #377055; text: root.preservation-note; }
             }
-            Text { height: 22px; text: I18n.tr("On this computer"); color: #344458; font-size: 14px; font-weight: 600; }
+            SurfaceText { height: 22px; text: I18n.tr("On this computer"); color: DesktopStyle.text; font-size: 14px; font-weight: 600; }
             HorizontalLayout {
                 spacing: 14px;
                 SyncStat { value: root.library-song-count; label: I18n.tr("Songs"); }
@@ -166,14 +168,14 @@ export component IPhoneSyncWindow inherits Window {
             visible: root.tab == 1;
             width: content.visible-width; height: self.preferred-height;
             spacing: 15px; padding: 6px;
-            Text { height: 23px; text: I18n.tr("Music sync settings"); color: #2d3e53; font-size: 17px; font-weight: 600; }
+            SurfaceText { height: 23px; text: I18n.tr("Music sync settings"); color: DesktopStyle.text; font-size: 17px; font-weight: 600; }
             RadioGroup {
                 enabled: root.editing-enabled;
                 RadioButton { text: I18n.tr("Entire music library"); checked: root.scope-all; toggled => { if self.checked && root.editing-enabled { root.scope-all = true; root.command("options-changed"); } } }
                 RadioButton { text: I18n.tr("Selected playlists"); checked: !root.scope-all; toggled => { if self.checked && root.editing-enabled { root.scope-all = false; root.command("options-changed"); } } }
             }
             if !root.scope-all: Rectangle {
-                height: 184px; border-width: 1px; border-color: #dce3ec; border-radius: 6px; background: #fbfcfe;
+                height: 184px; border-radius: 14px; background: white;
                 ScrollView {
                     x: 5px; y: 5px; width: parent.width - 10px; height: parent.height - 10px;
                     content-width: self.visible-width;
@@ -189,7 +191,7 @@ export component IPhoneSyncWindow inherits Window {
             }
             SyncCopy { text: root.selection-summary != "" ? root.selection-summary : I18n.tr("Preview the selection to calculate what will be transferred."); color: #426d9d; }
             Rectangle { height: 1px; background: #e5eaf0; }
-            Text { height: 20px; text: I18n.tr("Include with your music"); font-size: 13px; font-weight: 600; color: #344458; }
+            SurfaceText { height: 20px; text: I18n.tr("Include with your music"); font-size: 13px; font-weight: 600; color: DesktopStyle.text; }
             CheckBox { enabled: root.editing-enabled; text: I18n.tr("Lyrics and translations"); checked <=> root.include-lyrics; toggled => { root.command("options-changed"); } }
             SyncCopy { text: I18n.tr("Keep available lyrics, translations and romaji alongside each song."); font-size: 11px; }
             CheckBox { enabled: root.editing-enabled; text: I18n.tr("Ratings and listening history"); checked <=> root.include-statistics; toggled => { root.command("options-changed"); } }
@@ -203,10 +205,10 @@ export component IPhoneSyncWindow inherits Window {
     // scrolls independently so file paths and conflict details remain readable.
     Rectangle {
         x: root.sidebar-width; y: root.height - 188px; width: root.pane-width; height: 188px;
-        background: #f9fafc;
-        Rectangle { width: parent.width; height: 1px; background: #dfe5ec; }
-        Text { x: 28px; y: 12px; width: parent.width - 122px; height: 22px; text: root.phase != "" ? root.phase : I18n.tr("Ready to preview"); font-size: 12px; font-weight: 600; color: #34465d; overflow: elide; }
-        Text { x: parent.width - 86px; y: 12px; width: 58px; height: 22px; text: root.busy && root.progress-known ? round(clamp(root.progress, 0, 1) * 100) + "%" : ""; font-size: 11px; color: #697a8d; horizontal-alignment: right; }
+        background: transparent;
+        Rectangle { x: 18px; y: 0px; width: parent.width - 36px; height: parent.height - 10px; border-radius: 18px; background: white; }
+        SurfaceText { x: 28px; y: 12px; width: parent.width - 122px; height: 22px; text: root.phase != "" ? root.phase : I18n.tr("Ready to preview"); font-size: 12px; font-weight: 600; color: DesktopStyle.text; overflow: elide; }
+        SurfaceText { x: parent.width - 86px; y: 12px; width: 58px; height: 22px; text: root.busy && root.progress-known ? round(clamp(root.progress, 0, 1) * 100) + "%" : ""; font-size: 11px; color: DesktopStyle.secondary; horizontal-alignment: right; }
         ProgressIndicator { x: 28px; y: 39px; width: parent.width - 56px; height: 6px; progress: clamp(root.progress, 0, 1); indeterminate: (root.busy || root.scanning) && !root.progress-known; }
         ScrollView {
             x: 24px; y: 54px; width: parent.width - 48px; height: 76px;
