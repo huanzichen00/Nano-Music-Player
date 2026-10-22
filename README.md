@@ -72,6 +72,8 @@ All app shortcuts pause while the search field has focus, preserving native text
 
 On macOS, **Option + R** is a native global shortcut that restores and focuses the running player from other applications. **Option + Shift + R** hides the player while playback continues; Option + R brings it back. These work independently of AeroSpace and the in-app keymap. See [macOS integration](docs/MACOS_INTEGRATION.md#focus-with-option--r).
 
+Added desktop tools—including AI Services, shortcut dialogs, playlist editing, Genius, podcast subscription, subtitles and computer-side iPhone sync—share rounded surfaces and blue actions. See the [desktop UI previews and verification](docs/DESKTOP_UI.md). The classic iPod screens and iPhone interface keep their existing appearance.
+
 Available lyrics appear by default over the artwork in a translucent, left-aligned panel. Click the cover or lyrics to toggle this overlay together with the seek bar, repeat, shuffle and album track-list controls. Artwork fits the available region without cropping, including portrait and landscape images. Transport and volume remain available at the bottom. Lists and lyrics accept mouse-wheel, trackpad and pointer scrolling, with [rubber-band resistance and spring-back](docs/OVERSCROLL.md) at their boundaries. Horizontal scrolling changes Home pages; the page-dot area also supports a mouse drag. Drag the bezel to move the window. Resize its edges or use zoom shortcuts; the display keeps its aspect ratio. Device Mode has a rounded transparent outer silhouette. **Settings → Appearance → Keep on Top** (also in the native View menu) starts enabled and persists your choice. macOS three-finger dragging is controlled by the system's trackpad settings.
 
 ## Podcasts (desktop)
