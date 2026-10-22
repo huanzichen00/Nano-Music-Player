@@ -500,8 +500,10 @@ mod tests {
     }
 
     fn v6_defaults() -> Keymap {
-        let mut map = Keymap::default();
-        map.version = 6;
+        let mut map = Keymap {
+            version: 6,
+            ..Keymap::default()
+        };
         map.bindings.retain(|binding| {
             !matches!(
                 binding.action,

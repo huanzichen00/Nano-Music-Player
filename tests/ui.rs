@@ -661,7 +661,11 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     click(&ui, 173.0, 256.0);
     assert!(ui.get_shortcut_recording());
     tap(&ui, "d");
-    assert_eq!(ui.get_shortcut_keys(), "X / D");
+    assert!(ui.get_shortcut_recording());
+    assert!(ui.get_shortcut_message().contains("already assigned"));
+    assert!(!ui.get_track_details_open());
+    tap(&ui, "v");
+    assert_eq!(ui.get_shortcut_keys(), "X / V");
     snapshot(&ui, "shortcut-saved");
     ui.invoke_shortcut_command("done".into());
     let saved =
@@ -671,7 +675,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         saved.bindings,
         controller.borrow().dispatcher.keymap.bindings
     );
-    assert_eq!(saved.labels(Action::SelectNext), "X / D");
+    assert_eq!(saved.labels(Action::SelectNext), "X / V");
     tap(&ui, "j");
     assert_eq!(
         ui.get_selected(),
@@ -680,7 +684,7 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
     );
     tap(&ui, "x");
     assert_eq!(ui.get_selected(), 2);
-    tap(&ui, "d");
+    tap(&ui, "v");
     assert_eq!(ui.get_selected(), 3);
     tap(&ui, "k");
     tap(&ui, "k");
@@ -1060,6 +1064,28 @@ fn actual_slint_key_capture_search_focus_scroll_and_display_modes() {
         assert_eq!(controller.borrow().state.tracks[1].lyrics, original_lyrics);
         ui.invoke_command("home".into());
         snapshot(&ui, &format!("home-{}", language.code()));
+    }
+    // A matching cached annotation keeps R's display-toggle behavior; missing
+    // and stale annotations exercise generation in desktop_shortcuts.rs.
+    {
+        use nano_music_player::library::romaji::{Romaji, contains_japanese_script};
+        let mut c = controller.borrow_mut();
+        let track = &c.state.tracks[1];
+        let path = track.path.clone();
+        let lines = track
+            .lyrics
+            .lines()
+            .iter()
+            .map(|line| {
+                if contains_japanese_script(line) {
+                    "fixture".into()
+                } else {
+                    String::new()
+                }
+            })
+            .collect();
+        let cached = Romaji::new(track.lyrics.clone(), lines, "fixture".into()).unwrap();
+        c.state.romaji.insert(path, cached);
     }
     // R is contextual: only the song interface toggles romaji; inputs keep their letters.
     controller.borrow_mut().execute(&ui, Action::NowPlaying);

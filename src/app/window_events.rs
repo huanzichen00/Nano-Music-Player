@@ -21,12 +21,10 @@ impl NativeResizeSignals {
                 self.occluded.set(*occluded);
                 self.invalidate();
             }
-            WindowEvent::Resized(_) => {
+            WindowEvent::Resized(_) if native_live_resize(window) == Some(true) => {
                 // Capture this in the event hook: AppKit can finish the drag
                 // before the next controller timer observes inLiveResize.
-                if native_live_resize(window) == Some(true) {
-                    self.live_resize_seen.set(true);
-                }
+                self.live_resize_seen.set(true);
             }
             _ => {}
         }

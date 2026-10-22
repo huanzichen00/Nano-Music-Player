@@ -180,6 +180,15 @@ fn home_dismisses_overlays_genius_respects_bindings_and_playlist_drafts_survive(
     assert!(!directory.path().join("deepseek.json").exists());
 
     // Modal navigation uses the customized semantic bindings, not hardcoded letters.
+    // Free B before assigning it to Back; version 7 uses it for device info.
+    {
+        let mut c = controller.borrow_mut();
+        c.dispatcher.keymap = c
+            .dispatcher
+            .keymap
+            .edit(Action::DeviceInformation, None, true)
+            .unwrap();
+    }
     for (action, key) in [
         (Action::Home, Key::Function(6)),
         (Action::NavigateLeft, Key::Letter('b')),
