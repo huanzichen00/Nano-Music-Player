@@ -105,6 +105,11 @@ pub struct Controller {
     last_window_size: slint::LogicalSize,
     last_window_scale_factor: f32,
     resize_debouncer: super::geometry::ResizeDebouncer,
+    resize_guard: super::geometry::ResizeGuard,
+    native_resize: Rc<super::window_events::NativeResizeSignals>,
+    native_resize_revision: u64,
+    window_menu_height: Option<f32>,
+    menu_measurement: Option<(u64, f32)>,
     resize_clock: std::time::Instant,
     last_notice: String,
     notice_since: std::time::Instant,
@@ -205,6 +210,11 @@ impl Controller {
             last_window_size: slint::LogicalSize::new(0.0, 0.0),
             last_window_scale_factor: 0.0,
             resize_debouncer: super::geometry::ResizeDebouncer::default(),
+            resize_guard: super::geometry::ResizeGuard::default(),
+            native_resize: Rc::new(super::window_events::NativeResizeSignals::default()),
+            native_resize_revision: 0,
+            window_menu_height: None,
+            menu_measurement: None,
             resize_clock: std::time::Instant::now(),
             last_notice: String::new(),
             notice_since: std::time::Instant::now(),
@@ -1509,13 +1519,14 @@ impl Controller {
 
     fn resize(&mut self, ui: &AppWindow) {
         self.resize_debouncer.reset();
+        self.resize_guard.reset();
+        self.native_resize.clear_live_resize();
         ui.set_device_mode(self.state.device_mode);
         ui.set_video_landscape(self.state.landscape_video());
         let (width, height) = self.base_size();
         let scale_factor = ui.window().scale_factor();
         self.last_window_scale_factor = scale_factor;
-        let current_size = ui.window().size().to_logical(scale_factor);
-        let menu_height = (current_size.height - ui.get_content_height()).max(0.0);
+        let menu_height = self.window_menu_height.unwrap_or(0.0);
         self.last_window_size = slint::LogicalSize::new(
             width * self.state.zoom,
             height * self.state.zoom + menu_height,
@@ -1524,6 +1535,14 @@ impl Controller {
     }
 
     fn maintain_aspect_ratio(&mut self, ui: &AppWindow) {
+        let now_ms = self.resize_clock.elapsed().as_millis() as u64;
+        let revision = self.native_resize.revision();
+        if revision != self.native_resize_revision {
+            self.native_resize_revision = revision;
+            self.resize_guard.invalidate(now_ms);
+            self.resize_debouncer.reset();
+        }
+        let context = self.native_resize.context(ui.window());
         let scale_factor = ui.window().scale_factor();
         if self.last_window_scale_factor > 0.0
             && (scale_factor - self.last_window_scale_factor).abs() > f32::EPSILON
@@ -1534,20 +1553,67 @@ impl Controller {
             // Reapply it directly: mixing the old layout's content height with
             // the new DPI here can also invent extra menu chrome.
             self.last_window_scale_factor = scale_factor;
+            self.resize_guard.invalidate(now_ms);
             self.resize_debouncer.reset();
             ui.window().set_size(self.last_window_size);
             return;
         }
         self.last_window_scale_factor = scale_factor;
         let size = ui.window().size().to_logical(scale_factor);
-        let content_height = ui.get_content_height();
+        // Slint's Window item excludes its in-window MenuBar. Measure it once
+        // from an acknowledged application request, then keep that inset out
+        // of all workspace/window-manager measurements.
+        let rounding = (1.0 / scale_factor).max(0.5) + 0.01;
+        if self.window_menu_height.is_none()
+            && (size.width - self.last_window_size.width).abs() <= rounding
+            && (size.height - self.last_window_size.height).abs() <= rounding
+        {
+            let inset = (size.height - ui.get_content_height()).max(0.0);
+            if ui.get_content_height() > 0.0 && inset.is_finite() {
+                let (since, previous) = self.menu_measurement.get_or_insert((now_ms, inset));
+                if (inset - *previous).abs() > 0.5 {
+                    *since = now_ms;
+                    *previous = inset;
+                } else if now_ms.saturating_sub(*since)
+                    >= super::geometry::ResizeDebouncer::QUIET_MS
+                {
+                    self.window_menu_height = Some(inset);
+                    self.menu_measurement = None;
+                    if inset > 0.0 {
+                        self.resize(ui);
+                        return;
+                    }
+                }
+            }
+        } else if self.window_menu_height.is_none() {
+            self.menu_measurement = None;
+        }
+        let menu_height = self.window_menu_height.unwrap_or(0.0);
+        match self.resize_guard.observe(
+            now_ms,
+            (size.width, size.height),
+            (self.last_window_size.width, self.last_window_size.height),
+            context,
+        ) {
+            super::geometry::ResizeAction::Ignore => {
+                self.resize_debouncer.reset();
+                return;
+            }
+            super::geometry::ResizeAction::RestoreRequested => {
+                self.resize_debouncer.reset();
+                ui.window().set_size(self.last_window_size);
+                return;
+            }
+            super::geometry::ResizeAction::ObserveUserResize => {}
+        }
+        let content_height = (size.height - menu_height).max(0.0);
         if let Some(zoom) = self.resize_debouncer.observe(
             self.resize_clock.elapsed().as_millis() as u64,
             (size.width, size.height),
             (self.last_window_size.width, self.last_window_size.height),
             content_height,
             self.base_size(),
-            (size.height - content_height).max(0.0),
+            menu_height,
         ) {
             self.state.zoom = zoom;
             self.rows_dirty = true;
@@ -1555,15 +1621,26 @@ impl Controller {
         }
     }
 
-    pub fn save_settings(&mut self, ui: &AppWindow) {
+    pub fn save_settings(&mut self, _ui: &AppWindow) {
         self.save_video_progress(true);
         self.save_podcast_progress();
-        let size = ui.window().size().to_logical(ui.window().scale_factor());
+        // Persist an accepted logical request, never an intermediate WM frame.
+        let size = if self.last_window_size.width > 0.0 && self.last_window_size.height > 0.0 {
+            self.last_window_size
+        } else {
+            // Commands can save settings before initialize() creates the first
+            // native frame (including the headless controller tests).
+            let (width, height) = self.base_size();
+            slint::LogicalSize::new(
+                width * self.state.zoom,
+                height * self.state.zoom + self.window_menu_height.unwrap_or(0.0),
+            )
+        };
         let (saved_width, saved_height) = if self.state.landscape_video() {
             crate::video::orientation::saved_size(
                 self.state.device_mode,
                 self.state.zoom,
-                (size.height - ui.get_content_height()).max(0.0),
+                self.window_menu_height.unwrap_or(0.0),
             )
         } else {
             (size.width, size.height)
@@ -3604,7 +3681,9 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
     // Native wheel activity must survive temporarily disabled/translating views.
     // Observe only: ordinary scrolling and Slint event dispatch remain unchanged.
     let scroll_activity_ui = ui.as_weak();
-    ui.window().on_winit_window_event(move |_, event| {
+    let native_resize = controller.borrow().native_resize.clone();
+    ui.window().on_winit_window_event(move |window, event| {
+        native_resize.observe(window, event);
         let Some(ui) = scroll_activity_ui.upgrade() else {
             return EventResult::Propagate;
         };

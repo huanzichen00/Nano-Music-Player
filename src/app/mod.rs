@@ -9,6 +9,7 @@ pub mod state;
 pub mod statistics_state;
 mod thumbnails;
 mod video_thumbnails;
+mod window_events;
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     use slint::{ComponentHandle, Timer, TimerMode};

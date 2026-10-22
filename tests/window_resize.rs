@@ -131,6 +131,24 @@ fn backing_scale_changes_preserve_the_players_logical_size_and_zoom() {
         );
     }
 
+    // A WM frame can arrive immediately before an unrelated settings save.
+    // Persist the accepted logical request, never this unclassified native size.
+    let external = slint::PhysicalSize::new(1000, 1400);
+    native.physical_size.set(external);
+    ui.window().dispatch_event(WindowEvent::Resized {
+        size: external.to_logical(ui.window().scale_factor()),
+    });
+    controller.save_settings(&ui);
+    let saved =
+        nano_music_player::app::config::Settings::load(&directory.path().join("settings.json"))
+            .unwrap();
+    assert!((saved.zoom - original_zoom).abs() < 0.001);
+    assert!((saved.window_width.unwrap() - original_size.width).abs() <= 1.0);
+    assert!((saved.window_height.unwrap() - original_size.height).abs() <= 1.0);
+    ui.window().set_size(original_size);
+    native.acknowledge_resize();
+    settle(&mut controller, &ui, native);
+
     // A genuine drag after the transition must still update zoom and preserve
     // the device proportions, rather than leaving the window size locked.
     let dragged_width = original_size.width + 60.0;
@@ -138,7 +156,19 @@ fn backing_scale_changes_preserve_the_players_logical_size_and_zoom() {
         .set_size(slint::LogicalSize::new(dragged_width, original_size.height));
     native.acknowledge_resize();
     settle(&mut controller, &ui, native);
-    assert!((size().width - dragged_width).abs() <= 1.0);
+    assert!(
+        (size().width - dragged_width).abs() <= 1.0,
+        "requested {dragged_width}, actual {:?}, zoom {} -> {}",
+        size(),
+        original_zoom,
+        controller.state.zoom
+    );
     assert!(controller.state.zoom > original_zoom);
-    assert!((size().width / ui.get_content_height() - 39.6 / 76.5).abs() < 0.002);
+    assert!(
+        (size().width / ui.get_content_height() - 39.6 / 76.5).abs() < 0.002,
+        "aspect: native {:?}, content {}, zoom {}",
+        size(),
+        ui.get_content_height(),
+        controller.state.zoom
+    );
 }

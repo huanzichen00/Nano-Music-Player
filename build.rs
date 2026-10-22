@@ -6,7 +6,7 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("nano_desktop_status");
-        for framework in ["Foundation", "CoreAudio", "IOKit"] {
+        for framework in ["Foundation", "AppKit", "CoreAudio", "IOKit"] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
     }

@@ -1,5 +1,6 @@
 // Desktop-only, read-only system services. No Bluetooth connection or microphone access.
 #import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
 #import <CoreAudio/CoreAudio.h>
 #import <IOKit/ps/IOPowerSources.h>
 #import <IOKit/ps/IOPSKeys.h>
@@ -7,6 +8,15 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
+
+// Borrowed from winit for this read only. Never retain a window/view or install
+// an AppKit observer here; the caller records resize intent in its event hook.
+bool nm_desktop_view_is_live_resizing(void *raw_view) {
+    if (!raw_view || ![NSThread isMainThread]) return false;
+    __unsafe_unretained NSView *view = (__bridge NSView *)raw_view;
+    return [view inLiveResize];
+}
 
 static AudioObjectPropertyAddress NMAddress(AudioObjectPropertySelector selector,
                                            AudioObjectPropertyScope scope) {
