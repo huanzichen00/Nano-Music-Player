@@ -7,6 +7,7 @@ component HomeIconPage inherits Rectangle {
     in property <float> s;
     in property <int> selected;
     in property <int> page;
+    in property <bool> statistics-enabled: false;
     callback activated(int);
     background: transparent;
     in property <bool> active: true;
@@ -28,12 +29,22 @@ component HomeIconPage inherits Rectangle {
         clicked => { if root.active { root.activated(index); } }
     }
 
+    if root.page == 1 && root.statistics-enabled: AppIcon {
+        s: root.s;
+        x: 18px * root.s; y: 139px * root.s;
+        label: I18n.tr("Statistics");
+        icon: @image-url("../assets/icons/statistics.svg"); tint: #4686aa;
+        selected: root.active && root.selected == 2;
+        clicked => { if root.active { root.activated(2); } }
+    }
 }
 
 export component HomeView inherits Rectangle {
     in property <float> s;
     in property <int> selected;
     in property <int> page;
+    // The mobile shell also imports HomeView and retains its original entries.
+    in property <bool> statistics-enabled: false;
     in property <int> page-direction: 1;
     in property <bool> smooth-slides: true;
     in property <bool> navigation-enabled: true;
@@ -141,6 +152,7 @@ export component HomeView inherits Rectangle {
                 HomeIconPage {
                     x: 0px; y: 0px; width: parent.width; height: parent.height; s: root.s;
                     page: 0; selected: root.selected; active: root.navigation-enabled && root.page == 0;
+                    statistics-enabled: root.statistics-enabled;
                     activated(index) => { root.activated(index); }
                 }
             }
@@ -150,6 +162,7 @@ export component HomeView inherits Rectangle {
                 HomeIconPage {
                     x: 0px; y: 0px; width: parent.width; height: parent.height; s: root.s;
                     page: 1; selected: root.selected; active: root.navigation-enabled && root.page == 1;
+                    statistics-enabled: root.statistics-enabled;
                     activated(index) => { root.activated(index); }
                 }
             }

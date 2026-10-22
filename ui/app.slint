@@ -5,6 +5,7 @@ export { BackScroll }
 import { ElasticFlickable, WheelGesture } from "overscroll.slint";
 export { WheelGesture }
 import { HomeView } from "home.slint";
+import { StatisticsNote } from "statistics.slint";
 import "fonts/maple-mono/MapleMono-Regular.ttf";
 import "fonts/maple-mono/MapleMono-SemiBold.ttf";
 import "fonts/maple-mono/MapleMono-Bold.ttf";
@@ -83,6 +84,8 @@ export component AppWindow inherits Window {
     in property <bool> previous-music-list;
     in property <bool> previous-playlist-content;
     in property <bool> previous-shuffle-list;
+    in property <bool> previous-statistics-page;
+    in property <string> previous-statistics-note;
     in property <bool> previous-rating-visible;
     in property <string> previous-rating-title;
     in property <int> previous-rating;
@@ -105,7 +108,7 @@ export component AppWindow inherits Window {
             }
         }
     }
-    private property <bool> previous-artwork-list: root.previous-screen == 1 && (root.previous-podcast-list || (root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork) || (root.previous-rows.length > 1 && root.previous-rows[1].icon == 9));
+    private property <bool> previous-artwork-list: root.previous-screen == 1 && !root.previous-statistics-page && (root.previous-podcast-list || (root.previous-rows.length > (root.previous-shuffle-list ? 1 : 0) && root.previous-rows[root.previous-shuffle-list ? 1 : 0].show-artwork) || (root.previous-rows.length > 1 && root.previous-rows[1].icon == 9));
     out property <length> transition-offset: root.transition-active ? root.current-screen-x : 0px;
     out property <length> previous-transition-offset: root.transition-active ? root.previous-screen-x : 0px;
     out property <length> home-transition-offset: home.page-slide-offset;
@@ -234,6 +237,8 @@ export component AppWindow inherits Window {
     in property <bool> playlist-list-editing;
     in property <bool> playlist-content: false;
     in property <bool> shuffle-list: false;
+    in property <bool> statistics-page;
+    in property <string> statistics-note;
     in property <bool> playlist-editing: false;
     out property <bool> playlist-reviewing: playlist-editor.reviewing;
     in property <int> active-lyric: -1;
@@ -243,7 +248,7 @@ export component AppWindow inherits Window {
     out property <float> list-row-height: library.row-height / 1px;
     out property <float> list-viewport-height: library.height / 1px;
     out property <float> list-header-height: library.header-height / 1px;
-    private property <bool> artwork-list: root.screen == 1 && (root.podcast-list || (root.rows.length > (root.shuffle-list ? 1 : 0) && root.rows[root.shuffle-list ? 1 : 0].show-artwork) || (root.rows.length > 1 && root.rows[1].icon == 9));
+    private property <bool> artwork-list: root.screen == 1 && !root.statistics-page && (root.podcast-list || (root.rows.length > (root.shuffle-list ? 1 : 0) && root.rows[root.shuffle-list ? 1 : 0].show-artwork) || (root.rows.length > 1 && root.rows[1].icon == 9));
     in-out property <length> lyric-scroll-y;
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
@@ -459,6 +464,7 @@ export component AppWindow inherits Window {
                 x: root.transition-active ? root.previous-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
             previous-home := HomeView {
                 visible: root.previous-screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                statistics-enabled: true;
                 navigation-enabled: false;
                 page: root.previous-home-page; selected: root.previous-selected; page-direction: root.previous-home-transition-direction; smooth-slides: false;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
@@ -493,10 +499,15 @@ export component AppWindow inherits Window {
                     TouchArea { clicked => { root.command("back"); keyboard.focus(); } }
                 }
             }
+            previous-statistics-note := StatisticsNote {
+                visible: root.previous-screen == 1 && root.previous-statistics-page && root.previous-statistics-note != "";
+                y: 64px * root.s; height: self.visible ? 64px * root.s : 0px;
+                s: root.s; text: root.previous-statistics-note;
+            }
             previous-library := LibraryView {
                 visible: root.previous-screen == 1 || root.previous-screen == 3 || root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8;
                 enabled: false;
-                y: (root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list ? 26px : 64px) * root.s; height: 432px * root.s - self.y; s: root.s;
+                y: (root.previous-artwork-list || root.previous-playlist-list || root.previous-playlist-content || root.previous-music-list ? 26px : 64px) * root.s + previous-statistics-note.height; height: 432px * root.s - self.y; s: root.s;
                 playlist-list: root.previous-playlist-list; music-list: root.previous-music-list; playlist-content: root.previous-playlist-content; shuffle-list: root.previous-shuffle-list;
                 rating-visible: root.previous-rating-visible; rating-title: root.previous-rating-title; rating: root.previous-rating;
                 compact-title: root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8; rows: root.previous-rows; selected: root.previous-selected; search: root.previous-screen == 3;
@@ -532,6 +543,7 @@ export component AppWindow inherits Window {
                 x: root.transition-active ? root.current-screen-x : 0px; y: 0px; width: parent.width; height: parent.height;
             home := HomeView {
                 visible: root.screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
+                statistics-enabled: true;
                 navigation-enabled: root.screen == 0 && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 page: root.home-page; selected: root.selected; page-direction: root.home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
@@ -566,13 +578,18 @@ export component AppWindow inherits Window {
                     TouchArea { clicked => { root.command("back"); keyboard.focus(); } }
                 }
             }
+            statistics-note := StatisticsNote {
+                visible: root.screen == 1 && root.statistics-page && root.statistics-note != "";
+                y: 64px * root.s; height: self.visible ? 64px * root.s : 0px;
+                s: root.s; text: root.statistics-note;
+            }
             library := LibraryView {
                 navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8;
                 // A fresh Back gesture can interrupt the slide; the outgoing
                 // host remains shielded and BackScroll consumes momentum tails.
                 enabled: (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
-                y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: root.podcast-detail ? min(192px * root.s, root.rows.length * ListMetrics.text-row-height * root.s * 1px) : 432px * root.s - self.y; s: root.s;
+                y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s + statistics-note.height; height: root.podcast-detail ? min(192px * root.s, root.rows.length * ListMetrics.text-row-height * root.s * 1px) : 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
                 fit-settings: root.settings-root;
                 rating-visible: root.rating-visible; rating-enabled: root.rating-enabled;

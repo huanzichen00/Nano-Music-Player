@@ -1,0 +1,19 @@
+// Statistics uses the ordinary LibraryView for rows and input handling. Keep its
+// small range/retention/status note outside that shared component so every other
+// library page retains its original viewport and layout.
+export component StatisticsNote inherits Rectangle {
+    in property <float> s: 1;
+    in property <string> text;
+    background: #f0f3f5;
+    clip: true;
+    Text {
+        x: 8px * root.s; y: 4px * root.s;
+        width: parent.width - 16px * root.s; height: parent.height - 8px * root.s;
+        text: root.text; font-size: 12px * root.s; color: #4b5863;
+        wrap: word-wrap; vertical-alignment: center;
+    }
+    Rectangle {
+        y: parent.height - 1px * root.s; height: 1px * root.s;
+        background: #c8d0d6;
+    }
+}
