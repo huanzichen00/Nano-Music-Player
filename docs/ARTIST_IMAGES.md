@@ -17,6 +17,8 @@
 
 Statistics 的 Top Artists、Overview 艺人预览及艺人详情优先使用照片，找不到时继续使用现有封面／占位图。专辑、歌曲和普通曲库浏览保留原封面。艺人详情上方的图片署名可点击打开 Commons 文件页，查看完整作者与许可信息。封面异步加载不会覆盖已取得的艺人照。
 
+艺人照片保持原始宽高比：排行榜缩略图完整缩放至方框内；详情竖图采用左图右文的 126px 紧凑头部，横图／方图采用 184px 头部，完整图片上方保留署名、名称与统计在图片下方。照片不被文字覆盖，四个艺人操作仍可同时显示。图片未就绪时继续使用原有封面横幅。`tests/artist_photo_layout.rs` 以四边彩色标记和实际像素宽高比验证 Overview、排行榜与详情，在 Device／Screen 两模式及 0.75／1.0／1.5 三种缩放下不裁切、不拉伸。
+
 接口依据：[MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API)、[请求限流](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting)、[MediaWiki imageinfo](https://www.mediawiki.org/wiki/API:Imageinfo)、[Commons 复用说明](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)。
 
 ## 存储与恢复
@@ -81,3 +83,5 @@ Rust channel 本身不持久化。入队指令发送成功，不等于已经写�
 本次验证（2026-10-22）：`cargo fmt --all -- --check`、`cargo check`、`cargo clippy --all-targets` 均通过；`cargo test --no-fail-fast` 为 519 通过、0 失败、28 忽略。单独执行 Blackfield 真实公共链路和原生播放／Gapless／统计回归，各 1 项通过。`cargo check --features mobile` 与 `cargo check --lib --target aarch64-apple-ios-sim` 通过。保留既有 Genius／translation 的两处 `fetch_update` 弃用警告及 iOS NativeBridge 编译警告；其余忽略的原生／开发测试未执行，Windows／Linux 构建及真实付费 DeepSeek 请求未验证。
 
 2026-10-23 修复验证：后台 33 项离线测试及 1 项真实公共链路测试通过；真实测试清除了全部 HTTP／HTTPS／ALL_PROXY 环境变量，使用 macOS 已有系统代理下载与重启缓存。暂存补查从现有曲库准备了 14 张可验证照片，磁盘空间不足时保留已完成缓存，清理编译产物后续跑完成；首次完整构建也曾因磁盘空间不足中断。维护工具已验证拒绝将实际配置目录当作输出，即使指定 `--resume` 也会拒绝。上述补查未发送 DeepSeek 请求，未改动用户的模型或密钥设置。
+
+同日回归结果：网络／身份修复后的完整 `cargo test --no-fail-fast` 为 526 通过、0 失败、28 忽略。照片比例调整后，署名／队列 UI、照片边缘与宽高比像素检查、填充对齐、统计导航渲染及详情回归共 19 项通过；该视觉调整未重复运行其余完整套件。默认编译、fmt 与 Clippy 通过，mobile／iOS 模拟器编译在网络修复后通过；保留既有 Rust 弃用及 NativeBridge 警告。网络修复版 Release 已通过 arm64、Bundle ID、ad-hoc 签名及安装副本 SHA-256 校验。用户确认重启后，暂存照片已备份合并，实际排行榜和艺人详情显示照片及署名；其余 3 项保留在原队列继续重试。

@@ -28,9 +28,9 @@ component StatisticsArtwork inherits Rectangle {
     in property <image> artwork;
     in property <bool> artist;
     border-radius: 3px * root.s;
-    background: @linear-gradient(145deg, #71afe0, #2667a8 62%, #23496d);
+    background: root.artist && root.artwork.width > 0 ? #e7ebef : @linear-gradient(145deg, #71afe0, #2667a8 62%, #23496d);
     clip: true;
-    if root.artwork.width > 0: Image { source: root.artwork; width: parent.width; height: parent.height; image-fit: cover; }
+    if root.artwork.width > 0: Image { x: 0px; y: 0px; source: root.artwork; width: parent.width; height: parent.height; image-fit: root.artist ? contain : cover; }
     if root.artwork.width == 0: Image {
         x: parent.width * 0.2; y: parent.height * 0.2; width: parent.width * 0.6; height: parent.height * 0.6;
         source: root.artist ? @image-url("../assets/icons/nano/artists.png") : @image-url("../assets/icons/nano/songs.png");
@@ -216,8 +216,10 @@ export component StatisticsView inherits Rectangle {
     in property <int> navigation-generation;
     in property <string> text-font-family;
     in-out property <length> scroll-y;
+    private property <bool> artist-photo: root.page == 8 && root.summary.photo-credit != "" && root.summary.detail-artwork.width > 0;
+    private property <bool> portrait-photo: root.artist-photo && root.summary.detail-artwork.width < root.summary.detail-artwork.height;
     out property <length> row-height: (root.page == 6 ? 24px : root.page == 8 || root.page == 9 ? 36px : root.page == 7 ? 42px : root.page == 1 ? 44px : 48px) * root.s;
-    out property <length> header-height: (root.page == 0 ? 118px : root.page == 1 ? 254px : root.page >= 2 && root.page <= 4 ? 34px : root.page == 6 ? 146px : root.page == 8 ? 126px : root.page == 9 ? 92px : 0px) * root.s;
+    out property <length> header-height: (root.page == 0 ? 118px : root.page == 1 ? 254px : root.page >= 2 && root.page <= 4 ? 34px : root.page == 6 ? 146px : root.page == 8 ? (root.artist-photo && !root.portrait-photo ? 184px : 126px) : root.page == 9 ? 92px : 0px) * root.s;
     out property <length> list-height: max(0px, root.height - root.header-height - 26px * root.s);
     out property <int> first-visible-row: max(0, floor(-root.scroll-y / max(1px, root.row-height)));
     out property <int> visible-row-count: ceil(root.list-height / max(1px, root.row-height)) + 1;
@@ -274,12 +276,38 @@ export component StatisticsView inherits Rectangle {
         StatisticsChart { x: 8px * root.s; y: 34px * root.s; width: parent.width - 16px * root.s; height: 104px * root.s; s: root.s; days: root.days; maximum: root.summary.chart-maximum; middle: root.summary.chart-middle; title-visible: false; enabled: false; }
     }
     if root.page == 8: Rectangle {
-        x: 0px; y: 0px; width: root.width; height: 126px * root.s; clip: true; background: @linear-gradient(140deg, #70a8d5, #244e75);
-        if root.summary.detail-artwork.width > 0: Image { width: parent.width; height: parent.height; source: root.summary.detail-artwork; image-fit: cover; }
+        x: 0px; y: 0px; width: root.width; height: root.header-height; clip: true;
+        background: root.artist-photo ? @linear-gradient(180deg, #fff, #f4f6f8) : @linear-gradient(140deg, #70a8d5, #244e75);
+        if root.summary.detail-artwork.width > 0 && !root.artist-photo: Image { width: parent.width; height: parent.height; source: root.summary.detail-artwork; image-fit: cover; }
         if root.summary.detail-artwork.width == 0: Image { x: parent.width - 98px * root.s; y: 10px * root.s; width: 86px * root.s; height: 86px * root.s; source: @image-url("../assets/icons/nano/artists.png"); colorize: #c6e3ff; opacity: 0.55; image-fit: contain; }
-        Rectangle { width: parent.width; height: parent.height; background: @linear-gradient(180deg, #10203000 25%, #102030ba); }
-        Text { x: 10px * root.s; y: 82px * root.s; width: parent.width - 20px * root.s; height: 27px * root.s; text: root.summary.detail-title; font-size: 20px * root.s; font-weight: 700; color: white; overflow: elide; }
-        Text { x: 10px * root.s; y: 109px * root.s; width: parent.width - 20px * root.s; height: 14px * root.s; text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #f0f3f6; overflow: elide; }
+        if !root.artist-photo: Rectangle { width: parent.width; height: parent.height; background: @linear-gradient(180deg, #10203000 25%, #102030ba); }
+        if !root.artist-photo: Text { x: 10px * root.s; y: 82px * root.s; width: parent.width - 20px * root.s; height: 27px * root.s; text: root.summary.detail-title; font-size: 20px * root.s; font-weight: 700; color: white; overflow: elide; }
+        if !root.artist-photo: Text { x: 10px * root.s; y: 109px * root.s; width: parent.width - 20px * root.s; height: 14px * root.s; text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #f0f3f6; overflow: elide; }
+        if root.portrait-photo: StatisticsArtwork {
+            x: 8px * root.s; y: 22px * root.s; width: 76px * root.s; height: 96px * root.s;
+            s: root.s; artwork: root.summary.detail-artwork; artist: true;
+        }
+        if root.portrait-photo: Text {
+            x: 94px * root.s; y: 37px * root.s; width: parent.width - 102px * root.s; height: 44px * root.s;
+            text: root.summary.detail-title; font-size: 17px * root.s; font-weight: 700; color: #171c22; wrap: word-wrap; overflow: elide;
+        }
+        if root.portrait-photo: Text {
+            x: 94px * root.s; y: 87px * root.s; width: parent.width - 102px * root.s; height: 28px * root.s;
+            text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #79828b; wrap: word-wrap; overflow: elide;
+        }
+        if root.artist-photo && !root.portrait-photo: Rectangle {
+            x: 0px; y: 16px * root.s; width: parent.width; height: 128px * root.s; background: #e7ebef;
+            Image { x: 0px; y: 0px; width: parent.width; height: parent.height; source: root.summary.detail-artwork; image-fit: contain; }
+        }
+        if root.artist-photo && !root.portrait-photo: Text {
+            x: 10px * root.s; y: 146px * root.s; width: parent.width - 20px * root.s; height: 22px * root.s;
+            text: root.summary.detail-title; font-size: 17px * root.s; font-weight: 700; color: #171c22; overflow: elide;
+        }
+        if root.artist-photo && !root.portrait-photo: Text {
+            x: 10px * root.s; y: 170px * root.s; width: parent.width - 20px * root.s; height: 12px * root.s;
+            text: root.summary.detail-subtitle; font-size: 10px * root.s; color: #79828b; overflow: elide;
+        }
+        if root.artist-photo: Rectangle { x: 0px; y: parent.height - 1px * root.s; width: parent.width; height: 1px * root.s; background: #dfe4e9; }
         if root.summary.photo-credit != "": Rectangle {
             x: 0px; y: 0px; width: parent.width; height: 16px * root.s; background: #102030a0;
             accessible-role: button;
