@@ -110,3 +110,14 @@ Navigation、Artist Images worker/缓存，以及相关 Slint 页面和回归测
 --test statistics_details --test listening_statistics --test artist_images_ui
 --test ratings_ui --test reference_library_ui --test translation_settings`
 为 23 通过、0 失败。fmt 与 `git diff --check` 通过。
+
+### 窗口协调阶段
+
+`window.rs` 原样接收 `initialize`、`prepare_portrait_dialog`、`base_size`、`resize`、
+`maintain_aspect_ratio`、`save_settings`。6 个方法逐 token 等价；主文件为 4,045 行。
+Controller 字段、公开方法签名、native resize Rc/guard、保存顺序不变。
+
+`cargo check`、`cargo fmt --all -- --check` 与 `git diff --check` 通过。
+`cargo test --test window_resize --test settings_navigation --test video_ui
+--test desktop_fill_alignment --test video_list_metrics`：10 通过、0 失败、1 忽略。
+忽略项需 libmpv/ffmpeg/默认音频输出，没有启动用户的运行窗口或真实媒体。
