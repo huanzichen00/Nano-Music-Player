@@ -135,3 +135,19 @@ Controller 字段、公开方法签名、native resize Rc/guard、保存顺序�
 `cargo test --lib`：350 通过、0 失败、9 忽略；
 `cargo test --test core --test list_shuffle --test podcasts --test native_status_ui`：
 61 通过、0 失败。
+
+### 媒体事件阶段
+
+`media_events.rs` 接收音频事件 drain/单事件分发、视频引擎事件/进度、系统媒体命令
+轮询和媒体快照发布。仅为测试提取私有 `handle_audio_event`，原两处 `continue`
+变为退出当前事件的 `return`，外层 drain 不变。逆向原位展开后 `poll`、`poll_videos`
+逐 token 等价，独立审查通过。主文件为 3,503 行。
+
+新增 5 条 headless 回归覆盖旧 owner/id/pending handoff、暂停意图、播客优先接管、
+旧/错 owner ack、重复队列项与权威 late token、prefetch id/token、observed_at 计数、
+Pause/Seek 和统计 shutdown 单次持久化。首次测试 fixture 漏设播客的默认暂停状态，
+修正 fixture 后 5 项通过，生产行为未改。
+
+`cargo check`、fmt、`git diff --check` 通过；
+`cargo test --lib app::controller::`：83 通过、0 失败、1 忽略。
+`cargo test --test video --test video_ui --test native_status_ui`：12 通过、0 失败、1 忽略。
