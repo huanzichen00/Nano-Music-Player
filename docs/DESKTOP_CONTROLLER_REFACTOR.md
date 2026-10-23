@@ -92,3 +92,21 @@ Navigation、Artist Images worker/缓存，以及相关 Slint 页面和回归测
 
 保留 Genius/translation 两处已有 `fetch_update` 弃用警告，未改无关代码。
 本次不运行需要原生音频输出的忽略测试，以免与正在运行的用户播放会话混用系统输出。
+
+### UI 同步阶段
+
+迁移前新增的 `ui_sync_tests` 两项通过：进度同步保留 Slint model 身份/页面动画代次，
+导航先冻结源页面 rows/selection/scroll，再同步目的页面。
+`cargo fmt --all -- --check`、`cargo check` 通过。
+
+`ui_sync.rs` 接收 `refresh_shortcuts`、`text`、`toggle_track_details`、
+`sync_statistics_view`、`sync`、`refresh_thumbnails`、`refresh_video_thumbnails`、
+`sync_editor` 和局部 `format_time`；没有新增查询或刷新规则。
+主文件为 4,233 行（含新增测试注册）。逐函数 token 比对和独立审查确认实现等价，
+主文件其余 97 个方法体逐字保持原状。
+
+验证：`cargo test --lib app::controller::` 为 78 通过、1 忽略；
+`cargo test --test screen_motion --test home_motion --test modal_navigation
+--test statistics_details --test listening_statistics --test artist_images_ui
+--test ratings_ui --test reference_library_ui --test translation_settings`
+为 23 通过、0 失败。fmt 与 `git diff --check` 通过。
