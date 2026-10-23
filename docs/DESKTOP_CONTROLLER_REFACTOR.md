@@ -65,7 +65,7 @@ Navigation、Artist Images worker/缓存，以及相关 Slint 页面和回归测
 
 - Controller 仍共享 State 和 UI 投影缓存。多个 `impl Controller` 明确代码职责，
   不代表引入独立运行时状态所有者；本次不拆锁、不增加 trait/框架/事件总线。
-- 已有设置、视频/播客进度、翻译缓存保存及 Genius 播放列表保存涉及同步
+- 已有设置、视频进度、翻译缓存保存及 Genius 播放列表保存涉及同步
   磁盘访问；`cached_translation` 的 provider version 也读取 DeepSeek 配置。
   改异步调度会改变错误/完成语义，留作独立后续工作，本次不扩大阻塞路径。
 - Statistics 保留 revision/date/offset 缓存键、request 过滤、失败抑制和 FIFO shutdown。
@@ -151,3 +151,17 @@ Pause/Seek 和统计 shutdown 单次持久化。首次测试 fixture 漏设播�
 `cargo check`、fmt、`git diff --check` 通过；
 `cargo test --lib app::controller::`：83 通过、0 失败、1 忽略。
 `cargo test --test video --test video_ui --test native_status_ui`：12 通过、0 失败、1 忽略。
+
+### 曲库结果应用阶段
+
+`library_ui.rs` 接收 `update_smart_playlist_library`、`start_library_refresh`、
+`poll_library_refresh`、`apply_library_refresh`、`mark_library_missing`，并将原 poll 中
+启动缓存/逐曲刷新应用、导入 drain 整块提为两个方法。5 个原方法的函数体不变，
+helper 展开后原 poll 顺序保持；主文件为 3,277 行 / 130,188 字节。
+现有 `library.rs` 的 receiver/ready/busy/断开处理与后台扫描服务完全未改。
+当前实现仍是启动和显式的有限刷新，不恢复历史上的自动文件监控。
+
+`cargo check`、fmt、`git diff --check` 通过；
+`cargo test --lib app::controller::`：83 通过、0 失败、1 忽略。
+`cargo test --test library_refresh_ui --test startup_cache --test library_order
+--test feature_library --test lyrics_associations --test playlist_editing`：18 通过、0 失败。
