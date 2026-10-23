@@ -106,12 +106,8 @@ impl WebProvider {
             &[("query", &query), ("fmt", "json"), ("limit", "100")],
         )?;
         let choices = candidates(&value, &request.artist);
-        // If results are truncated, the actual artist could be absent. Never let
-        // a model select from a known incomplete set of namesakes.
-        if value["count"].as_u64().is_some_and(|count| count > 100) {
-            return Err("Too many matching artist identities; queued for retry".into());
-        }
-        if choices.len() == 1 {
+        let incomplete = value["count"].as_u64().is_some_and(|count| count > 100);
+        if choices.len() == 1 && !incomplete {
             return Ok(choices[0].clone());
         }
         if choices.is_empty() {
@@ -119,6 +115,32 @@ impl WebProvider {
         }
         if request.albums.is_empty() {
             return Err("Artist identity is ambiguous; import an album to resolve it".into());
+        }
+        // A complete release search can prove an identity even when the name
+        // search has many fuzzy hits. Check real album credits before asking AI.
+        let titles = request
+            .albums
+            .iter()
+            .take(8)
+            .map(|album| {
+                let escaped = album_title_key(album)
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"");
+                format!("releasegroup:\"{escaped}\"")
+            })
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        let query = format!("artist:\"{escaped}\" AND ({titles})");
+        if let Ok(releases) = self.json(
+            "https://musicbrainz.org/ws/2/release-group/",
+            &[("query", &query), ("fmt", "json"), ("limit", "100")],
+        ) && let Some(candidate) = verified_album_candidate(&releases, request, &choices)
+        {
+            return Ok(candidate);
+        }
+        // Never let the model select from a known incomplete set of namesakes.
+        if incomplete {
+            return Err("Too many matching artist identities; queued for retry".into());
         }
         let settings = DeepSeekSettings::load(&self.directory.join("deepseek.json"))?;
         if !settings.has_key() {
@@ -143,7 +165,9 @@ impl WebProvider {
             .iter()
             .take(8)
             .map(|album| {
-                let escaped = album.replace('\\', "\\\\").replace('"', "\\\"");
+                let escaped = album_title_key(album)
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"");
                 format!("releasegroup:\"{escaped}\"")
             })
             .collect::<Vec<_>>()
@@ -204,7 +228,10 @@ fn allowed_url(url: &Url, image: bool) -> bool {
         && url.password().is_none()
         && url.port_or_known_default() == Some(443)
         && if image {
-            url.host_str() == Some("upload.wikimedia.org")
+            matches!(
+                url.host_str(),
+                Some("upload.wikimedia.org" | "thumb.wikimedia.org")
+            )
         } else {
             matches!(
                 url.host_str(),
@@ -275,7 +302,7 @@ fn album_identity_matches(value: &Value, mbid: &str, albums: &[String]) -> bool 
     let titles = albums
         .iter()
         .take(8)
-        .map(|album| normalized_artist_key(album))
+        .map(|album| album_title_key(album))
         .collect::<std::collections::BTreeSet<_>>();
     value["release-groups"]
         .as_array()
@@ -284,13 +311,117 @@ fn album_identity_matches(value: &Value, mbid: &str, albums: &[String]) -> bool 
         .any(|group| {
             group["title"]
                 .as_str()
-                .is_some_and(|title| titles.contains(&normalized_artist_key(title)))
+                .is_some_and(|title| titles.contains(&album_title_key(title)))
                 && group["artist-credit"]
                     .as_array()
                     .into_iter()
                     .flatten()
                     .any(|credit| credit["artist"]["id"].as_str() == Some(mbid))
         })
+}
+
+/// Strip explicit release packaging only for artist identification. Performance
+/// qualifiers such as Live, Acoustic and Remix remain part of the title.
+fn album_title_key(title: &str) -> String {
+    let mut title = normalized_artist_key(title);
+    for suffix in [" - ep", " - single"] {
+        if let Some(base) = title.strip_suffix(suffix) {
+            title = base.trim().to_owned();
+            break;
+        }
+    }
+    if let Some((start, open)) = title
+        .char_indices()
+        .rev()
+        .find(|(_, c)| matches!(c, '(' | '['))
+    {
+        let close = if open == '(' { ')' } else { ']' };
+        if title.ends_with(close) {
+            let tokens: Vec<_> = title[start + 1..title.len() - 1]
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|s| !s.is_empty())
+                .collect();
+            let packaging = !tokens.is_empty()
+                && tokens.iter().all(|token| {
+                    matches!(
+                        *token,
+                        "remastered"
+                            | "remaster"
+                            | "stereo"
+                            | "mono"
+                            | "mix"
+                            | "re"
+                            | "release"
+                            | "reissue"
+                            | "deluxe"
+                            | "expanded"
+                            | "edition"
+                    ) || (token.len() == 4 && token.bytes().all(|c| c.is_ascii_digit()))
+                });
+            if packaging
+                && tokens
+                    .iter()
+                    .any(|token| token.bytes().any(|c| c.is_ascii_alphabetic()))
+            {
+                title.truncate(start);
+            }
+        }
+    }
+    title.trim().to_owned()
+}
+
+fn verified_album_candidate(
+    value: &Value,
+    request: &ArtistRequest,
+    choices: &[Candidate],
+) -> Option<Candidate> {
+    // The proof must cover the entire album result set, not just its first page.
+    let groups = value["release-groups"].as_array()?;
+    let count = value["count"].as_u64()?;
+    if count != groups.len() as u64 {
+        return None;
+    }
+    let artist_key = normalized_artist_key(&request.artist);
+    let titles = request
+        .albums
+        .iter()
+        .take(8)
+        .map(|title| album_title_key(title))
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut ids = std::collections::BTreeSet::new();
+    for group in groups {
+        if !group["title"]
+            .as_str()
+            .is_some_and(|title| titles.contains(&album_title_key(title)))
+        {
+            continue;
+        }
+        for credit in group["artist-credit"].as_array().into_iter().flatten() {
+            let artist = &credit["artist"];
+            let Some(id) = artist["id"].as_str().filter(|id| valid_mbid(id)) else {
+                continue;
+            };
+            // Include previously unseen exact namesakes as ambiguity; do not
+            // silently discard one missing from the truncated artist search.
+            if choices.iter().any(|candidate| candidate.mbid == id)
+                || artist["name"]
+                    .as_str()
+                    .is_some_and(|name| normalized_artist_key(name) == artist_key)
+                || credit["name"]
+                    .as_str()
+                    .is_some_and(|name| normalized_artist_key(name) == artist_key)
+            {
+                ids.insert(id);
+            }
+        }
+    }
+    if ids.len() != 1 {
+        return None;
+    }
+    choices
+        .iter()
+        .find(|candidate| ids.contains(candidate.mbid.as_str()))
+        .cloned()
 }
 
 fn wikidata_identity(value: &Value) -> Result<String, String> {
@@ -377,7 +508,7 @@ fn commons_image(value: &Value) -> Result<(Url, ImageCredit), String> {
     }
     let info = infos[0];
     let metadata = &info["extmetadata"];
-    let credit = ImageCredit {
+    let mut credit = ImageCredit {
         author: plain_text(metadata["Artist"]["value"].as_str().unwrap_or_default()),
         license: plain_text(
             metadata["LicenseShortName"]["value"]
@@ -390,6 +521,33 @@ fn commons_image(value: &Value) -> Result<(Url, ImageCredit), String> {
             .into(),
         description_url: info["descriptionurl"].as_str().unwrap_or_default().into(),
     };
+    // Commons public-domain files often have no LicenseUrl. Preserve that fact
+    // and link the file's actual declaration, rather than inventing a CC license.
+    if credit.license.eq_ignore_ascii_case("Public domain")
+        && credit.license_url.is_empty()
+        && !metadata["Copyrighted"]["value"]
+            .as_str()
+            .is_some_and(|value| value.eq_ignore_ascii_case("false"))
+    {
+        return Err("Artist image has no reusable license or attribution".into());
+    }
+    // Older Commons templates still publish http/protocol-relative CC links.
+    // Canonicalize only this documentation host; all downloads stay HTTPS-only.
+    let license_url = if credit.license_url.starts_with("//") {
+        format!("https:{}", credit.license_url)
+    } else {
+        credit.license_url.clone()
+    };
+    if let Ok(mut url) = Url::parse(&license_url)
+        && matches!(
+            url.host_str(),
+            Some("creativecommons.org" | "www.creativecommons.org")
+        )
+        && matches!(url.scheme(), "http" | "https")
+    {
+        let _ = url.set_scheme("https");
+        credit.license_url = url.into();
+    }
     if !valid_credit(&credit) {
         return Err("Artist image has no reusable license or attribution".into());
     }
@@ -411,17 +569,18 @@ pub(super) fn valid_credit(credit: &ImageCredit) -> bool {
         && credit.license.len() <= 128
         && credit.license_url.len() <= 2048
         && credit.description_url.len() <= 2048
-        && url.is_some_and(|url| {
-            url.scheme() == "https"
-                && matches!(
-                    url.host_str(),
-                    Some("creativecommons.org" | "www.creativecommons.org")
-                )
-                && url.username().is_empty()
-                && url.password().is_none()
-                && url.port_or_known_default() == Some(443)
-                && license_path_matches(&license, &url)
-        })
+        && ((license == "public domain" && credit.license_url.is_empty())
+            || url.is_some_and(|url| {
+                url.scheme() == "https"
+                    && matches!(
+                        url.host_str(),
+                        Some("creativecommons.org" | "www.creativecommons.org")
+                    )
+                    && url.username().is_empty()
+                    && url.password().is_none()
+                    && url.port_or_known_default() == Some(443)
+                    && license_path_matches(&license, &url)
+            }))
         && description.is_some_and(|url| {
             url.scheme() == "https"
                 && url.host_str() == Some("commons.wikimedia.org")
@@ -486,6 +645,144 @@ mod tests {
     use super::*;
 
     const ID: &str = "65f4f0c5-ef9e-490c-aee3-909e7ae6b2ab";
+
+    fn namesake_fixture() -> (ArtistRequest, Vec<Candidate>, Value) {
+        let request = ArtistRequest {
+            artist: "Haken".into(),
+            albums: vec!["The Mountain".into()],
+        };
+        let choices = candidates(
+            &json!({"artists":[
+                {"id":ID,"name":"Haken"},
+                {"id":"aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb","name":"Haken"}
+            ]}),
+            &request.artist,
+        );
+        let releases = json!({"count":1,"release-groups":[{
+            "title":"The Mountain","artist-credit":[{"artist":{"id":ID,"name":"Haken"}}]
+        }]});
+        (request, choices, releases)
+    }
+
+    #[test]
+    fn unique_exact_album_credit_resolves_a_namesake_without_ai() {
+        let (request, choices, releases) = namesake_fixture();
+        assert_eq!(
+            verified_album_candidate(&releases, &request, &choices)
+                .unwrap()
+                .mbid,
+            ID
+        );
+    }
+
+    #[test]
+    fn incomplete_album_results_never_prove_a_unique_namesake() {
+        let (request, choices, mut releases) = namesake_fixture();
+        releases["count"] = json!(101);
+        assert!(verified_album_candidate(&releases, &request, &choices).is_none());
+        releases.as_object_mut().unwrap().remove("count");
+        assert!(verified_album_candidate(&releases, &request, &choices).is_none());
+    }
+
+    #[test]
+    fn unseen_namesakes_and_same_album_titles_cannot_be_discarded() {
+        let (request, choices, mut releases) = namesake_fixture();
+        for id in [
+            "aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb",
+            "bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb",
+        ] {
+            releases["count"] = json!(2);
+            releases["release-groups"] = json!([
+                releases["release-groups"][0],
+                {"title":"The Mountain","artist-credit":[{"artist":{"id":id,"name":"Haken"}}]}
+            ]);
+            assert!(
+                verified_album_candidate(&releases, &request, &choices).is_none(),
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn fuzzy_album_names_and_other_artists_do_not_prove_identity() {
+        let (request, choices, mut releases) = namesake_fixture();
+        releases["release-groups"][0]["title"] = json!("The Mountain Live");
+        assert!(verified_album_candidate(&releases, &request, &choices).is_none());
+        releases["release-groups"][0]["title"] = json!("The Mountain");
+        releases["release-groups"][0]["artist-credit"][0]["artist"] =
+            json!({"id":"bbbbbbbb-1111-2222-3333-bbbbbbbbbbbb","name":"Other"});
+        assert!(verified_album_candidate(&releases, &request, &choices).is_none());
+    }
+
+    #[test]
+    fn release_packaging_can_identify_an_artist_but_live_versions_stay_distinct() {
+        for (title, expected) in [
+            ("Cultural Divide - EP", "cultural divide"),
+            (
+                "Selling England By the Pound (2007 Stereo Mix)",
+                "selling england by the pound",
+            ),
+            ("First Love (Remastered 2014)", "first love"),
+            ("The Mountain (Live)", "the mountain (live)"),
+            ("The Mountain (Remix)", "the mountain (remix)"),
+            ("The Mountain (Acoustic)", "the mountain (acoustic)"),
+        ] {
+            assert_eq!(album_title_key(title), expected);
+        }
+        let (mut request, choices, releases) = namesake_fixture();
+        request.albums = vec!["The Mountain (Remastered 2014)".into()];
+        assert_eq!(
+            verified_album_candidate(&releases, &request, &choices)
+                .unwrap()
+                .mbid,
+            ID
+        );
+        request.albums = vec!["The Mountain (Live)".into()];
+        assert!(verified_album_candidate(&releases, &request, &choices).is_none());
+    }
+
+    #[test]
+    fn commons_current_thumbnail_host_and_explicit_public_domain_are_supported() {
+        let mut value = json!({"query":{"pages":{"17":{"imageinfo":[{
+            "thumburl":"https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a1/Artist.jpg/960px-Artist.jpg",
+            "descriptionurl":"https://commons.wikimedia.org/wiki/File:Artist.jpg",
+            "extmetadata":{"Artist":{"value":"Photographer"}, "LicenseShortName":{"value":"Public domain"}, "Copyrighted":{"value":"False"}}
+        }]}}}});
+        let (url, credit) = commons_image(&value).unwrap();
+        assert_eq!(url.host_str(), Some("thumb.wikimedia.org"));
+        assert!(credit.license_url.is_empty(), "do not invent a license URL");
+        assert!(valid_credit(&credit));
+        value["query"]["pages"]["17"]["imageinfo"][0]["extmetadata"]["Copyrighted"]["value"] =
+            json!("True");
+        assert!(commons_image(&value).is_err());
+        assert!(!allowed_url(
+            &Url::parse("https://thumb.wikimedia.org.evil.test/a.jpg").unwrap(),
+            true
+        ));
+        assert!(!allowed_url(
+            &Url::parse("http://thumb.wikimedia.org/a.jpg").unwrap(),
+            true
+        ));
+    }
+
+    #[test]
+    fn legacy_cc_links_upgrade_only_the_known_license_host() {
+        let mut value = json!({"query":{"pages":{"17":{"imageinfo":[{
+            "thumburl":"https://upload.wikimedia.org/wikipedia/commons/a.jpg",
+            "descriptionurl":"https://commons.wikimedia.org/wiki/File:Artist.jpg",
+            "extmetadata":{"Artist":{"value":"Photographer"}, "LicenseShortName":{"value":"CC BY-SA 3.0"}, "LicenseUrl":{"value":"http://creativecommons.org/licenses/by-sa/3.0/"}}
+        }]}}}});
+        assert_eq!(
+            commons_image(&value).unwrap().1.license_url,
+            "https://creativecommons.org/licenses/by-sa/3.0/"
+        );
+        value["query"]["pages"]["17"]["imageinfo"][0]["extmetadata"]["LicenseUrl"]["value"] =
+            json!("//creativecommons.org/licenses/by-sa/3.0/");
+        assert!(commons_image(&value).is_ok());
+        value["query"]["pages"]["17"]["imageinfo"][0]["extmetadata"]["LicenseUrl"]["value"] =
+            json!("http://evil.test/licenses/by-sa/3.0/");
+        assert!(commons_image(&value).is_err());
+    }
 
     #[test]
     fn artist_candidates_are_exact_or_exact_aliases_not_fuzzy_matches() {

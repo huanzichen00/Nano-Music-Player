@@ -7,11 +7,13 @@
 ## 图片查找
 
 1. 使用 MusicBrainz 搜索艺人名与别名，只接受精确归一化匹配的候选。
-2. 唯一候选直接继续。存在同名候选时，只有配置 DeepSeek 且有专辑线索才请求辅助选择；模型只能返回本次真实候选中的 MBID。随后查询 MusicBrainz 专辑，核对精确专辑名及该 MBID 的署名。不能验证时保留失败任务，不猜测图片链接。
+2. 唯一且完整的候选直接继续。同名候选先用完整的 MusicBrainz 专辑搜索核验：专辑标题与艺人 MBID 唯一对应时直接选择；否则仅在配置 DeepSeek 且有专辑线索时请求辅助选择，再核对专辑归属。模型只能返回本次真实候选中的 MBID。标题核验可去除明确的 EP／Single、重制／再版标签；Live、Acoustic、Remix 等表演限定仍保留。不能验证时保留失败任务，不猜测图片链接。
 3. 经艺人的 Wikidata 关系获取 P18 图片，存在 P434 时反向验证 MusicBrainz 身份。再从 Wikimedia Commons 获取真实图片和作者、许可、来源页面。
-4. 仅缓存通过 HTTPS 来源、响应大小、图片解码尺寸及许可检查的 PNG／JPEG。保留 CC BY、CC BY-SA、CC0 或 Public Domain 的有效署名和相符许可链接。请求 Commons 缩略图，缓存最大 640 像素边长的 PNG，不放大小图。
+4. 仅缓存通过 HTTPS 来源、响应大小、图片解码尺寸及许可检查的 PNG／JPEG。支持 `upload.wikimedia.org` 和当前使用的 `thumb.wikimedia.org` 官方图片域名。保留 CC BY、CC BY-SA、CC0 或 Public Domain 的有效署名及来源；仅规范化已知 Creative Commons 主机的旧 HTTP／协议相对许可链接。Public Domain 无独立许可 URL 时，须由 Commons 明确声明无版权，保留文件页声明，不虚构 CC 许可。请求 Commons 缩略图，缓存最大 640 像素边长的 PNG，不放大小图。
 
 公开来源不需要 API 密钥。同名辅助复用 **设置 → AI 服务** 的 DeepSeek 配置及环境变量优先级；按需读取配置，使用量计入账户。艺人名与专辑名会发送到公开元数据服务，并在辅助识别时发送给 DeepSeek；不上传音频、歌词或本地文件路径。模型不负责生成照片，也不能提供任意下载 URL。
+
+桌面 reqwest 启用现有的 `system-proxy` 功能：没有 shell 代理环境变量的 macOS／Windows GUI 也会读取用户已有的系统代理设置，不修改系统设置或 TLS 校验。iOS 不启用此桌面依赖功能。此功能引入小型 OS 配置绑定，未更换 HTTP 客户端。Wikimedia 两个图片域名参见[官方说明](https://www.mediawiki.org/wiki/Snippets/Direct_imagelinks_to_Commons)。
 
 Statistics 的 Top Artists、Overview 艺人预览及艺人详情优先使用照片，找不到时继续使用现有封面／占位图。专辑、歌曲和普通曲库浏览保留原封面。艺人详情上方的图片署名可点击打开 Commons 文件页，查看完整作者与许可信息。封面异步加载不会覆盖已取得的艺人照。
 
@@ -34,6 +36,18 @@ Controller 通过 Rust channel 发送入队、重试、读取缓存指令。单�
 任务状态为 `Pending → Running → Ready`；失败进入 `Failed`，从完成时刻计算 60 秒起的指数退避，最长 24 小时。手动重试把失败任务放回 `Pending`。重启会将中断的 `Running` 变回 `Pending`；仍在退避期的失败任务保留原计划。缓存丢失或损坏时重新排队。应用关闭时不会等待后台 HTTP 完成；退出后没有常驻服务继续下载，下次启动再继续。
 
 队列文件限制为 8 MiB，并为未完成任务的结果预留空间；超量新增或扩展会被拒绝，已有任务继续处理。每位艺人至多保留 100 个专辑线索；Controller 每次按确定顺序提供至多 8 个。已就绪记录保留以避免重复查找；当前没有缓存淘汰的磁盘清理、任务删除或独立死信队列。已删除艺人的旧队列记录不会自动清除。
+
+## 补查现有曲库
+
+`examples/refresh_artist_images.rs` 可从现有 SQLite 只读提取艺人与专辑，复用同一 worker，将查找结果保存到新的暂存目录。首次使用时输出目录必须尚不存在，以免与运行中的播放器同时写入一个队列；成功和失败记录都保留。加入 `--resume` 可续跑由此工具创建、带专用标记文件的暂存目录，复用已成功缓存并重试失败任务；无法使用此选项打开实际曲库配置目录。工具不会复制源目录中的 DeepSeek 凭据。纯公开来源示例：
+
+```sh
+env -u DEEPSEEK_API_KEY cargo run --example refresh_artist_images -- \
+  "$HOME/Library/Application Support/Nano.Nano-Music-Player" \
+  "$HOME/Library/Application Support/Nano.Nano-Music-Player/artist-image-refresh-new"
+```
+
+暂存照片应在播放器退出后备份并合并至实际缓存／队列，再启动播放器；不能直接覆盖一个活跃 worker 的 `queue.json`，否则它的内存状态可能覆盖外部修改。没有公开照片或证据不足的任务继续保留，不替换成不确定图片。
 
 ## 与常规消息队列的对比
 
@@ -65,3 +79,5 @@ Rust channel 本身不持久化。入队指令发送成功，不等于已经写�
 查图不能保证每位艺人都有公开图片；元数据缺失、同名身份无法确认、没有符合许可的图片或网络故障时，会保留任务并继续封面兜底。此功能不修改 ListeningSession、播放次数规则、音频引擎、Gapless、ReplayGain 或播放队列；7／30 天播放统计仍受最近 1,000 条历史记录限制，与图片队列无关。
 
 本次验证（2026-10-22）：`cargo fmt --all -- --check`、`cargo check`、`cargo clippy --all-targets` 均通过；`cargo test --no-fail-fast` 为 519 通过、0 失败、28 忽略。单独执行 Blackfield 真实公共链路和原生播放／Gapless／统计回归，各 1 项通过。`cargo check --features mobile` 与 `cargo check --lib --target aarch64-apple-ios-sim` 通过。保留既有 Genius／translation 的两处 `fetch_update` 弃用警告及 iOS NativeBridge 编译警告；其余忽略的原生／开发测试未执行，Windows／Linux 构建及真实付费 DeepSeek 请求未验证。
+
+2026-10-23 修复验证：后台 33 项离线测试及 1 项真实公共链路测试通过；真实测试清除了全部 HTTP／HTTPS／ALL_PROXY 环境变量，使用 macOS 已有系统代理下载与重启缓存。暂存补查从现有曲库准备了 14 张可验证照片，磁盘空间不足时保留已完成缓存，清理编译产物后续跑完成；首次完整构建也曾因磁盘空间不足中断。维护工具已验证拒绝将实际配置目录当作输出，即使指定 `--resume` 也会拒绝。上述补查未发送 DeepSeek 请求，未改动用户的模型或密钥设置。
