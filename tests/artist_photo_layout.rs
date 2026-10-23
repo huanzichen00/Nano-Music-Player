@@ -192,3 +192,136 @@ fn artist_photos_keep_all_edges_and_proportions_in_both_modes_and_three_scales()
     }
     ui.hide().unwrap();
 }
+
+#[test]
+#[ignore = "optional local-photo visual review; set NANO_ARTIST_PHOTO_QA_CONFIG"]
+fn render_cached_artist_photos_for_manual_review() {
+    let config = std::path::PathBuf::from(
+        std::env::var("NANO_ARTIST_PHOTO_QA_CONFIG")
+            .expect("set the source configuration directory"),
+    );
+    let root = config.join("artist-images-v1");
+    let queue: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.join("queue.json")).unwrap()).unwrap();
+    slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
+        i_slint_backend_testing::TestingBackendOptions {
+            renderer_name: Some("software".into()),
+            mock_time: true,
+            ..Default::default()
+        },
+    )))
+    .unwrap();
+    let ui = AppWindow::new().unwrap();
+    ui.global::<I18n>().on_translate(|_, text| text);
+    ui.set_screen(1);
+    ui.set_statistics_page(true);
+    ui.set_statistics_kind(8);
+    ui.set_screen_title("Artist Details".into());
+    ui.set_clock_text("Preview".into());
+    ui.set_smooth_slides(false);
+    ui.set_keyboard_navigation(false);
+    ui.set_statistics_items(ModelRc::new(VecModel::from(vec![
+        StatisticsItem {
+            title: "Play Artist".into(),
+            icon: 10,
+            chevron: true,
+            ..Default::default()
+        },
+        StatisticsItem {
+            title: "Albums".into(),
+            icon: 11,
+            chevron: true,
+            ..Default::default()
+        },
+        StatisticsItem {
+            title: "Top Tracks".into(),
+            icon: 12,
+            chevron: true,
+            ..Default::default()
+        },
+        StatisticsItem {
+            title: "See All Tracks".into(),
+            icon: 13,
+            chevron: true,
+            ..Default::default()
+        },
+    ])));
+    let output =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/qa/artist-photo-layout");
+    std::fs::create_dir_all(&output).unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for job in queue["jobs"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|j| j["state"] == "ready")
+    {
+        let asset = job["asset"].as_str().unwrap();
+        assert!(
+            asset.len() == 68
+                && asset.ends_with(".png")
+                && asset[..64].bytes().all(|c| c.is_ascii_hexdigit())
+        );
+        let path = root.join(asset);
+        let (w, h) = image::image_dimensions(&path).unwrap();
+        let portrait = w < h;
+        if !seen.insert(portrait) {
+            continue;
+        }
+        let pixels = image::open(path).unwrap().to_rgba8();
+        let image = slint::Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            pixels.as_raw(),
+            w,
+            h,
+        ));
+        ui.set_statistics_summary(StatisticsSummary {
+            detail_title: job["artist"].as_str().unwrap().into(),
+            detail_subtitle: "Photo layout preview".into(),
+            detail_artwork: image,
+            photo_credit: format!(
+                "Photo: {} · {}",
+                job["credit"]["author"].as_str().unwrap(),
+                job["credit"]["license"].as_str().unwrap()
+            )
+            .into(),
+            photo_url: job["credit"]["description_url"].as_str().unwrap().into(),
+            ..Default::default()
+        });
+        for device in [false, true] {
+            ui.set_device_mode(device);
+            ui.window().set_size(slint::LogicalSize::new(
+                if device { 444.0 } else { 360.0 },
+                if device {
+                    296.0 * 76.5 / 39.6 * 1.5
+                } else {
+                    648.0
+                } + 40.0,
+            ));
+            ui.show().unwrap();
+            slint::platform::update_timers_and_animations();
+            let shot = ui.window().take_snapshot().unwrap();
+            let file = output.join(format!(
+                "cached-{}-{device}.png",
+                if portrait { "portrait" } else { "landscape" }
+            ));
+            image::save_buffer(
+                &file,
+                shot.as_bytes(),
+                shot.width(),
+                shot.height(),
+                image::ColorType::Rgba8,
+            )
+            .unwrap();
+            println!("{}", file.display());
+        }
+        if seen.len() == 2 {
+            break;
+        }
+    }
+    assert_eq!(
+        seen.len(),
+        2,
+        "provide cached portrait and landscape photos for this visual review"
+    );
+    ui.hide().unwrap();
+}

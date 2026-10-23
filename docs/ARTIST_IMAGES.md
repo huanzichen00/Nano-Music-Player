@@ -19,6 +19,8 @@ Statistics 的 Top Artists、Overview 艺人预览及艺人详情优先使用照
 
 艺人照片保持原始宽高比：排行榜缩略图完整缩放至方框内；详情竖图采用左图右文的 126px 紧凑头部，横图／方图采用 184px 头部，完整图片上方保留署名、名称与统计在图片下方。照片不被文字覆盖，四个艺人操作仍可同时显示。图片未就绪时继续使用原有封面横幅。`tests/artist_photo_layout.rs` 以四边彩色标记和实际像素宽高比验证 Overview、排行榜与详情，在 Device／Screen 两模式及 0.75／1.0／1.5 三种缩放下不裁切、不拉伸。
 
+同文件提供忽略的 `render_cached_artist_photos_for_manual_review` 测试：设置 `NANO_ARTIST_PHOTO_QA_CONFIG` 后，可只读现有缓存中的竖图和横图，离线渲染两模式预览至 `target/qa/artist-photo-layout/cached-*.png`，不联网、不启动音频或修改实际队列。预览副标题明确标为布局预览，未包含真实播放统计。此手动验证已单独通过，可在用户继续播放时检查新布局；实际运行窗口仍需重新启动才能加载已安装的 Slint 代码。
+
 接口依据：[MusicBrainz API](https://musicbrainz.org/doc/MusicBrainz_API)、[请求限流](https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting)、[MediaWiki imageinfo](https://www.mediawiki.org/wiki/API:Imageinfo)、[Commons 复用说明](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)。
 
 ## 存储与恢复
