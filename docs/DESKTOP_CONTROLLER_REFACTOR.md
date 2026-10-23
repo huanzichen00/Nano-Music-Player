@@ -78,5 +78,17 @@ Navigation、Artist Images worker/缓存，以及相关 Slint 页面和回归测
 
 ## 实际验证记录
 
-基线与各阶段命令、结果及最终模块/提交统计在阶段完成后追加；日志位于
-`/tmp/nano-controller-refactor-20261023/`。忽略测试不计入已执行测试。
+日志位于 `/tmp/nano-controller-refactor-20261023/`。
+忽略测试不计入已执行测试。
+
+### 重构前基线（生产源码 `f715684`）
+
+| 命令 | 结果 |
+| --- | --- |
+| `cargo fmt --all -- --check` | 通过 |
+| `cargo check` | 通过 |
+| `cargo test --no-fail-fast` | 527 通过，0 失败，29 忽略 |
+| `cargo clippy --all-targets` | 通过 |
+
+保留 Genius/translation 两处已有 `fetch_update` 弃用警告，未改无关代码。
+本次不运行需要原生音频输出的忽略测试，以免与正在运行的用户播放会话混用系统输出。

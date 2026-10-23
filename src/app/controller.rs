@@ -5147,3 +5147,7 @@ mod ai_controller_tests {
 #[cfg(test)]
 #[path = "controller/library_refresh_tests.rs"]
 mod library_refresh_tests;
+
+#[cfg(test)]
+#[path = "controller/ui_sync_tests.rs"]
+mod ui_sync_tests;
