@@ -121,3 +121,17 @@ Controller 字段、公开方法签名、native resize Rc/guard、保存顺序�
 `cargo test --test window_resize --test settings_navigation --test video_ui
 --test desktop_fill_alignment --test video_list_metrics`：10 通过、0 失败、1 忽略。
 忽略项需 libmpv/ffmpeg/默认音频输出，没有启动用户的运行窗口或真实媒体。
+
+### 播放协调阶段
+
+`playback.rs` 接收 PendingMedia 和 12 个原有方法：`media_error`、`send_music`、
+`gain_config`、`begin_playback_session`、`update_playback_session`、
+`complete_playback_session`、`record_qualified_play`、`schedule_gapless_prefetch`、
+`cancel_gapless_prefetch`、`send_video`、`finish_video_handoff`、`finish_music_handoff`。
+除跨模块可见性外，方法体与枚举保持原文；主文件为 3,695 行。
+字段所有权、构造、Drop、poll、原音频引擎和播放资格完全未改。
+
+`cargo check`、fmt、`git diff --check` 通过。
+`cargo test --lib`：350 通过、0 失败、9 忽略；
+`cargo test --test core --test list_shuffle --test podcasts --test native_status_ui`：
+61 通过、0 失败。
