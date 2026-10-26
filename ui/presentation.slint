@@ -1,11 +1,14 @@
 import { ElasticFlickable } from "overscroll.slint";
 import { I18n } from "i18n.slint";
 
-// A clean recording surface: artwork and synchronized lyrics only.
+// A compact recording surface with song metadata, artwork and synchronized lyrics.
 export component PresentationView inherits Rectangle {
     in property <float> s: 1;
     in property <bool> active;
     in property <image> artwork;
+    in property <string> title;
+    in property <string> artist;
+    private property <bool> has-metadata: root.title != "" || root.artist != "";
     in property <[string]> lines;
     in property <int> active-line: -1;
     in property <bool> pending;
@@ -32,15 +35,18 @@ export component PresentationView inherits Rectangle {
     }
     changed active => { if root.active { root.following = true; root.refresh-follow(); } }
     changed active-line => { root.refresh-follow(); }
+    changed has-metadata => { root.refresh-follow(); }
     changed s => { root.refresh-follow(); }
     changed width => { root.refresh-follow(); }
     changed height => { root.refresh-follow(); }
     changed pending => { if !root.pending { root.follow-line(); } }
     background: #080f1a;
+    border-radius: 18px * root.s;
+    border-width: 1px * root.s; border-color: #203047;
     clip: true;
     cover := Rectangle {
         x: 10px * root.s; y: 10px * root.s; width: 160px * root.s; height: self.width;
-        border-radius: 8px * root.s; clip: true; background: #111f30;
+        border-radius: 12px * root.s; clip: true; background: #111f30;
         if root.artwork.width > 0: Image {
             x: 0px; y: 0px; width: parent.width; height: parent.height;
             source: root.artwork; image-fit: contain;
@@ -49,10 +55,37 @@ export component PresentationView inherits Rectangle {
             x: 48px * root.s; y: 48px * root.s; width: 64px * root.s; height: self.width;
             source: @image-url("../assets/icons/music.svg"); colorize: #32485f; image-fit: contain;
         }
+        // Rectangle clipping is rectangular, so mask the artwork's four corners.
+        Image {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            source: @image-url("../assets/icons/presentation-cover-corners.svg");
+        }
         WindowMoveArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     }
+    metadata := Rectangle {
+        visible: root.has-metadata;
+        x: 190px * root.s; y: 9px * root.s; width: root.width - 206px * root.s; height: 20px * root.s;
+        song := Text {
+            x: 0px; y: 0px; height: parent.height;
+            width: root.artist == "" ? parent.width : min(self.preferred-width, parent.width * 0.65);
+            text: root.title; color: #c4d0df; font-size: 13px * root.s; font-weight: 600;
+            vertical-alignment: center; overflow: elide; wrap: no-wrap;
+        }
+        Text {
+            visible: root.title != "" && root.artist != "";
+            x: song.width + 5px * root.s; y: 0px; width: 6px * root.s; height: parent.height;
+            text: "·"; color: #71849d; font-size: 12px * root.s; vertical-alignment: center;
+        }
+        Text {
+            x: root.title == "" ? 0px : song.width + 16px * root.s; y: 0px;
+            width: max(0px, parent.width - self.x); height: parent.height;
+            text: root.artist; color: #91a3bc; font-size: 12px * root.s;
+            vertical-alignment: center; overflow: elide; wrap: no-wrap;
+        }
+    }
     lyric-scroll := ElasticFlickable {
-        x: 190px * root.s; y: 8px * root.s; width: root.width - 206px * root.s; height: root.height - 16px * root.s;
+        x: 190px * root.s; y: (root.has-metadata ? 36px : 8px) * root.s;
+        width: root.width - 206px * root.s; height: root.height - self.y - 8px * root.s;
         visible: !root.pending && root.lines.length > 0;
         s: root.s; enabled: root.active && !root.pending;
         content-height: root.content-height; follow-duration: 220ms;
@@ -102,12 +135,12 @@ export component PresentationView inherits Rectangle {
         triggered => { self.stop(); root.following = true; root.follow-line(); }
     }
     if root.lines.length == 0 && !root.pending: Text {
-        x: lyric-scroll.x; y: 0px; width: lyric-scroll.width; height: root.height;
+        x: lyric-scroll.x; y: lyric-scroll.y; width: lyric-scroll.width; height: lyric-scroll.height;
         text: I18n.tr("No lyrics available"); font-size: 18px * root.s; color: #71849d;
         horizontal-alignment: center; vertical-alignment: center;
     }
     if root.pending: Text {
-        x: lyric-scroll.x; y: 0px; width: lyric-scroll.width; height: root.height;
+        x: lyric-scroll.x; y: lyric-scroll.y; width: lyric-scroll.width; height: lyric-scroll.height;
         text: root.countdown > 0 ? "" + root.countdown : "…";
         font-size: 66px * root.s; font-weight: 700; color: #f2f6fc;
         horizontal-alignment: center; vertical-alignment: center;

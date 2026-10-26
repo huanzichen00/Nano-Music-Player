@@ -94,7 +94,7 @@ While practice is enabled, selecting another song starts its preparation countdo
 
 ## Landscape Lyrics (desktop)
 
-Choose **View → Landscape Lyrics** for a wide window with album artwork on the left and lyrics on the right. Synchronized lyrics scroll automatically with playback. Drag the artwork to move the window, and resize its edges to change the display size. **Escape** exits and restores the previous player window; the View menu also toggles this display.
+Choose **View → Landscape Lyrics** for a rounded wide window with album artwork on the left and lyrics on the right, beneath a compact song-title and artist header. Synchronized lyrics scroll automatically with playback. Drag the artwork to move the window, and resize its edges to change the display size. **Escape** exits and restores the previous player window; the View menu also toggles this display.
 
 Playback and the queue continue unchanged when entering or leaving this view. **Space** retains the existing play/pause and practice-countdown behavior, including starting or cancelling the countdown when practice is enabled. Landscape Lyrics has no default keyboard shortcut; one can be assigned in **Settings → Keyboard Shortcuts**. This desktop view is temporary and does not reopen automatically after restarting the app.
 

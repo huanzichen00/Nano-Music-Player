@@ -67,12 +67,12 @@ fn clean_landscape_lyrics_wrap_follow_and_preserve_keyboard_routing() {
     ui.global::<I18n>()
         .on_translate(|language, key| translate(Language::ALL[language as usize], &key).into());
     ui.set_presentation_mode(true);
-    // Retained device mode and player metadata must not leak into the clean view.
+    // Device chrome and transport stay hidden; metadata uses a compact header.
     ui.set_device_mode(true);
     ui.set_screen(2);
     ui.set_has_track(true);
-    ui.set_track_title("This title must stay hidden".into());
-    ui.set_track_artist("This artist must stay hidden".into());
+    ui.set_track_title("七里香".into());
+    ui.set_track_artist("周杰伦".into());
     ui.set_overlay_visible(true);
     ui.set_lyrics_visible(false);
     let mut pixels = SharedPixelBuffer::<Rgb8Pixel>::new(160, 160);
@@ -145,6 +145,11 @@ fn clean_landscape_lyrics_wrap_follow_and_preserve_keyboard_routing() {
         assert_centered(&ui);
         snapshot(&ui, &format!("long-{language}"));
     }
+    ui.set_track_title("A very long song title that should leave room for the artist".into());
+    ui.set_track_artist("Artist with a long name".into());
+    snapshot(&ui, "long-metadata");
+    ui.set_track_title("七里香".into());
+    ui.set_track_artist("周杰伦".into());
     // Browsing pauses following, then restores the current lyric automatically.
     let size = ui.window().size().to_logical(ui.window().scale_factor());
     let scale = ui.get_display_scale();
@@ -193,6 +198,9 @@ fn clean_landscape_lyrics_wrap_follow_and_preserve_keyboard_routing() {
         "only the Rust command handler exits this mode"
     );
     ui.set_practice_pending(false);
+    ui.set_track_title("".into());
+    ui.set_track_artist("".into());
+    assert_centered(&ui);
     lyrics(&ui, &[]);
     snapshot(&ui, "empty");
     ui.set_artwork(slint::Image::default());

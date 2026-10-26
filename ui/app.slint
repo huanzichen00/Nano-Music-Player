@@ -46,7 +46,7 @@ export component AppWindow inherits Window {
     max-height: root.base-height * 3;
     no-frame: root.presentation-mode || root.device-mode;
     resize-border-width: root.presentation-mode || root.device-mode ? 5px : 0px;
-    background: root.presentation-mode ? #080f1a : root.device-mode ? transparent : #fff;
+    background: root.presentation-mode || root.device-mode ? transparent : #fff;
     always-on-top: root.keep-on-top;
     in-out property <bool> podcast-subscribe-open;
     in-out property <string> podcast-url;
@@ -956,6 +956,7 @@ export component AppWindow inherits Window {
             x: (keyboard.width - self.width) / 2; y: (keyboard.height - self.height) / 2;
             width: 540px * root.s; height: 180px * root.s;
             active: root.presentation-mode; s: root.s; artwork: root.artwork;
+            title: root.track-title; artist: root.track-artist;
             lines: root.displayed-lyric-lines; active-line: root.active-lyric;
             pending: root.practice-pending; countdown: root.practice-countdown;
         }
