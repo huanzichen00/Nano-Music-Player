@@ -117,7 +117,8 @@ export component NowPlayingView inherits Rectangle {
         Rectangle {
             background: @linear-gradient(180deg, #454650, #292b34 50%, #181a23);
             Rectangle { x: 0px; y: 0px; width: parent.width; height: 1px * root.s; background: #ffffff15; }
-            Text { x: 10px * root.s; y: 3px * root.s; width: parent.width - (root.practice-available && !root.spoken-mode ? 66px : 20px) * root.s; height: 15px * root.s; text: root.has-track ? root.artist : "iPod nano"; color: #e7e8ee; horizontal-alignment: center; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
+            // Reserve equal gutters so the trailing Practice button never shifts the artist.
+            Text { x: (root.practice-available && !root.spoken-mode ? 56px : 10px) * root.s; y: 3px * root.s; width: parent.width - 2 * self.x; height: 15px * root.s; text: root.has-track ? root.artist : "iPod nano"; color: #e7e8ee; horizontal-alignment: center; font-size: 12px * root.s; font-weight: 600; overflow: elide; }
             Text { x: 8px * root.s; y: 18px * root.s; width: parent.width - 16px * root.s; height: 19px * root.s; text: root.has-track ? root.title : I18n.tr("No song selected"); color: white; horizontal-alignment: center; font-size: 15px * root.s; font-weight: 700; overflow: elide; }
             Text { x: 10px * root.s; y: 37px * root.s; width: parent.width - 20px * root.s; height: 15px * root.s; text: root.has-track ? root.album : I18n.tr("Choose a song from Music"); color: #e7e8ee; horizontal-alignment: center; font-size: 11px * root.s; font-weight: 600; overflow: elide; }
         }

@@ -116,6 +116,7 @@ fn desktop_practice_panel_owns_pointer_input_and_edits_points_in_both_modes() {
     ui.set_screen(2);
     ui.set_has_track(true);
     ui.set_track_title("Practice fixture".into());
+    ui.set_track_artist("周杰伦".into());
     ui.set_practice_has_track(true);
     ui.set_practice_enabled(true);
     ui.set_practice_title("Practice fixture".into());
