@@ -193,6 +193,7 @@ impl Controller {
     }
 
     pub(super) fn sync(&mut self, ui: &AppWindow) {
+        self.sync_practice(ui);
         ui.set_library_busy(self.library_tasks.busy());
         if self.state.translation_target != self.settings.translation_target
             || self.state.translation_visible != self.lyrics.visible()

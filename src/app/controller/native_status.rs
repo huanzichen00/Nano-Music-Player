@@ -27,6 +27,7 @@ impl Controller {
     }
 
     pub(super) fn pause_for_output_change(&mut self, ui: &AppWindow) {
+        self.practice.cancel();
         let (has_item, paused, status) = self.active_transport();
         crate::shared::diagnostics::record(
             "desktop_output_changed",
@@ -67,6 +68,9 @@ impl Controller {
                 if paused || matches!(status, PlaybackStatus::Stopped | PlaybackStatus::Error) =>
             {
                 self.execute(ui, Action::TogglePlay)
+            }
+            RemoteCommand::Pause if self.practice.pending().is_some() => {
+                self.practice.cancel();
             }
             RemoteCommand::Pause
                 if !paused

@@ -15,7 +15,7 @@ impl Controller {
         }
     }
 
-    fn handle_audio_event(&mut self, ui: &AppWindow, event: AudioEvent) {
+    pub(super) fn handle_audio_event(&mut self, ui: &AppWindow, event: AudioEvent) {
         if self.podcast_audio_event(&event) {
             return;
         }
@@ -31,6 +31,7 @@ impl Controller {
                 && self.state.current == Some(id) =>
             {
                 self.update_playback_session(id, status, position, observed_at);
+                self.practice_progress(id, status, position, std::time::Instant::now());
                 self.state.position = position;
                 self.state.status = if self.state.paused {
                     PlaybackStatus::Paused
@@ -91,6 +92,13 @@ impl Controller {
                     && self.state.current == Some(id) =>
             {
                 self.complete_playback_session();
+                if self.practice.enabled() {
+                    self.practice.cancel();
+                    self.state.paused = true;
+                    self.state.status = PlaybackStatus::Stopped;
+                    self.state.position = self.state.duration();
+                    return;
+                }
                 let effects = self.state.advance(false);
                 self.effects(ui, effects);
             }
@@ -99,6 +107,7 @@ impl Controller {
                     && self.pending_media.is_none()
                     && (id.is_none() || id == self.state.current) =>
             {
+                self.practice.cancel();
                 self.state.status = PlaybackStatus::Error;
                 self.state.notice = format!("Playback error: {message}");
             }

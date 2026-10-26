@@ -4,6 +4,7 @@ pub mod controller;
 pub mod geometry;
 mod iphone_sync;
 mod podcast_state;
+pub mod practice;
 mod settings;
 pub mod state;
 pub mod statistics_projection;

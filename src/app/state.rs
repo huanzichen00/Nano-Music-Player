@@ -1752,6 +1752,12 @@ impl State {
             }
             DeviceInformation => return vec![Effect::DeviceInformation],
             TrackDetails => return vec![Effect::TrackDetails],
+            // Practice commands are handled by the desktop controller.
+            PracticeMode
+            | PracticeAddMarker
+            | PracticePreviousMarker
+            | PracticeNextMarker
+            | PracticeRestart => {}
             ToggleTranslation => {
                 return vec![Effect::Translation(crate::translation::Command::Toggle)];
             }

@@ -17,6 +17,7 @@ pub(super) enum PendingMedia {
 
 impl Controller {
     pub(super) fn media_error(&mut self, message: String) {
+        self.practice.cancel();
         self.pending_media = None;
         self.pending_seek = None;
         if self.state.video_active {
@@ -29,7 +30,8 @@ impl Controller {
         self.state.notice = format!("Playback error: {message}");
     }
 
-    pub(super) fn send_music(&mut self, command: AudioCommand) {
+    pub(super) fn send_music(&mut self, mut command: AudioCommand) {
+        self.prepare_practice_load(&mut command);
         self.save_video_progress(true);
         if matches!(
             command,
@@ -190,6 +192,7 @@ impl Controller {
             || self.state.podcasts.active.is_some()
             || self.pending_media.is_some()
             || self.state.video_active
+            || self.practice.enabled()
             || !self.state.gapless_playback
             || matches!(
                 self.state.status,
@@ -251,6 +254,7 @@ impl Controller {
             self.save_video_progress(true);
         }
         if let Command::Load { video, .. } = &command {
+            self.practice.set_enabled(false);
             self.leave_podcast();
             self.playback_session = None;
             self.media_marker = None;

@@ -9,6 +9,7 @@ mod playback;
 #[path = "controller/playlists.rs"]
 mod playlist_service;
 mod podcasts;
+mod practice;
 mod statistics;
 mod ui_sync;
 mod video;
@@ -57,6 +58,12 @@ pub struct Controller {
     pub state: State,
     pub dispatcher: Dispatcher,
     engine: Engine,
+    practice: super::practice::PracticeSession,
+    practice_store: super::practice::PracticeStore,
+    practice_saves: practice::PracticeSaves,
+    practice_rows: Vec<crate::ui::PracticeMarkerRow>,
+    practice_path: Option<PathBuf>,
+    practice_wait: Option<(u64, std::time::Instant)>,
     podcasts: podcasts::Podcasts,
     video_engine: crate::video::engine::Engine,
     video_tasks: video::VideoTasks,
@@ -164,7 +171,19 @@ impl Controller {
             Err(error) => state.notice = format!("Subtitle preferences error: {error}"),
         }
         let lyrics = LyricsService::new(directory.clone(), settings.translation_visible);
+        let practice_store = super::practice::PracticeStore::load(&directory.join("practice.json"))
+            .unwrap_or_else(|error| {
+                state.notice = format!("Practice data error: {error}");
+                super::practice::PracticeStore::default()
+            });
+        let practice_saves = practice::PracticeSaves::new(directory.join("practice.json"));
         Self {
+            practice: Default::default(),
+            practice_store,
+            practice_saves,
+            practice_rows: Vec::new(),
+            practice_path: None,
+            practice_wait: None,
             state,
             dispatcher: Dispatcher::new(keymap),
             engine: Engine::default(),
@@ -243,6 +262,9 @@ impl Controller {
         event: slint::language::KeyEvent,
         editing: bool,
     ) -> bool {
+        if ui.get_practice_open() {
+            return self.dispatch_practice(ui, event, editing);
+        }
         if self.dialog_open || self.shortcut_capture.is_some() {
             return false;
         }
@@ -383,6 +405,8 @@ impl Controller {
     }
 
     fn dismiss_overlays_for_home(&mut self, ui: &AppWindow) {
+        ui.set_practice_open(false);
+        self.practice.cancel();
         if ui.get_podcast_subscribe_open() {
             self.podcast_command(ui, "close");
         }
@@ -412,6 +436,9 @@ impl Controller {
         event: slint::language::KeyEvent,
         text_input: bool,
     ) -> bool {
+        if ui.get_practice_open() {
+            return self.dispatch_practice(ui, event, text_input);
+        }
         let key = Key::from_slint(event.text.as_str());
         if ui.get_deepseek_settings_open() && !self.state.reference_open {
             if key == Some(Key::Escape) {
@@ -547,6 +574,9 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if self.handle_practice_action(ui, action) {
+            return;
+        }
         if action == Action::Back && (ui.get_track_details_open() || ui.get_native_status_open()) {
             ui.set_track_details_open(false);
             ui.set_native_status_open(false);
@@ -696,7 +726,12 @@ impl Controller {
                     self.sync(ui);
                 }
                 Effect::Podcast(action) => self.podcast_action(ui, action),
-                Effect::Audio(command) => self.send_music(command),
+                Effect::Audio(command) => {
+                    if matches!(command, AudioCommand::Seek(_)) {
+                        self.practice.cancel();
+                    }
+                    self.send_music(command);
+                }
                 Effect::Video(command) => self.send_video(command),
                 Effect::ImportVideos => {
                     self.dialog_open = true;
@@ -1196,6 +1231,7 @@ impl Controller {
         self.poll_videos(ui);
         self.poll_audio_events(ui);
         self.poll_media_commands(ui);
+        self.poll_practice(ui, std::time::Instant::now());
         self.schedule_gapless_prefetch();
         self.sync(ui);
         self.publish_media_snapshot();
@@ -1968,9 +2004,16 @@ impl Controller {
                 }
                 let (start, keep, position) = self.install_genius_queue(ids);
                 if keep.is_some() {
-                    self.state.position = position;
-                    self.send_music(crate::audio::engine::AudioCommand::Seek(position));
-                    self.send_music(crate::audio::engine::AudioCommand::Pause(false));
+                    if self.practice.enabled() {
+                        let path = self.state.tracks[start].path.clone();
+                        if let Err(error) = self.start_practice(&path, position, None) {
+                            self.state.notice = error;
+                        }
+                    } else {
+                        self.state.position = position;
+                        self.send_music(crate::audio::engine::AudioCommand::Seek(position));
+                        self.send_music(crate::audio::engine::AudioCommand::Pause(false));
+                    }
                 } else if let Some(effect) = self.state.start(start).into_iter().next() {
                     self.effects(ui, vec![effect]);
                 }
@@ -2233,6 +2276,15 @@ pub fn connect(ui: &AppWindow, controller: &Rc<RefCell<Controller>>) {
             state
                 .borrow_mut()
                 .podcast_details(&ui, index.max(0) as usize);
+        }
+    });
+    let weak = ui.as_weak();
+    let state = controller.clone();
+    ui.on_practice_command(move |command, id, payload| {
+        if let Some(ui) = weak.upgrade() {
+            state
+                .borrow_mut()
+                .practice_command(&ui, &command, &id, &payload);
         }
     });
     let weak = ui.as_weak();
