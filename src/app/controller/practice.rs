@@ -150,7 +150,9 @@ impl Controller {
         let path = self.practice_track().map(|track| track.path.clone());
         if self.practice_path != path {
             self.practice_path = path;
-            ui.invoke_close_practice_editor();
+            if ui.get_practice_open() && ui.get_practice_editing() {
+                ui.invoke_close_practice_editor();
+            }
             ui.set_practice_error("".into());
         }
         if self.practice.enabled()
