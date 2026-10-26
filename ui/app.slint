@@ -7,6 +7,7 @@ export { WheelGesture }
 import { HomeView } from "home.slint";
 import { StatisticsView, StatisticsItem, StatisticsDay, StatisticsSummary } from "statistics.slint";
 import { TrackDetails } from "track-details.slint";
+import { PresentationView } from "presentation.slint";
 import { PracticePanel, PracticeMarkerRow, PracticeCountdown } from "practice.slint";
 export { PracticeMarkerRow }
 export { StatisticsItem, StatisticsDay, StatisticsSummary }
@@ -38,14 +39,14 @@ export struct ShortcutRow { category: string, title: string, keys: string }
 
 export component AppWindow inherits Window {
     title: "iPod nano";
-    preferred-width: 370px; preferred-height: 296px * 76.5 / 39.6 * 1.25;
+    preferred-width: root.presentation-mode ? 540px : 370px; preferred-height: root.presentation-mode ? 180px : 296px * 76.5 / 39.6 * 1.25;
     min-width: root.base-width * 0.75;
     min-height: root.base-height * 0.75;
     max-width: root.base-width * 3;
     max-height: root.base-height * 3;
-    no-frame: device-mode;
-    resize-border-width: device-mode ? 5px : 0px;
-    background: device-mode ? transparent : #fff;
+    no-frame: root.presentation-mode || root.device-mode;
+    resize-border-width: root.presentation-mode || root.device-mode ? 5px : 0px;
+    background: root.presentation-mode ? #080f1a : root.device-mode ? transparent : #fff;
     always-on-top: root.keep-on-top;
     in-out property <bool> podcast-subscribe-open;
     in-out property <string> podcast-url;
@@ -74,6 +75,13 @@ export component AppWindow inherits Window {
     default-font-family: root.ui-font-family;
     in property <string> ui-font-family: "Helvetica Neue";
     in property <bool> device-mode: true;
+    in property <bool> presentation-mode: false;
+    out property <length> presentation-scroll-y: presentation-view.scroll-y;
+    out property <float> presentation-active-center: presentation-view.active-center / 1px;
+    out property <float> presentation-viewport-height: presentation-view.viewport-height / 1px;
+    out property <float> presentation-lyric-content-height: presentation-view.content-height / 1px;
+    out property <bool> presentation-following: presentation-view.following;
+    changed presentation-mode => { root.cancel-screen-transition(); root.focus-screen(); }
     in property <int> screen;
     in property <bool> smooth-slides: true;
     in property <int> transition-direction: 1;
@@ -157,8 +165,8 @@ export component AppWindow inherits Window {
     in property <bool> subtitle-menu-open;
     in property <[SubtitleChoice]> subtitle-choices;
     in property <int> subtitle-menu-selected;
-    private property <length> base-width: video-landscape ? (device-mode ? 296px * 76.5 / 39.6 : 432px) : (device-mode ? 296px : 240px);
-    private property <length> base-height: video-landscape ? (device-mode ? 296px : 240px) : (device-mode ? 296px * 76.5 / 39.6 : 432px);
+    private property <length> base-width: root.presentation-mode ? 540px : video-landscape ? (device-mode ? 296px * 76.5 / 39.6 : 432px) : (device-mode ? 296px : 240px);
+    private property <length> base-height: root.presentation-mode ? 180px : video-landscape ? (device-mode ? 296px : 240px) : (device-mode ? 296px * 76.5 / 39.6 : 432px);
     in property <string> screen-title;
     in property <int> selected;
     in property <int> home-page;
@@ -348,7 +356,8 @@ export component AppWindow inherits Window {
     callback seek-changed(float);
     callback home-swipe(bool);
     public function focus-screen() {
-        if root.podcast-subscribe-open { podcast-dialog.focus-editor(); }
+        if root.presentation-mode { keyboard.focus(); }
+        else if root.podcast-subscribe-open { podcast-dialog.focus-editor(); }
         else if root.deepseek-settings-open { deepseek-dialog.focus-editor(); }
         else if root.playlist-editor-open && !playlist-editor.reviewing { playlist-editor.focus-name(); }
         else { keyboard.focus(); }
@@ -453,6 +462,7 @@ export component AppWindow inherits Window {
             title: I18n.tr("View");
             MenuItem { title: I18n.tr("Device Status…"); enabled: root.screen != 9; activated => { root.native-status-open = !root.native-status-open; keyboard.focus(); } }
             MenuItem { title: I18n.tr("Settings…"); activated => { root.command("settings"); } }
+            MenuItem { title: I18n.tr("Landscape Lyrics"); checked: root.presentation-mode; activated => { root.command("presentation_mode"); } }
             MenuItem { title: I18n.tr("Device Mode"); activated => { root.command("device_mode"); } }
             MenuItem { title: I18n.tr("Screen Mode"); activated => { root.command("screen_mode"); } }
             MenuItem { title: I18n.tr("Always on Top"); checked: root.keep-on-top; activated => { root.command("toggle_always_on_top"); } }
@@ -466,6 +476,7 @@ export component AppWindow inherits Window {
     keyboard := FocusScope {
         // The sole keyboard entry point for the entire application.
         capture-key-pressed(event) => {
+            if root.presentation-mode { return root.key-event(event, false) ? accept : reject; }
             if root.native-status-open && event.text == Key.Escape { root.native-status-open = false; return accept; }
             if root.modal-key-event(event, root.practice-open ? practice-panel.editor-focused
                 : root.reference-open ? false
@@ -524,6 +535,9 @@ export component AppWindow inherits Window {
             }
             return root.key-event(event, library.search-focused) ? accept : reject;
         }
+        Rectangle {
+            visible: !root.presentation-mode;
+            x: 0px; y: 0px; width: keyboard.width; height: keyboard.height;
         if root.device-mode && root.screen != 9: Rectangle {
             x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
             width: 296px * root.s; height: (296px * 76.5 / 39.6) * root.s;
@@ -935,6 +949,15 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+        }
+        }
+        presentation-view := PresentationView {
+            visible: root.presentation-mode;
+            x: (keyboard.width - self.width) / 2; y: (keyboard.height - self.height) / 2;
+            width: 540px * root.s; height: 180px * root.s;
+            active: root.presentation-mode; s: root.s; artwork: root.artwork;
+            lines: root.displayed-lyric-lines; active-line: root.active-lyric;
+            pending: root.practice-pending; countdown: root.practice-countdown;
         }
     }
 }

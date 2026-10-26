@@ -1,0 +1,115 @@
+import { ElasticFlickable } from "overscroll.slint";
+import { I18n } from "i18n.slint";
+
+// A clean recording surface: artwork and synchronized lyrics only.
+export component PresentationView inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> active;
+    in property <image> artwork;
+    in property <[string]> lines;
+    in property <int> active-line: -1;
+    in property <bool> pending;
+    in property <int> countdown;
+    out property <length> scroll-y: lyric-scroll.content-y;
+    out property <length> content-height: words.preferred-height + lyric-scroll.height;
+    out property <length> active-center: root.active-content-center + lyric-scroll.content-y;
+    out property <length> viewport-height: lyric-scroll.height;
+    out property <bool> following: true;
+    private property <length> active-content-center;
+    private property <int> lyric-generation;
+    function follow-line() {
+        if root.active && root.following && root.lines.length > 0 {
+            lyric-scroll.content-y = clamp(lyric-scroll.height / 2 - root.active-content-center,
+                min(0px, lyric-scroll.height - root.content-height), 0px);
+        }
+    }
+    function refresh-follow() {
+        if root.active { follow-refresh.start(); follow-refresh.restart(); }
+    }
+    changed lines => {
+        root.lyric-generation += 1; root.following = true;
+        resume-follow.stop(); lyric-scroll.content-y = 0px; root.refresh-follow();
+    }
+    changed active => { if root.active { root.following = true; root.refresh-follow(); } }
+    changed active-line => { root.refresh-follow(); }
+    changed s => { root.refresh-follow(); }
+    changed width => { root.refresh-follow(); }
+    changed height => { root.refresh-follow(); }
+    changed pending => { if !root.pending { root.follow-line(); } }
+    background: #080f1a;
+    clip: true;
+    cover := Rectangle {
+        x: 10px * root.s; y: 10px * root.s; width: 160px * root.s; height: self.width;
+        border-radius: 8px * root.s; clip: true; background: #111f30;
+        if root.artwork.width > 0: Image {
+            x: 0px; y: 0px; width: parent.width; height: parent.height;
+            source: root.artwork; image-fit: contain;
+        }
+        if root.artwork.width == 0: Image {
+            x: 48px * root.s; y: 48px * root.s; width: 64px * root.s; height: self.width;
+            source: @image-url("../assets/icons/music.svg"); colorize: #32485f; image-fit: contain;
+        }
+        WindowMoveArea { x: 0px; y: 0px; width: parent.width; height: parent.height; }
+    }
+    lyric-scroll := ElasticFlickable {
+        x: 190px * root.s; y: 8px * root.s; width: root.width - 206px * root.s; height: root.height - 16px * root.s;
+        visible: !root.pending && root.lines.length > 0;
+        s: root.s; enabled: root.active && !root.pending;
+        content-height: root.content-height; follow-duration: 220ms;
+        navigation-generation: root.lyric-generation;
+        changed user-interacting => {
+            if self.user-interacting {
+                root.following = false; resume-follow.stop();
+            } else if !self.touch-pressed && !root.following {
+                resume-follow.start(); resume-follow.restart();
+            }
+        }
+        words := VerticalLayout {
+            x: 0px; y: lyric-scroll.height / 2; width: lyric-scroll.width; height: self.preferred-height;
+            spacing: 0px; padding: 0px;
+            for line[index] in root.lines: Rectangle {
+                min-height: max(40px * root.s, text.preferred-height + 18px * root.s);
+                property <bool> current: index == max(0, root.active-line);
+                property <int> generation: root.lyric-generation;
+                function publish-center() {
+                    if self.current {
+                        root.active-content-center = words.y + self.y + self.height / 2;
+                        root.follow-line();
+                    }
+                }
+                changed current => { self.publish-center(); }
+                changed y => { self.publish-center(); }
+                changed height => { self.publish-center(); }
+                changed generation => { self.publish-center(); }
+                text := Text {
+                    x: 0px; y: 9px * root.s; width: parent.width;
+                    text: line; wrap: word-wrap;
+                    font-size: 22px * root.s; font-weight: parent.current ? 700 : 500;
+                    color: parent.current ? #f2f6fc : abs(index - max(0, root.active-line)) == 1 ? #71849d : #35465e;
+                    horizontal-alignment: left;
+                }
+            }
+        }
+    }
+    // Repeater creation and wrapped-text layout complete after the model change.
+    // Publish once on the next tick, including the initially active first row.
+    follow-refresh := Timer {
+        interval: 1ms; running: false;
+        triggered => { self.stop(); root.lyric-generation += 1; }
+    }
+    resume-follow := Timer {
+        interval: 3s; running: false;
+        triggered => { self.stop(); root.following = true; root.follow-line(); }
+    }
+    if root.lines.length == 0 && !root.pending: Text {
+        x: lyric-scroll.x; y: 0px; width: lyric-scroll.width; height: root.height;
+        text: I18n.tr("No lyrics available"); font-size: 18px * root.s; color: #71849d;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+    if root.pending: Text {
+        x: lyric-scroll.x; y: 0px; width: lyric-scroll.width; height: root.height;
+        text: root.countdown > 0 ? "" + root.countdown : "…";
+        font-size: 66px * root.s; font-weight: 700; color: #f2f6fc;
+        horizontal-alignment: center; vertical-alignment: center;
+    }
+}
