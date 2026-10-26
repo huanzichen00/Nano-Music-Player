@@ -84,6 +84,21 @@ fn native_practice_load_seek_countdown_cancel_and_finish() {
     wait_for(&controller, &ui, 5, |c| {
         c.state.status == PlaybackStatus::Playing && c.state.position > 0.05
     });
+    // Switching the recording layout must leave the real audio source running.
+    let before_display = controller.borrow().state.position;
+    {
+        let mut c = controller.borrow_mut();
+        c.practice_command(&ui, "close", "", "");
+        c.execute(&ui, Action::PresentationMode);
+        assert!(c.state.presentation_mode);
+    }
+    wait_for(&controller, &ui, 3, |c| {
+        c.state.position > before_display + 0.15
+    });
+    assert!(!controller.borrow().state.paused);
+    controller.borrow_mut().execute(&ui, Action::Back);
+    assert!(!controller.borrow().state.presentation_mode);
+    assert!(!controller.borrow().state.paused);
     let early = ui.get_practice_markers().row_data(0).unwrap().id;
     let late = ui.get_practice_markers().row_data(1).unwrap().id;
     {

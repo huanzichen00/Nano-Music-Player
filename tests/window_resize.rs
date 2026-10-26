@@ -171,4 +171,34 @@ fn backing_scale_changes_preserve_the_players_logical_size_and_zoom() {
         ui.get_content_height(),
         controller.state.zoom
     );
+
+    // The recording display has a separate aspect and zoom, and must survive
+    // asynchronous backing changes without overwriting the portrait geometry.
+    let portrait_size = size();
+    let portrait_zoom = controller.state.zoom;
+    controller.execute(
+        &ui,
+        nano_music_player::app::action::Action::PresentationMode,
+    );
+    native.acknowledge_resize();
+    settle(&mut controller, &ui, native);
+    assert!(controller.state.presentation_mode);
+    assert!((size().width / ui.get_content_height() - 3.0).abs() < 0.002);
+    let display_size = size();
+    let display_zoom = controller.state.zoom;
+    for scale_factor in [2.0, 1.0] {
+        ui.window()
+            .dispatch_event(WindowEvent::ScaleFactorChanged { scale_factor });
+        settle(&mut controller, &ui, native);
+        assert!((controller.state.zoom - display_zoom).abs() < 0.001);
+        assert!((size().width - display_size.width).abs() <= 1.0);
+        assert!((size().height - display_size.height).abs() <= 1.0);
+    }
+    controller.execute(&ui, nano_music_player::app::action::Action::Back);
+    native.acknowledge_resize();
+    settle(&mut controller, &ui, native);
+    assert!(!controller.state.presentation_mode);
+    assert!((controller.state.zoom - portrait_zoom).abs() < 0.001);
+    assert!((size().width - portrait_size.width).abs() <= 1.0);
+    assert!((size().height - portrait_size.height).abs() <= 1.0);
 }

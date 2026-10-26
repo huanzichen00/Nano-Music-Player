@@ -193,6 +193,12 @@ impl Controller {
     }
 
     pub(super) fn sync(&mut self, ui: &AppWindow) {
+        if self.state.presentation_mode
+            && (self.state.video_active || self.state.podcasts.active.is_some())
+        {
+            self.set_presentation_mode(ui, false);
+        }
+        ui.set_presentation_mode(self.state.presentation_mode);
         self.sync_practice(ui);
         ui.set_library_busy(self.library_tasks.busy());
         if self.state.translation_target != self.settings.translation_target

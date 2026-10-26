@@ -134,6 +134,7 @@ pub struct State {
     pub shuffle: bool,
     pub repeat: Repeat,
     pub device_mode: bool,
+    pub presentation_mode: bool,
     pub zoom: f32,
     pub home_page: usize,
     pub query: String,
@@ -196,6 +197,7 @@ impl Default for State {
             shuffle: false,
             repeat: Repeat::Off,
             device_mode: true,
+            presentation_mode: false,
             zoom: 1.25,
             home_page: 0,
             query: String::new(),
@@ -1757,7 +1759,8 @@ impl State {
             | PracticeAddMarker
             | PracticePreviousMarker
             | PracticeNextMarker
-            | PracticeRestart => {}
+            | PracticeRestart
+            | PresentationMode => {}
             ToggleTranslation => {
                 return vec![Effect::Translation(crate::translation::Command::Toggle)];
             }

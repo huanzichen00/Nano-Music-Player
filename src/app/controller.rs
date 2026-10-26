@@ -10,6 +10,7 @@ mod playback;
 mod playlist_service;
 mod podcasts;
 mod practice;
+mod presentation;
 mod statistics;
 mod ui_sync;
 mod video;
@@ -64,6 +65,8 @@ pub struct Controller {
     practice_rows: Vec<crate::ui::PracticeMarkerRow>,
     practice_path: Option<PathBuf>,
     practice_wait: Option<(u64, std::time::Instant)>,
+    presentation_restore_zoom: Option<f32>,
+    presentation_zoom: f32,
     podcasts: podcasts::Podcasts,
     video_engine: crate::video::engine::Engine,
     video_tasks: video::VideoTasks,
@@ -184,6 +187,8 @@ impl Controller {
             practice_rows: Vec::new(),
             practice_path: None,
             practice_wait: None,
+            presentation_restore_zoom: None,
+            presentation_zoom: 1.0,
             state,
             dispatcher: Dispatcher::new(keymap),
             engine: Engine::default(),
@@ -491,7 +496,11 @@ impl Controller {
             },
         };
         let context = Context {
-            surface: self.state.surface(),
+            surface: if self.state.presentation_mode {
+                crate::input::Surface::NowPlaying
+            } else {
+                self.state.surface()
+            },
             text_input,
             reference_open: self.state.reference_open,
             native_dialog: self.dialog_open,
@@ -574,6 +583,9 @@ impl Controller {
     }
 
     pub fn execute(&mut self, ui: &AppWindow, action: Action) {
+        if self.handle_presentation_action(ui, action) {
+            return;
+        }
         if self.handle_practice_action(ui, action) {
             return;
         }

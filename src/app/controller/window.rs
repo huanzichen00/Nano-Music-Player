@@ -21,20 +21,31 @@ impl Controller {
     }
 
     pub(super) fn prepare_portrait_dialog(&mut self, ui: &AppWindow) {
+        if self.state.presentation_mode {
+            self.set_presentation_mode(ui, false);
+        }
         if self.state.landscape_video() {
             // Use Done/Back semantics: pause, preserve list selection, and restore zoom.
             self.execute(ui, Action::Back);
         }
     }
 
-    fn base_size(&self) -> (f32, f32) {
-        crate::video::orientation::window_base(self.state.device_mode, self.state.landscape_video())
+    pub(super) fn base_size(&self) -> (f32, f32) {
+        if self.state.presentation_mode {
+            presentation::BASE_SIZE
+        } else {
+            crate::video::orientation::window_base(
+                self.state.device_mode,
+                self.state.landscape_video(),
+            )
+        }
     }
 
     pub(super) fn resize(&mut self, ui: &AppWindow) {
         self.resize_debouncer.reset();
         self.resize_guard.reset();
         self.native_resize.clear_live_resize();
+        ui.set_presentation_mode(self.state.presentation_mode);
         ui.set_device_mode(self.state.device_mode);
         ui.set_video_landscape(self.state.landscape_video());
         let (width, height) = self.base_size();
@@ -160,15 +171,17 @@ impl Controller {
                 height * self.state.zoom + self.window_menu_height.unwrap_or(0.0),
             )
         };
-        let (saved_width, saved_height) = if self.state.landscape_video() {
-            crate::video::orientation::saved_size(
-                self.state.device_mode,
-                self.state.zoom,
-                self.window_menu_height.unwrap_or(0.0),
-            )
-        } else {
-            (size.width, size.height)
-        };
+        let saved_zoom = self.presentation_restore_zoom.unwrap_or(self.state.zoom);
+        let (saved_width, saved_height) =
+            if self.state.presentation_mode || self.state.landscape_video() {
+                crate::video::orientation::saved_size(
+                    self.state.device_mode,
+                    saved_zoom,
+                    self.window_menu_height.unwrap_or(0.0),
+                )
+            } else {
+                (size.width, size.height)
+            };
         self.settings = Settings {
             language: self.state.language,
             font: self.state.font,
@@ -178,7 +191,7 @@ impl Controller {
             translation_target: self.settings.translation_target,
             translation_visible: self.lyrics.visible(),
             lyrics_visible: self.settings.lyrics_visible,
-            zoom: self.state.zoom,
+            zoom: saved_zoom,
             device_mode: self.state.device_mode,
             legacy_monitor_setting: None,
             library_roots: self.settings.library_roots.clone(),
