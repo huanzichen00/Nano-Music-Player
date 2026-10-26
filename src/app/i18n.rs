@@ -41,6 +41,7 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Landscape Lyrics", "横版歌词展示", "横長の歌詞表示"),
     (
         "Audio preparation timed out. Try again.",
         "音频准备超时，请重试。",

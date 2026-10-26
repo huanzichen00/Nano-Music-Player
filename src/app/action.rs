@@ -38,6 +38,8 @@ pub enum Action {
     PracticeNextMarker,
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     PracticeRestart,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    PresentationMode,
     ImportFolder,
     RefreshLibrary,
     ImportVideos,
@@ -123,6 +125,8 @@ impl Action {
             | Self::PracticePreviousMarker
             | Self::PracticeNextMarker
             | Self::PracticeRestart => Category::Playback,
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PresentationMode => Category::Application,
             Self::ToggleOverlay | Self::TrackList | Self::ToggleSubtitles => Category::Playback,
             Self::ImportFolder
             | Self::RefreshLibrary
@@ -212,6 +216,8 @@ impl Action {
             Self::PracticeNextMarker => "Next Practice Marker",
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
             Self::PracticeRestart => "Restart Practice",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PresentationMode => "Landscape Lyrics",
             Self::ImportFolder => "Import music folder",
             Self::RefreshLibrary => "Refresh Library",
             Self::ImportVideos => "Import Videos…",
@@ -314,6 +320,8 @@ impl Action {
         Self::ConfigureDeepSeek,
         Self::DeviceMode,
         Self::ScreenMode,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::PresentationMode,
         Self::ToggleAlwaysOnTop,
         Self::NewPlaylist,
         Self::EditPlaylist,

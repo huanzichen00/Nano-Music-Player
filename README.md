@@ -92,6 +92,12 @@ Use **Mark position** to save the current position, or **New point** to enter a 
 
 While practice is enabled, selecting another song starts its preparation countdown and reaching the end of a song stops playback. **Cancel** or Space cancels a pending countdown. Closing the panel, disabling practice, changing songs or switching to video/podcasts cancels the old pending start. The shortcuts above can be changed in **Settings → Keyboard Shortcuts**; existing custom bindings keep precedence. Practice Mode is available only on desktop.
 
+## Landscape Lyrics (desktop)
+
+Choose **View → Landscape Lyrics** for a wide window with album artwork on the left and lyrics on the right. Synchronized lyrics scroll automatically with playback. Drag the artwork to move the window, and resize its edges to change the display size. **Escape** exits and restores the previous player window; the View menu also toggles this display.
+
+Playback and the queue continue unchanged when entering or leaving this view. **Space** retains the existing play/pause and practice-countdown behavior, including starting or cancelling the countdown when practice is enabled. Landscape Lyrics has no default keyboard shortcut; one can be assigned in **Settings → Keyboard Shortcuts**. This desktop view is temporary and does not reopen automatically after restarting the app.
+
 ## Podcasts (desktop)
 
 Open **Home → Podcasts → Add Subscription…**, paste a show's RSS URL, preview it, then subscribe. Show information, artwork and episodes are fetched automatically; audio is downloaded on demand. Public feeds usually need no account or API key.
