@@ -42,6 +42,11 @@ impl Language {
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
     (
+        "Audio preparation timed out. Try again.",
+        "音频准备超时，请重试。",
+        "音声の準備がタイムアウトしました。もう一度お試しください。",
+    ),
+    (
         "Mark a position or add a time.",
         "标记当前位置或手动添加时间。",
         "現在位置を登録するか、時刻を入力してください。",
@@ -2624,6 +2629,7 @@ mod tests {
             "Mark position",
             "Key points",
             "Preparing audio…",
+            "Audio preparation timed out. Try again.",
             "Get ready",
             "Time (mm:ss.mmm)",
             "Locate only",
