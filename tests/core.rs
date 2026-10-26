@@ -279,7 +279,8 @@ fn slint_key_text_is_normalized_without_accepting_unknown_or_multiple_characters
 fn native_primary_modifier_and_other_modifiers_match_exactly() {
     let dispatcher = Dispatcher::new(Keymap::default());
     // Slint supplies the platform's Command/Control equivalent as `primary`.
-    // Physical secondary, Alt and Shift must never accidentally trigger those bindings.
+    // Extra modifiers must not trigger simpler bindings. Primary+Alt+M has
+    // its own practice-marker action and must match only that exact chord.
     for mask in 0..16 {
         let modifiers = Modifiers {
             primary: mask & 1 != 0,
@@ -294,10 +295,12 @@ fn native_primary_modifier_and_other_modifiers_match_exactly() {
             ),
             if mask == 0 {
                 Dispatch::Action(Action::ToggleMute)
+            } else if mask == 5 {
+                Dispatch::Action(Action::PracticeAddMarker)
             } else {
                 Dispatch::Ignored
             },
-            "mute modifiers {modifiers:?}"
+            "M modifiers {modifiers:?}"
         );
         assert_eq!(
             dispatcher.dispatch(
@@ -619,13 +622,16 @@ fn configurable_keymaps_round_trip_and_replace_defaults() {
     };
     fs::write(&path, serde_json::to_vec_pretty(&custom).unwrap()).unwrap();
     let loaded = Keymap::load_or_create(&path).unwrap();
-    assert_eq!(loaded.version, 7);
+    assert_eq!(loaded.version, created.version);
     assert_eq!(&loaded.bindings[..custom.bindings.len()], custom.bindings);
     for action in [
         Action::ToggleTranslation,
         Action::DeviceInformation,
         Action::TrackDetails,
-    ] {
+    ]
+    .into_iter()
+    .chain(Action::PRACTICE.iter().copied())
+    {
         assert!(
             loaded
                 .bindings
@@ -1649,28 +1655,57 @@ fn shortcut_edits_validate_before_saving_and_restore_actions_without_stealing_ke
 
 #[test]
 fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
+    // Freeze the shipped v1 map from ba6a9e4: deriving it from today's defaults
+    // would silently include commands that did not exist in that version.
+    let plain = [
+        (Key::Up, Action::SelectPrevious),
+        (Key::Down, Action::SelectNext),
+        (Key::Letter('k'), Action::SelectPrevious),
+        (Key::Letter('j'), Action::SelectNext),
+        (Key::Enter, Action::Activate),
+        (Key::Escape, Action::Back),
+        (Key::Backspace, Action::Back),
+        (Key::Letter('h'), Action::Home),
+        (Key::Left, Action::Left),
+        (Key::Right, Action::Right),
+        (Key::Space, Action::TogglePlay),
+        (Key::Letter('m'), Action::ToggleMute),
+        (Key::Letter('s'), Action::ToggleShuffle),
+        (Key::Letter('r'), Action::CycleRepeat),
+        (Key::Letter('n'), Action::NowPlaying),
+        (Key::Letter('l'), Action::ToggleLyrics),
+    ];
+    let modified = [
+        (Key::Right, Action::NextTrack),
+        (Key::Left, Action::PreviousTrack),
+        (Key::Up, Action::VolumeUp),
+        (Key::Down, Action::VolumeDown),
+        (Key::Letter('o'), Action::ImportFolder),
+        (Key::Letter('f'), Action::Search),
+        (Key::Digit('1'), Action::DeviceMode),
+        (Key::Digit('2'), Action::ScreenMode),
+        (Key::Plus, Action::ZoomIn),
+        (Key::Equals, Action::ZoomIn),
+        (Key::Minus, Action::ZoomOut),
+    ];
     let mut legacy = Keymap {
         version: 1,
-        ..Keymap::default()
+        bindings: plain
+            .into_iter()
+            .map(|(key, action)| Binding {
+                key,
+                action,
+                modifiers: Modifiers::default(),
+                optional_shift: false,
+            })
+            .chain(modified.into_iter().map(|(key, action)| Binding {
+                optional_shift: matches!(key, Key::Plus | Key::Equals),
+                key,
+                action,
+                modifiers: primary(),
+            }))
+            .collect(),
     };
-    legacy.bindings.retain(|b| {
-        b.action != Action::ShuffleAll
-            && b.action != Action::ToggleTranslation
-            && b.action != Action::DeviceInformation
-            && b.action != Action::TrackDetails
-            && b.action != Action::Settings
-            && b.action != Action::JumpToLetter
-            && !(b.action == Action::Home && b.modifiers.shift)
-            && b.key != Key::Letter('y')
-    });
-    for binding in &mut legacy.bindings {
-        if binding.key == Key::Letter('h') {
-            binding.action = Action::Home;
-        }
-        if binding.key == Key::Letter('l') {
-            binding.action = Action::ToggleLyrics;
-        }
-    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("shortcuts.json");
     legacy.save(&path).unwrap();
@@ -1686,7 +1721,10 @@ fn untouched_legacy_defaults_upgrade_but_custom_v1_maps_are_preserved() {
         Action::ToggleTranslation,
         Action::DeviceInformation,
         Action::TrackDetails,
-    ] {
+    ]
+    .into_iter()
+    .chain(Action::PRACTICE.iter().copied())
+    {
         assert!(
             loaded
                 .bindings
