@@ -25,8 +25,14 @@ export component PracticePanel inherits Rectangle {
     private property <string> edit-name;
     private property <string> edit-time;
     callback command(string, string, string);
-    public function dismiss-editor() { focus-sink.focus(); }
-    public function close-editor() { root.editing-point = false; root.dismiss-editor(); }
+    public function dismiss-editor() { if root.open { focus-sink.focus(); } }
+    public function close-editor() {
+        root.editing-point = false;
+        root.edit-id = ""; root.edit-name = ""; root.edit-time = "";
+        // Track metadata also changes while this panel is hidden. Only an
+        // open panel owns keyboard focus; background cleanup must not steal it.
+        root.dismiss-editor();
+    }
     public function save-editor() {
         if root.has-track {
             root.command("save", root.edit-id, root.edit-time + "\n" + root.edit-name);

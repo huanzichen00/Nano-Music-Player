@@ -58,6 +58,49 @@ fn snapshot(ui: &AppWindow, name: &str) {
 }
 
 #[test]
+fn hidden_practice_updates_preserve_the_main_keyboard_focus() {
+    i_slint_backend_testing::init_no_event_loop();
+    let ui = AppWindow::new().unwrap();
+    let received = Rc::new(RefCell::new(Vec::new()));
+    let keys = received.clone();
+    ui.on_key_event(move |event, _| {
+        keys.borrow_mut().push(event.text.to_string());
+        true
+    });
+    ui.show().unwrap();
+    ui.invoke_focus_screen();
+    let key = |text: &str| {
+        ui.window()
+            .dispatch_event(WindowEvent::KeyPressed { text: text.into() });
+        ui.window()
+            .dispatch_event(WindowEvent::KeyReleased { text: text.into() });
+    };
+    key("k");
+    assert_eq!(&*received.borrow(), &["k"]);
+
+    // Track publication updates practice metadata even when the user has never
+    // opened the panel. Its hidden editor must not capture the next shortcut.
+    ui.set_practice_title("First song".into());
+    ui.set_practice_title("Second song".into());
+    slint::platform::update_timers_and_animations();
+    key("5");
+    assert_eq!(&*received.borrow(), &["k", "5"]);
+
+    ui.invoke_close_practice_editor();
+    ui.invoke_dismiss_practice_editor();
+    key("r");
+    assert_eq!(&*received.borrow(), &["k", "5", "r"]);
+
+    ui.set_practice_open(true);
+    ui.set_practice_open(false);
+    slint::platform::update_timers_and_animations();
+    ui.set_practice_title("Third song".into());
+    slint::platform::update_timers_and_animations();
+    key("d");
+    assert_eq!(&*received.borrow(), &["k", "5", "r", "d"]);
+}
+
+#[test]
 fn desktop_practice_panel_owns_pointer_input_and_edits_points_in_both_modes() {
     slint::platform::set_platform(Box::new(i_slint_backend_testing::TestingBackend::new(
         i_slint_backend_testing::TestingBackendOptions {
