@@ -1,0 +1,129 @@
+import { DesktopStyle, DesktopSurface, DesktopCard, SurfaceText } from "desktop-surfaces.slint";
+import { NanoActionButton } from "components.slint";
+import { I18n } from "i18n.slint";
+import { ElasticFlickable } from "overscroll.slint";
+
+export struct PracticeMarkerRow { id: string, name: string, time: string, progress: float }
+
+export component PracticePanel inherits Rectangle {
+    in property <float> s: 1;
+    in property <bool> open;
+    in property <bool> enabled;
+    in property <bool> has-track;
+    in property <bool> pending;
+    in property <int> countdown;
+    in property <float> delay: 3;
+    in property <float> lead-in;
+    in property <[PracticeMarkerRow]> markers;
+    in property <string> title;
+    in property <string> position;
+    in property <string> error;
+    out property <bool> editor-focused: name-input.has-focus || time-input.has-focus;
+    out property <bool> editing: root.editing-point;
+    private property <bool> editing-point;
+    private property <string> edit-id;
+    private property <string> edit-name;
+    private property <string> edit-time;
+    callback command(string, string, string);
+    public function dismiss-editor() { focus-sink.focus(); }
+    public function close-editor() { root.editing-point = false; root.dismiss-editor(); }
+    public function save-editor() {
+        if root.has-track {
+            root.command("save", root.edit-id, root.edit-time + "\n" + root.edit-name);
+            if root.error == "" { root.close-editor(); }
+        }
+    }
+    function edit-point(id: string, name: string, time: string) {
+        root.edit-id = id; root.edit-name = name; root.edit-time = time;
+        root.editing-point = true; time-input.focus();
+    }
+    changed open => { root.close-editor(); }
+    changed title => { root.close-editor(); }
+    visible: root.open;
+    background: #20252b;
+    // Own wheel and pointer input across the complete display while open.
+    TouchArea { scroll-event(event) => { accept } }
+    DesktopSurface { x: 3px * root.s; y: 3px * root.s; width: parent.width - 6px * root.s; height: parent.height - 6px * root.s; s: root.s; border-radius: 13px * root.s; }
+    focus-sink := FocusScope { width: 0px; height: 0px; }
+    SurfaceText {
+        x: 12px * root.s; y: 9px * root.s; width: parent.width - 55px * root.s; height: 26px * root.s;
+        text: I18n.tr("Practice Mode"); font-size: 15px * root.s; font-weight: 700; color: DesktopStyle.text; vertical-alignment: center;
+    }
+    Rectangle {
+        x: parent.width - 36px * root.s; y: 9px * root.s; width: 25px * root.s; height: self.width;
+        border-radius: self.width / 2; background: #dfe5ec;
+        SurfaceText { text: "×"; color: DesktopStyle.secondary; font-size: 20px * root.s; horizontal-alignment: center; vertical-alignment: center; }
+        TouchArea { mouse-cursor: pointer; accessible-role: button; accessible-label: I18n.tr("Close"); clicked => { root.command("close", "", ""); } }
+    }
+    SurfaceText {
+        x: 12px * root.s; y: 37px * root.s; width: parent.width - 24px * root.s; height: 21px * root.s;
+        text: root.has-track ? root.title : I18n.tr("Choose a song first."); font-size: 11px * root.s; color: DesktopStyle.secondary; overflow: elide; vertical-alignment: center;
+    }
+    Rectangle {
+        visible: !root.editing-point; x: 0px; y: 62px * root.s; width: root.width; height: root.height - self.y;
+        DesktopCard { x: 10px * root.s; y: 0px; width: parent.width - 20px * root.s; height: 32px * root.s; s: root.s; border-radius: 8px * root.s; }
+        SurfaceText { x: 18px * root.s; y: 0px; width: parent.width - 78px * root.s; height: 32px * root.s; text: I18n.tr(root.enabled ? "Practice enabled" : "Practice disabled"); color: DesktopStyle.text; font-size: 11px * root.s; vertical-alignment: center; }
+        NanoActionButton { x: parent.width - 57px * root.s; y: 3px * root.s; width: 40px * root.s; height: 26px * root.s; s: root.s; modern: true; primary: root.enabled; label: root.enabled ? "On" : "Off"; text-size: 11px * root.s; clicked => { root.command("toggle", "", ""); } }
+        for setting[index] in [
+            {name: "Start delay", command: "delay", value: root.delay, maximum: 30},
+            {name: "Lead-in", command: "lead_in", value: root.lead-in, maximum: 10},
+        ]: Rectangle {
+            x: 12px * root.s; y: (39px + index * 30px) * root.s; width: parent.width - 24px * root.s; height: 27px * root.s;
+            SurfaceText { x: 0px; y: 0px; width: parent.width - 115px * root.s; height: parent.height; text: I18n.tr(setting.name); font-size: 11px * root.s; color: DesktopStyle.secondary; vertical-alignment: center; }
+            NanoActionButton { x: parent.width - 108px * root.s; width: 26px * root.s; height: 26px * root.s; s: root.s; modern: true; label: "−"; enabled: setting.value > 0; clicked => { root.command(setting.command, "", "" + max(0, setting.value - 1)); } }
+            SurfaceText { x: parent.width - 80px * root.s; width: 51px * root.s; height: parent.height; text: setting.value + " s"; font-size: 12px * root.s; font-weight: 600; color: DesktopStyle.text; horizontal-alignment: center; vertical-alignment: center; }
+            NanoActionButton { x: parent.width - 26px * root.s; width: 26px * root.s; height: 26px * root.s; s: root.s; modern: true; label: "+"; enabled: setting.value < setting.maximum; clicked => { root.command(setting.command, "", "" + min(setting.maximum, setting.value + 1)); } }
+        }
+        Rectangle {
+            x: 10px * root.s; y: 103px * root.s; width: parent.width - 20px * root.s; height: 47px * root.s;
+            border-radius: 9px * root.s; background: root.pending ? #dcecff : #e8edf3;
+            SurfaceText { x: 9px * root.s; y: 3px * root.s; width: parent.width - (root.pending ? 66px : 18px) * root.s; height: 18px * root.s; text: I18n.tr(root.pending ? (root.countdown > 0 ? "Get ready" : "Preparing audio…") : root.enabled ? "Practice ready" : "Enable practice to start."); font-size: 10px * root.s; color: DesktopStyle.secondary; vertical-alignment: center; overflow: elide; }
+            SurfaceText { x: 9px * root.s; y: 20px * root.s; width: parent.width - (root.pending ? 66px : 18px) * root.s; height: 23px * root.s; text: root.countdown > 0 ? "" + root.countdown : root.position; font-size: (root.countdown > 0 ? 21px : 14px) * root.s; font-weight: 700; color: DesktopStyle.accent; vertical-alignment: center; }
+            NanoActionButton { visible: root.pending; x: parent.width - 58px * root.s; y: 9px * root.s; width: 51px * root.s; height: 29px * root.s; modern: true; s: root.s; text-size: 10px * root.s; label: "Cancel"; clicked => { root.command("cancel", "", ""); } }
+        }
+        for action[index] in [
+            {label: "Start practice", command: "start"},
+            {label: "Restart section", command: "restart"},
+            {label: "Mark position", command: "add"},
+        ]: NanoActionButton {
+            x: (10px + index * 75px) * root.s; y: 158px * root.s; width: 70px * root.s; height: 31px * root.s;
+            s: root.s; modern: true; clip: true; primary: index == 0; text-size: 9px * root.s; label: action.label;
+            enabled: root.has-track && (index == 2 || root.enabled) && !root.pending;
+            clicked => { root.command(action.command, "", ""); }
+        }
+        SurfaceText { x: 12px * root.s; y: 198px * root.s; width: parent.width - 80px * root.s; height: 24px * root.s; text: I18n.tr("Key points") + " · " + root.markers.length; font-size: 12px * root.s; font-weight: 600; color: DesktopStyle.text; vertical-alignment: center; }
+        NanoActionButton { x: parent.width - 80px * root.s; y: 198px * root.s; width: 68px * root.s; height: 25px * root.s; s: root.s; modern: true; clip: true; text-size: 9px * root.s; label: "New point"; enabled: root.has-track; clicked => { root.edit-point("", "", root.position); } }
+        point-scroll := ElasticFlickable {
+            x: 6px * root.s; y: 229px * root.s; width: parent.width - 12px * root.s;
+            height: max(0px, parent.height - self.y - (root.error == "" ? 6px : 31px) * root.s);
+            s: root.s; enabled: root.open && !root.editing-point; content-height: max(self.height, root.markers.length * 65px * root.s);
+            for point[index] in root.markers: Rectangle {
+                y: index * 65px * root.s; width: point-scroll.width; height: 62px * root.s;
+                DesktopCard { x: 3px * root.s; width: parent.width - 6px * root.s; height: parent.height; s: root.s; border-radius: 8px * root.s; }
+                SurfaceText { x: 11px * root.s; y: 5px * root.s; width: 78px * root.s; height: 22px * root.s; text: point.time; color: DesktopStyle.accent; font-size: 11px * root.s; font-weight: 600; vertical-alignment: center; }
+                SurfaceText { x: 91px * root.s; y: 5px * root.s; width: parent.width - 102px * root.s; height: 22px * root.s; text: point.name; color: DesktopStyle.text; font-size: 11px * root.s; overflow: elide; vertical-alignment: center; }
+                TouchArea { x: 3px * root.s; y: 0px; width: parent.width - 6px * root.s; height: 30px * root.s; enabled: root.has-track; mouse-cursor: pointer; accessible-role: button; accessible-label: point.name + " · " + point.time; clicked => { root.command("jump", point.id, ""); } }
+                NanoActionButton { x: 10px * root.s; y: 32px * root.s; width: 75px * root.s; height: 24px * root.s; s: root.s; modern: true; text-size: 10px * root.s; label: "Locate only"; enabled: root.has-track; clicked => { root.command("locate", point.id, ""); } }
+                NanoActionButton { x: 90px * root.s; y: 32px * root.s; width: 61px * root.s; height: 24px * root.s; s: root.s; modern: true; text-size: 10px * root.s; label: "Edit point"; enabled: root.has-track; clicked => { root.edit-point(point.id, point.name, point.time); } }
+                NanoActionButton { x: 156px * root.s; y: 32px * root.s; width: 56px * root.s; height: 24px * root.s; s: root.s; modern: true; text-size: 10px * root.s; label: "Delete"; enabled: root.has-track; clicked => { root.command("delete", point.id, ""); } }
+            }
+            if root.markers.length == 0: SurfaceText { x: 10px * root.s; y: 12px * root.s; width: parent.width - 20px * root.s; height: 50px * root.s; text: I18n.tr("No key points yet.") + "\n" + I18n.tr("Mark a position or add a time."); color: DesktopStyle.secondary; font-size: 11px * root.s; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; }
+        }
+    }
+    Rectangle {
+        visible: root.editing-point; x: 12px * root.s; y: 72px * root.s; width: root.width - 24px * root.s; height: root.height - self.y;
+        SurfaceText { x: 0px; y: 0px; width: parent.width; height: 25px * root.s; text: I18n.tr("Time (mm:ss.mmm)"); font-size: 12px * root.s; color: DesktopStyle.secondary; vertical-alignment: center; }
+        Rectangle {
+            y: 30px * root.s; height: 35px * root.s; background: white; border-radius: 8px * root.s; border-width: 1px * root.s; border-color: time-input.has-focus ? DesktopStyle.accent : #bdc8d4;
+            time-input := TextInput { x: 9px * root.s; width: parent.width - 18px * root.s; height: parent.height; enabled: root.open && root.editing-point; text <=> root.edit-time; font-size: 13px * root.s; color: DesktopStyle.text; single-line: true; vertical-alignment: center; accepted => { name-input.focus(); } }
+        }
+        SurfaceText { x: 0px; y: 81px * root.s; width: parent.width; height: 25px * root.s; text: I18n.tr("Point name"); font-size: 12px * root.s; color: DesktopStyle.secondary; vertical-alignment: center; }
+        Rectangle {
+            y: 111px * root.s; height: 35px * root.s; background: white; border-radius: 8px * root.s; border-width: 1px * root.s; border-color: name-input.has-focus ? DesktopStyle.accent : #bdc8d4;
+            name-input := TextInput { x: 9px * root.s; width: parent.width - 18px * root.s; height: parent.height; enabled: root.open && root.editing-point; text <=> root.edit-name; font-size: 13px * root.s; color: DesktopStyle.text; single-line: true; vertical-alignment: center; accepted => { root.save-editor(); } }
+        }
+        NanoActionButton { x: 0px; y: 164px * root.s; width: 104px * root.s; height: 33px * root.s; s: root.s; modern: true; primary: true; label: "Save point"; enabled: root.has-track; clicked => { root.save-editor(); } }
+        NanoActionButton { x: 112px * root.s; y: 164px * root.s; width: 104px * root.s; height: 33px * root.s; s: root.s; modern: true; label: "Cancel"; clicked => { root.close-editor(); } }
+    }
+    SurfaceText { visible: root.error != ""; x: 12px * root.s; y: root.height - 32px * root.s; width: root.width - 24px * root.s; height: 27px * root.s; text: root.error; color: #b13c35; font-size: 10px * root.s; wrap: word-wrap; vertical-alignment: center; }
+}

@@ -7,6 +7,8 @@ export { WheelGesture }
 import { HomeView } from "home.slint";
 import { StatisticsView, StatisticsItem, StatisticsDay, StatisticsSummary } from "statistics.slint";
 import { TrackDetails } from "track-details.slint";
+import { PracticePanel, PracticeMarkerRow } from "practice.slint";
+export { PracticeMarkerRow }
 export { StatisticsItem, StatisticsDay, StatisticsSummary }
 import "fonts/maple-mono/MapleMono-Regular.ttf";
 import "fonts/maple-mono/MapleMono-SemiBold.ttf";
@@ -295,6 +297,24 @@ export component AppWindow inherits Window {
     out property <bool> search-focused: library.search-focused;
     out property <float> display-scale: s;
     out property <length> content-height: keyboard.height;
+    in-out property <bool> practice-open;
+    in-out property <bool> practice-enabled;
+    in-out property <bool> practice-has-track;
+    in-out property <bool> practice-pending;
+    in-out property <int> practice-countdown;
+    in-out property <float> practice-delay: 3;
+    in-out property <float> practice-lead-in;
+    in-out property <[PracticeMarkerRow]> practice-markers;
+    in-out property <string> practice-title;
+    in-out property <string> practice-position;
+    in-out property <string> practice-error;
+    out property <bool> practice-editor-focused: practice-panel.editor-focused;
+    out property <bool> practice-editing: practice-panel.editing;
+    callback practice-command(string, string, string);
+    public function dismiss-practice-editor() { practice-panel.dismiss-editor(); }
+    public function close-practice-editor() { practice-panel.close-editor(); }
+    public function save-practice-editor() { practice-panel.save-editor(); }
+    changed practice-open => { root.focus-screen(); }
     in-out property <bool> track-details-open;
     in property <string> details-title;
     in property <string> details-artist;
@@ -397,8 +417,8 @@ export component AppWindow inherits Window {
     MenuBar {
         Menu {
             title: I18n.tr("File");
-            MenuItem { title: I18n.tr("New Playlist…"); enabled: !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("new_playlist"); } }
-            MenuItem { title: I18n.tr("Edit Playlist…"); enabled: root.playlist-content && !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("edit_playlist"); } }
+            MenuItem { title: I18n.tr("New Playlist…"); enabled: !root.practice-open && !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("new_playlist"); } }
+            MenuItem { title: I18n.tr("Edit Playlist…"); enabled: root.playlist-content && !root.practice-open && !root.playlist-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.command("edit_playlist"); } }
             MenuItem { title: I18n.tr("Import Videos…"); activated => { root.command("import_videos"); } }
             MenuItem { title: I18n.tr("Subtitles…"); enabled: root.screen == 9; activated => { root.subtitle-command("open"); } }
             MenuItem { title: I18n.tr("Import ASS/SSA…"); enabled: root.screen == 9; activated => { root.subtitle-command("import"); } }
@@ -415,6 +435,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Shuffle All Songs"); activated => { root.command("shuffle_all"); } }
             MenuItem { title: I18n.tr("Next Track"); activated => { root.command("next_track"); } }
             MenuItem { title: I18n.tr("Previous Track"); activated => { root.command("previous_track"); } }
+            MenuItem { title: I18n.tr("Practice Mode"); enabled: root.screen != 9 && !root.podcast-subscribe-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.practice-command("open", "", ""); } }
             MenuItem { title: I18n.tr("Now Playing"); activated => { root.command("now_playing"); } }
             MenuItem { title: I18n.tr("Lyrics for Track…"); activated => { root.command("manage_lyrics"); } }
             MenuItem { title: I18n.tr("Translate Lyrics"); enabled: root.has-track; activated => { root.command("translate_lyrics"); } }
@@ -426,7 +447,7 @@ export component AppWindow inherits Window {
             MenuItem { title: I18n.tr("Translation: English"); activated => { root.command("translation_target_en"); } }
             MenuItem { title: I18n.tr("Translation: 简体中文"); activated => { root.command("translation_target_zh"); } }
             MenuItem { title: I18n.tr("Translation: 日本語"); activated => { root.command("translation_target_ja"); } }
-            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.playlist-editor-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-preview(); } }
+            MenuItem { title: I18n.tr("Genius Preview…"); enabled: root.has-track && !root.practice-open && !root.playlist-editor-open && !root.deepseek-settings-open && !root.shortcut-editor-open && !root.reference-open; activated => { root.open-genius-preview(); } }
         }
         Menu {
             title: I18n.tr("View");
@@ -446,11 +467,21 @@ export component AppWindow inherits Window {
         // The sole keyboard entry point for the entire application.
         capture-key-pressed(event) => {
             if root.native-status-open && event.text == Key.Escape { root.native-status-open = false; return accept; }
-            if root.modal-key-event(event, root.reference-open ? false
+            if root.modal-key-event(event, root.practice-open ? practice-panel.editor-focused
+                : root.reference-open ? false
                 : root.podcast-subscribe-open ? podcast-dialog.editor-focused
                 : root.deepseek-settings-open ? deepseek-dialog.editor-focused
                 : root.playlist-editor-open ? (!root.playlist-saving && playlist-editor.name-focused)
                 : root.genius-preview-open || root.shortcut-editor-open ? false : library.search-focused) { return accept; }
+            if root.practice-open {
+                if event.text == Key.Escape {
+                    if practice-panel.editing { practice-panel.close-editor(); keyboard.focus(); }
+                    else { root.practice-command("close", "", ""); }
+                    return accept;
+                }
+                if practice-panel.editor-focused { return reject; }
+                return root.key-event(event, false) ? accept : reject;
+            }
             if root.reference-open { return root.key-event(event, false) ? accept : reject; }
             if root.podcast-subscribe-open {
                 if event.text == Key.Escape { root.podcast-command("close"); return accept; }
@@ -573,7 +604,7 @@ export component AppWindow inherits Window {
                 compact-title: root.previous-screen == 5 || root.previous-screen == 6 || root.previous-screen == 7 || root.previous-screen == 8; rows: root.previous-rows; selected: root.previous-selected; search: root.previous-screen == 3;
                 text-font-family: root.ui-font-family; keyboard-navigation: root.keyboard-navigation;
                 search-text <=> root.search-text; scroll-y <=> root.previous-library-scroll-y;
-                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open && !root.podcast-subscribe-open { keyboard.focus(); } }
+                activated(index) => { root.item-clicked(index); if !root.practice-open && !root.playlist-editor-open && !root.podcast-subscribe-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }
             }
             if root.previous-screen == 4: Text { y: 100px * root.s; height: 250px * root.s; text: root.previous-screen-title + "\n\n" + I18n.tr("This app is not available yet.") + "\n" + I18n.tr("Press Shift + H to return Home."); font-size: 14px * root.s; color: #666; horizontal-alignment: center; vertical-alignment: center; }
@@ -604,7 +635,7 @@ export component AppWindow inherits Window {
             home := HomeView {
                 visible: root.screen == 0; y: 26px * root.s; height: 406px * root.s; s: root.s;
                 statistics-enabled: true;
-                navigation-enabled: root.screen == 0 && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
+                navigation-enabled: root.screen == 0 && !root.transition-active && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.practice-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 page: root.home-page; selected: root.selected; page-direction: root.home-transition-direction; smooth-slides: root.smooth-slides;
                 activated(index) => { root.item-clicked(index); keyboard.focus(); }
                 swipe(next) => { root.home-swipe(next); }
@@ -640,7 +671,7 @@ export component AppWindow inherits Window {
             }
             statistics := StatisticsView {
                 visible: root.screen == 1 && root.statistics-page;
-                enabled: root.statistics-page && !root.track-details-open && !root.reference-open && !root.native-status-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
+                enabled: root.statistics-page && !root.track-details-open && !root.reference-open && !root.native-status-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.practice-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 y: 64px * root.s; height: 368px * root.s; s: root.s;
                 page: root.statistics-kind; range-index: root.statistics-range-index;
                 items: root.statistics-items; days: root.statistics-days; summary: root.statistics-summary;
@@ -660,7 +691,7 @@ export component AppWindow inherits Window {
                 visible: !root.statistics-page && (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8);
                 // A fresh Back gesture can interrupt the slide; the outgoing
                 // host remains shielded and BackScroll consumes momentum tails.
-                enabled: !root.statistics-page && !root.track-details-open && (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
+                enabled: !root.statistics-page && !root.track-details-open && (root.screen == 1 || root.screen == 3 || root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8) && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.practice-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 y: (root.artwork-list || root.playlist-list || root.playlist-content || root.music-list ? 26px : 64px) * root.s; height: root.podcast-detail ? min(192px * root.s, root.rows.length * ListMetrics.text-row-height * root.s * 1px) : 432px * root.s - self.y; s: root.s;
                 playlist-list: root.playlist-list; playlist-list-editing: root.playlist-list-editing; music-list: root.music-list; playlist-content: root.playlist-content; shuffle-list: root.shuffle-list;
                 fit-settings: root.settings-root;
@@ -672,7 +703,7 @@ export component AppWindow inherits Window {
                 compact-title: root.screen == 5 || root.screen == 6 || root.screen == 7 || root.screen == 8; rows: root.rows; selected: root.selected; search: root.screen == 3;
                 text-font-family: root.ui-font-family; keyboard-navigation: root.keyboard-navigation;
                 search-text <=> root.search-text; scroll-y <=> root.library-scroll-y;
-                activated(index) => { root.item-clicked(index); if !root.playlist-editor-open && !root.podcast-subscribe-open { keyboard.focus(); } }
+                activated(index) => { root.item-clicked(index); if !root.practice-open && !root.playlist-editor-open && !root.podcast-subscribe-open { keyboard.focus(); } }
                 edited(text) => { root.query-changed(text); }
                 details(index) => { root.podcast-details(index); }
             }
@@ -689,7 +720,7 @@ export component AppWindow inherits Window {
                 navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 10; y: 26px * root.s; height: 406px * root.s; s: root.s;
                 spoken-mode: true; spoken-speed: root.podcast-speed;
-                navigation-enabled: root.screen == 10 && !root.podcast-subscribe-open && !root.reference-open && !root.deepseek-settings-open && !root.playlist-editor-open;
+                navigation-enabled: root.screen == 10 && !root.podcast-subscribe-open && !root.reference-open && !root.deepseek-settings-open && !root.practice-open && !root.playlist-editor-open;
                 title: root.podcast-title; artist: root.podcast-show; album: root.podcast-author; artwork: root.podcast-artwork;
                 has-track: true; playing: root.playing; muted: root.muted; volume: root.volume;
                 selected: root.selected; selection-visible: root.keyboard-navigation;
@@ -702,9 +733,13 @@ export component AppWindow inherits Window {
                 back => { root.command("back"); keyboard.focus(); }
             }
             now-playing := NowPlayingView {
+                practice-available: true; practice-enabled: root.practice-enabled; practice-markers: root.practice-markers;
+                practice-pending: root.practice-pending; practice-countdown: root.practice-countdown;
+                practice-cancel-requested => { root.practice-command("cancel", "", ""); }
+                practice-requested => { root.practice-command("open", "", ""); }
                 navigation-generation: root.screen-transition-generation;
                 visible: root.screen == 2; y: 26px * root.s; height: 406px * root.s; s: root.s;
-                navigation-enabled: root.screen == 2 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
+                navigation-enabled: root.screen == 2 && !root.reference-open && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.practice-open && !root.playlist-editor-open && !root.podcast-subscribe-open;
                 selected: root.selected; selection-visible: root.keyboard-navigation; playing: root.playing; has-track: root.has-track;
                 title: root.track-title; artist: root.track-artist; album: root.track-album; artwork: root.artwork;
                 volume: root.volume; muted: root.muted; progress: root.progress; elapsed: root.elapsed; duration: root.duration; track-count: root.track-count;
@@ -794,6 +829,18 @@ export component AppWindow inherits Window {
                 }
             }
         }
+        if root.practice-open: TouchArea {
+            x: display.x; y: display.y; width: display.width; height: display.height;
+            scroll-event(event) => { accept }
+        }
+        practice-panel := PracticePanel {
+            x: display.x; y: display.y + 26px * root.s; width: display.width; height: display.height - 26px * root.s;
+            s: root.s; open: root.practice-open; enabled: root.practice-enabled;
+            has-track: root.practice-has-track; pending: root.practice-pending; countdown: root.practice-countdown;
+            delay: root.practice-delay; lead-in: root.practice-lead-in; markers: root.practice-markers;
+            title: root.practice-title; position: root.practice-position; error: root.practice-error;
+            command(name, id, payload) => { root.practice-command(name, id, payload); }
+        }
         track-details := TrackDetails {
             visible: root.track-details-open;
             x: root.screen == 9 ? video-device.display-x : display.x;
@@ -845,7 +892,7 @@ export component AppWindow inherits Window {
             command(name) => { root.deepseek-command(name); }
         }
         // Status stays inside the display; the window has no surrounding panel or footer.
-        if !root.statistics-page && !root.track-details-open && root.notice != "" && root.notice != "Ready" && !root.podcast-subscribe-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.playlist-editor-open: Rectangle {
+        if !root.statistics-page && !root.track-details-open && root.notice != "" && root.notice != "Ready" && !root.podcast-subscribe-open && !root.deepseek-settings-open && !root.genius-preview-open && !root.practice-open && !root.playlist-editor-open: Rectangle {
             x: (root.screen == 9 ? video-device.display-x : display.x) + 4px * root.s; y: root.screen == 9 ? video-device.display-y + video-device.display-height - 24px * root.s : display.y + (root.screen == 2 ? 296px : 408px) * root.s;
             width: (root.screen == 9 ? video-device.display-width : display.width) - 8px * root.s; height: 20px * root.s; background: #222d;
             Text { x: 5px * root.s; width: parent.width - 10px * root.s; text: root.notice; color: white; font-size: 10px * root.s; overflow: elide; vertical-alignment: center; }
