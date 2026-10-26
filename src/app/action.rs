@@ -28,6 +28,16 @@ pub enum Action {
     DeviceInformation,
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     TrackDetails,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    PracticeMode,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    PracticeAddMarker,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    PracticePreviousMarker,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    PracticeNextMarker,
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    PracticeRestart,
     ImportFolder,
     RefreshLibrary,
     ImportVideos,
@@ -107,6 +117,12 @@ impl Action {
             Self::ToggleRomaji | Self::ToggleTranslation => Category::Playback,
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
             Self::DeviceInformation | Self::TrackDetails => Category::Navigation,
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PracticeMode
+            | Self::PracticeAddMarker
+            | Self::PracticePreviousMarker
+            | Self::PracticeNextMarker
+            | Self::PracticeRestart => Category::Playback,
             Self::ToggleOverlay | Self::TrackList | Self::ToggleSubtitles => Category::Playback,
             Self::ImportFolder
             | Self::RefreshLibrary
@@ -186,6 +202,16 @@ impl Action {
             Self::DeviceInformation => "Device Information",
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
             Self::TrackDetails => "Track Details",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PracticeMode => "Practice Mode",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PracticeAddMarker => "Add Practice Marker",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PracticePreviousMarker => "Previous Practice Marker",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PracticeNextMarker => "Next Practice Marker",
+            #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+            Self::PracticeRestart => "Restart Practice",
             Self::ImportFolder => "Import music folder",
             Self::RefreshLibrary => "Refresh Library",
             Self::ImportVideos => "Import Videos…",
@@ -254,6 +280,16 @@ impl Action {
         Self::DeviceInformation,
         #[cfg(not(any(target_os = "ios", feature = "mobile")))]
         Self::TrackDetails,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::PracticeMode,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::PracticeAddMarker,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::PracticePreviousMarker,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::PracticeNextMarker,
+        #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+        Self::PracticeRestart,
         Self::ToggleLyrics,
         Self::ToggleOverlay,
         Self::TrackList,
@@ -284,6 +320,15 @@ impl Action {
         Self::ZoomIn,
         Self::ZoomOut,
         Self::ShowShortcuts,
+    ];
+
+    #[cfg(not(any(target_os = "ios", feature = "mobile")))]
+    pub const PRACTICE: &'static [Self] = &[
+        Self::PracticeMode,
+        Self::PracticeAddMarker,
+        Self::PracticePreviousMarker,
+        Self::PracticeNextMarker,
+        Self::PracticeRestart,
     ];
 
     pub fn parse(value: &str) -> Option<Self> {

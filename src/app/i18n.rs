@@ -42,6 +42,162 @@ impl Language {
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
     (
+        "Mark a position or add a time.",
+        "标记当前位置或手动添加时间。",
+        "現在位置を登録するか、時刻を入力してください。",
+    ),
+    (
+        "Cannot save practice data",
+        "无法保存练琴数据",
+        "練習データを保存できません",
+    ),
+    (
+        "Invalid practice settings",
+        "练琴设置无效",
+        "練習設定が無効です",
+    ),
+    ("Marker", "关键点", "ポイント"),
+    (
+        "Enter a marker name and time",
+        "请输入关键点名称和时间",
+        "ポイント名と時刻を入力してください",
+    ),
+    (
+        "Practice marker no longer exists",
+        "该练琴关键点已不存在",
+        "練習ポイントが見つかりません",
+    ),
+    (
+        "No practice markers yet",
+        "还没有练琴关键点",
+        "練習ポイントはまだありません",
+    ),
+    (
+        "Marker must be before the end of the song",
+        "关键点必须位于歌曲结束之前",
+        "ポイントは曲の終了時刻より前に設定してください",
+    ),
+    (
+        "Unknown practice command",
+        "未知的练琴操作",
+        "不明な練習操作です",
+    ),
+    (
+        "Invalid practice track path",
+        "练琴歌曲路径无效",
+        "練習曲のパスが無効です",
+    ),
+    (
+        "Invalid or duplicate practice marker ID",
+        "练琴关键点编号无效或重复",
+        "練習ポイントのIDが無効または重複しています",
+    ),
+    (
+        "Practice marker IDs exhausted",
+        "练琴关键点编号已用尽",
+        "練習ポイントのIDを作成できません",
+    ),
+    (
+        "Invalid practice marker ID sequence",
+        "练琴关键点编号顺序无效",
+        "練習ポイントのID順序が無効です",
+    ),
+    (
+        "Preparation delay must be between 0 and 30 seconds",
+        "准备倒计时须为 0～30 秒",
+        "開始前の待ち時間は0～30秒で設定してください",
+    ),
+    (
+        "Lead-in must be between 0 and 10 seconds",
+        "提前进入须为 0～10 秒",
+        "先行再生は0～10秒で設定してください",
+    ),
+    (
+        "Practice time must be finite and non-negative",
+        "练琴时间须为有效的非负数",
+        "練習時刻は0以上の有効な値にしてください",
+    ),
+    (
+        "Marker name must contain 1 to 120 printable characters",
+        "关键点名称须包含 1～120 个可显示字符",
+        "ポイント名は表示可能な1～120文字で入力してください",
+    ),
+    (
+        "Enter seconds, MM:SS.mmm, or HH:MM:SS.mmm",
+        "请输入秒数、分:秒.毫秒或时:分:秒.毫秒",
+        "秒数、分:秒.ミリ秒、または時:分:秒.ミリ秒を入力してください",
+    ),
+    (
+        "Practice mode is disabled",
+        "练琴模式已关闭",
+        "練習モードが無効です",
+    ),
+    (
+        "Invalid practice request",
+        "练琴操作无效",
+        "練習操作が無効です",
+    ),
+    ("Practice", "练琴", "練習"),
+    ("Practice Mode", "练琴模式", "練習モード"),
+    (
+        "Add Practice Marker",
+        "添加练琴关键点",
+        "練習ポイントを追加",
+    ),
+    (
+        "Previous Practice Marker",
+        "上一个练琴关键点",
+        "前の練習ポイント",
+    ),
+    (
+        "Next Practice Marker",
+        "下一个练琴关键点",
+        "次の練習ポイント",
+    ),
+    ("Restart Practice", "重新练习", "練習をやり直す"),
+    ("Practice enabled", "练琴模式已启用", "練習モードが有効"),
+    ("Practice disabled", "练琴模式已关闭", "練習モードが無効"),
+    ("Start delay", "准备倒计时", "開始前の待ち時間"),
+    ("Lead-in", "提前进入", "先行再生"),
+    ("seconds", "秒", "秒"),
+    ("Start practice", "开始练习", "練習開始"),
+    ("Restart section", "重练当前段", "この区間をやり直す"),
+    ("Mark position", "标记当前位置", "現在位置を登録"),
+    ("Key points", "关键时间点", "練習ポイント"),
+    ("New point", "新建关键点", "ポイントを追加"),
+    (
+        "No key points yet.",
+        "还没有关键时间点。",
+        "練習ポイントはまだありません。",
+    ),
+    (
+        "Tap a point to practice from here.",
+        "点击关键点，从这里开始练习。",
+        "ポイントを押すと、そこから練習できます。",
+    ),
+    ("Locate only", "仅定位", "移動のみ"),
+    ("Edit point", "编辑关键点", "ポイントを編集"),
+    ("Point name", "关键点名称", "ポイント名"),
+    (
+        "Time (mm:ss.mmm)",
+        "时间（分:秒.毫秒）",
+        "時刻（分:秒.ミリ秒）",
+    ),
+    ("Save point", "保存关键点", "ポイントを保存"),
+    ("Preparing audio…", "正在准备音频…", "音声を準備中…"),
+    ("Get ready", "准备开始", "準備してください"),
+    ("Practice ready", "可以开始练习", "練習の準備完了"),
+    (
+        "Enable practice to start.",
+        "请先启用练琴模式。",
+        "練習モードを有効にしてください。",
+    ),
+    (
+        "Choose a song first.",
+        "请先选择一首歌曲。",
+        "先に曲を選んでください。",
+    ),
+    (
         "Image lookup failed; queued for retry",
         "图片查找失败，已保留待重试",
         "画像の検索に失敗しました。再試行待ちです",
@@ -2454,6 +2610,31 @@ mod tests {
     }
 
     #[test]
+    fn practice_labels_and_actions_are_translated_in_both_languages() {
+        for key in [
+            "Practice Mode",
+            "Add Practice Marker",
+            "Previous Practice Marker",
+            "Next Practice Marker",
+            "Restart Practice",
+            "Start delay",
+            "Lead-in",
+            "Start practice",
+            "Restart section",
+            "Mark position",
+            "Key points",
+            "Preparing audio…",
+            "Get ready",
+            "Time (mm:ss.mmm)",
+            "Locate only",
+        ] {
+            assert!(has_translation(key), "missing practice key: {key}");
+            assert_ne!(translate(Language::SimplifiedChinese, key), key);
+            assert_ne!(translate(Language::Japanese, key), key);
+        }
+    }
+
+    #[test]
     fn representative_translations_and_fallback() {
         assert_eq!(translate(Language::SimplifiedChinese, "Settings"), "设置");
         assert_eq!(translate(Language::Japanese, "Lyrics"), "歌詞");
@@ -2496,6 +2677,7 @@ mod tests {
             (include_str!("../../ui/app.slint"), "I18n.tr("),
             (include_str!("../../ui/library.slint"), "I18n.tr("),
             (include_str!("../../ui/now-playing.slint"), "I18n.tr("),
+            (include_str!("../../ui/practice.slint"), "I18n.tr("),
             (include_str!("../../ui/deepseek-settings.slint"), "I18n.tr("),
             (include_str!("../../ui/genius-preview.slint"), "I18n.tr("),
             (include_str!("../../ui/playlist-editor.slint"), "I18n.tr("),

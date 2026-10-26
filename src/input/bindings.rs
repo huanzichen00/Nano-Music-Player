@@ -154,7 +154,7 @@ impl Default for Keymap {
             (Character(','), Action::Settings),
         ];
         Self {
-            version: 7,
+            version: 8,
             bindings: plain
                 .into_iter()
                 .map(|(key, action)| Binding {
@@ -190,6 +190,26 @@ impl Default for Keymap {
                     },
                     optional_shift: false,
                 }))
+                .chain(
+                    [
+                        (Letter('p'), Action::PracticeMode),
+                        (Letter('m'), Action::PracticeAddMarker),
+                        (Left, Action::PracticePreviousMarker),
+                        (Right, Action::PracticeNextMarker),
+                        (Letter('r'), Action::PracticeRestart),
+                    ]
+                    .into_iter()
+                    .map(|(key, action)| Binding {
+                        action,
+                        key,
+                        modifiers: Modifiers {
+                            primary: true,
+                            alt: true,
+                            ..Modifiers::default()
+                        },
+                        optional_shift: false,
+                    }),
+                )
                 .collect(),
         }
     }
@@ -197,7 +217,7 @@ impl Default for Keymap {
 
 impl Keymap {
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.version, 1..=7) {
+        if !matches!(self.version, 1..=8) {
             return Err(format!(
                 "Unsupported shortcut file version: {}",
                 self.version
@@ -244,6 +264,8 @@ impl Keymap {
             map.validate()?;
             // Upgrade only exact shipped defaults. User-edited maps are preserved.
             let mut v4 = Self::default();
+            v4.bindings
+                .retain(|b| !Action::PRACTICE.contains(&b.action));
             v4.bindings.retain(|b| {
                 !matches!(
                     b.action,
@@ -348,6 +370,26 @@ impl Keymap {
                 map.version = 7;
                 map.save(path)?;
             }
+            if map.version < 8 {
+                if !map.bindings.is_empty() {
+                    for shortcut in Self::default()
+                        .bindings
+                        .into_iter()
+                        .filter(|binding| Action::PRACTICE.contains(&binding.action))
+                    {
+                        // Preserve custom assignments and optional-Shift chords.
+                        if !map.bindings.iter().any(|binding| {
+                            binding.action == shortcut.action
+                                || binding.matches(&shortcut.key, shortcut.modifiers)
+                                || shortcut.matches(&binding.key, binding.modifiers)
+                        }) {
+                            map.bindings.push(shortcut);
+                        }
+                    }
+                }
+                map.version = 8;
+                map.save(path)?;
+            }
             Ok(map)
         } else {
             let map = Self::default();
@@ -377,7 +419,7 @@ impl Keymap {
         replace: bool,
     ) -> Result<Self, String> {
         let mut map = self.clone();
-        map.version = 7;
+        map.version = 8;
         if replace {
             map.bindings.retain(|b| b.action != action);
         }
@@ -499,10 +541,28 @@ mod tests {
         }
     }
 
+    fn v7_defaults() -> Keymap {
+        let mut map = Keymap {
+            version: 7,
+            ..Keymap::default()
+        };
+        map.bindings
+            .retain(|binding| !Action::PRACTICE.contains(&binding.action));
+        map
+    }
+
+    fn without_practice(map: &Keymap) -> Vec<Binding> {
+        map.bindings
+            .iter()
+            .filter(|binding| !Action::PRACTICE.contains(&binding.action))
+            .cloned()
+            .collect()
+    }
+
     fn v6_defaults() -> Keymap {
         let mut map = Keymap {
             version: 6,
-            ..Keymap::default()
+            ..v7_defaults()
         };
         map.bindings.retain(|binding| {
             !matches!(
@@ -511,6 +571,128 @@ mod tests {
             )
         });
         map
+    }
+
+    #[test]
+    fn practice_shortcuts_are_configurable_nonrepeating_playback_actions() {
+        let map = Keymap::default();
+        map.validate().unwrap();
+        let dispatcher = Dispatcher::new(map);
+        for (action, serialized) in [
+            (Action::PracticeMode, "practice_mode"),
+            (Action::PracticeAddMarker, "practice_add_marker"),
+            (Action::PracticePreviousMarker, "practice_previous_marker"),
+            (Action::PracticeNextMarker, "practice_next_marker"),
+            (Action::PracticeRestart, "practice_restart"),
+        ] {
+            assert_eq!(action.category(), Category::Playback);
+            assert!(!action.repeatable());
+            assert!(Action::CUSTOMIZABLE.contains(&action));
+            assert_eq!(Action::parse(serialized), Some(action));
+            let binding = dispatcher
+                .keymap
+                .bindings
+                .iter()
+                .find(|b| b.action == action)
+                .unwrap();
+            assert!(binding.modifiers.primary && binding.modifiers.alt);
+            let press = KeyPress {
+                key: binding.key.clone(),
+                modifiers: binding.modifiers,
+                repeat: false,
+            };
+            for surface in [Surface::Home, Surface::NowPlaying, Surface::Library] {
+                assert_eq!(
+                    dispatcher.dispatch(&press, context(surface)),
+                    Dispatch::Action(action)
+                );
+                assert_eq!(
+                    dispatcher.dispatch(
+                        &KeyPress {
+                            repeat: true,
+                            ..press.clone()
+                        },
+                        context(surface)
+                    ),
+                    Dispatch::Consumed
+                );
+                assert_eq!(
+                    dispatcher.dispatch(
+                        &press,
+                        Context {
+                            text_input: true,
+                            ..context(surface)
+                        }
+                    ),
+                    Dispatch::Ignored
+                );
+                assert_eq!(
+                    dispatcher.dispatch(
+                        &press,
+                        Context {
+                            native_dialog: true,
+                            ..context(surface)
+                        }
+                    ),
+                    Dispatch::Ignored
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn version_seven_adds_practice_defaults_once_without_replacing_the_map() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shortcuts.json");
+        let old = v7_defaults();
+        old.save(&path).unwrap();
+        let migrated = Keymap::load_or_create(&path).unwrap();
+        assert_eq!(migrated.version, 8);
+        assert_eq!(&migrated.bindings[..old.bindings.len()], old.bindings);
+        assert_eq!(
+            migrated.bindings.len(),
+            old.bindings.len() + Action::PRACTICE.len()
+        );
+        assert_eq!(migrated.bindings, Keymap::default().bindings);
+        assert_eq!(
+            Keymap::load_or_create(&path).unwrap().bindings,
+            migrated.bindings
+        );
+    }
+
+    #[test]
+    fn practice_migration_preserves_custom_assignments_and_optional_shift_conflicts() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("shortcuts.json");
+        let mut old = v7_defaults();
+        let mut conflict = binding(Action::NextTrack, 'p');
+        conflict.modifiers.primary = true;
+        conflict.modifiers.alt = true;
+        conflict.modifiers.shift = true;
+        conflict.optional_shift = true;
+        old.bindings.push(conflict);
+        let mut custom = binding(Action::PracticeAddMarker, 'q');
+        custom.modifiers.primary = true;
+        old.bindings.push(custom.clone());
+        old.save(&path).unwrap();
+        let migrated = Keymap::load_or_create(&path).unwrap();
+        assert_eq!(&migrated.bindings[..old.bindings.len()], old.bindings);
+        assert!(
+            !migrated
+                .bindings
+                .iter()
+                .any(|binding| binding.action == Action::PracticeMode)
+        );
+        assert_eq!(
+            migrated
+                .bindings
+                .iter()
+                .filter(|binding| binding.action == Action::PracticeAddMarker)
+                .collect::<Vec<_>>(),
+            [&custom]
+        );
+        assert_eq!(migrated.bindings.len(), old.bindings.len() + 3);
+        migrated.validate().unwrap();
     }
 
     #[test]
@@ -636,9 +818,9 @@ mod tests {
         let old = v6_defaults();
         old.save(&path).unwrap();
         let migrated = Keymap::load_or_create(&path).unwrap();
-        assert_eq!(migrated.version, 7);
+        assert_eq!(migrated.version, 8);
         assert_eq!(&migrated.bindings[..old.bindings.len()], old.bindings);
-        assert_eq!(migrated.bindings.len(), old.bindings.len() + 2);
+        assert_eq!(migrated.bindings.len(), old.bindings.len() + 7);
         for (key, action) in [
             ('b', Action::DeviceInformation),
             ('d', Action::TrackDetails),
@@ -665,8 +847,8 @@ mod tests {
         .save(&path)
         .unwrap();
         let migrated = Keymap::load_or_create(&path).unwrap();
-        assert_eq!(migrated.version, 7);
-        assert_eq!(migrated.bindings, original);
+        assert_eq!(migrated.version, 8);
+        assert_eq!(without_practice(&migrated), original);
     }
 
     #[test]
@@ -694,7 +876,7 @@ mod tests {
                 .any(|binding| binding.action == Action::DeviceInformation)
         );
         assert_eq!(
-            migrated.bindings.last(),
+            without_practice(&migrated).last(),
             Some(&binding(Action::TrackDetails, 'd'))
         );
     }
@@ -703,7 +885,7 @@ mod tests {
     fn explicit_empty_maps_and_version_seven_unassigned_actions_stay_disabled() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("shortcuts.json");
-        for version in [6, 7] {
+        for version in [6, 7, 8] {
             Keymap {
                 version,
                 bindings: Vec::new(),
@@ -711,7 +893,7 @@ mod tests {
             .save(&path)
             .unwrap();
             let loaded = Keymap::load_or_create(&path).unwrap();
-            assert_eq!(loaded.version, 7);
+            assert_eq!(loaded.version, 8);
             assert!(loaded.bindings.is_empty());
         }
         let unassigned = Keymap::default()
@@ -735,7 +917,7 @@ mod tests {
                 true,
             )
             .unwrap();
-        assert_eq!(remapped.version, 7);
+        assert_eq!(remapped.version, 8);
         let dispatcher = Dispatcher::new(remapped);
         assert_eq!(
             dispatcher.dispatch(&press('b', false), context(Surface::Home)),
