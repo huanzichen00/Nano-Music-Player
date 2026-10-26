@@ -138,8 +138,11 @@ impl Controller {
                 self.send_music(AudioCommand::Pause(false));
             }
         } else {
-            self.practice.set_enabled(false);
-            ui.set_practice_open(false);
+            self.practice.cancel();
+            if self.state.video_active || self.state.podcasts.active.is_some() {
+                self.practice.set_enabled(false);
+                ui.set_practice_open(false);
+            }
         }
     }
 
@@ -328,21 +331,27 @@ impl Controller {
                 self.practice.set_enabled(false);
                 return Ok(());
             }
+            "toggle" => {
+                if self.state.video_active || self.state.podcasts.active.is_some() {
+                    return Err("Choose a song first".into());
+                }
+                self.practice.set_enabled(true);
+                self.cancel_gapless_prefetch();
+                if self.practice_track().is_some() {
+                    self.state.paused = true;
+                    if self.state.status == PlaybackStatus::Playing {
+                        self.state.status = PlaybackStatus::Paused;
+                    }
+                    self.send_music(AudioCommand::Pause(true));
+                }
+                return Ok(());
+            }
             _ => {}
         }
         let track = self.practice_track().ok_or("Choose a song first")?;
         let path = track.path.clone();
         let duration = track.duration;
         match command {
-            "toggle" => {
-                self.practice.set_enabled(true);
-                self.cancel_gapless_prefetch();
-                self.state.paused = true;
-                if self.state.status == PlaybackStatus::Playing {
-                    self.state.status = PlaybackStatus::Paused;
-                }
-                self.send_music(AudioCommand::Pause(true));
-            }
             "start" => {
                 let anchor = self.practice.anchor_position(&path);
                 let prepared_target =
@@ -647,6 +656,29 @@ mod tests {
         assert_eq!(c.state.position, 180.0);
         assert!(c.state.paused);
         assert_eq!(c.state.status, PlaybackStatus::Stopped);
+    }
+
+    #[test]
+    fn practice_can_be_armed_before_selecting_the_first_song() {
+        let (_directory, ui, mut c) = controller();
+        c.state.current = None;
+        c.practice_command(&ui, "open", "", "");
+        c.practice_command(&ui, "toggle", "", "");
+        c.poll_practice(&ui, Instant::now());
+        assert!(c.practice.enabled());
+        assert!(ui.get_practice_open());
+        assert!(ui.get_practice_error().is_empty());
+        c.practice_command(&ui, "close", "", "");
+        c.state.current = Some(0);
+        let mut load = AudioCommand::Load {
+            id: 0,
+            path: c.state.tracks[0].path.clone(),
+            volume: 0.0,
+            paused: false,
+        };
+        c.prepare_practice_load(&mut load);
+        assert!(matches!(load, AudioCommand::Load { paused: true, .. }));
+        assert!(c.practice.is_waiting());
     }
 
     #[test]
