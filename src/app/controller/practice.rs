@@ -206,6 +206,17 @@ impl Controller {
             Action::PracticeNextMarker => Some("next"),
             Action::PracticeRestart => Some("restart"),
             Action::TogglePlay if self.practice.pending().is_some() => Some("cancel"),
+            Action::TogglePlay
+                if self.practice.enabled()
+                    && self.practice_track().is_some()
+                    && (self.state.paused
+                        || matches!(
+                            self.state.status,
+                            PlaybackStatus::Stopped | PlaybackStatus::Error
+                        )) =>
+            {
+                Some("start")
+            }
             Action::Back if ui.get_practice_open() => Some("close"),
             _ => None,
         };
@@ -581,7 +592,67 @@ mod tests {
         c.execute(&ui, Action::TogglePlay);
         assert!(c.state.paused);
         c.execute(&ui, Action::TogglePlay);
-        assert!(!c.state.paused, "ordinary pause/resume has no countdown");
+        assert!(
+            c.state.paused,
+            "practice resume must prepare a new countdown"
+        );
+        assert!(c.practice.is_waiting());
+        c.practice_command(&ui, "toggle", "", "");
+        c.execute(&ui, Action::TogglePlay);
+        assert!(!c.state.paused, "ordinary mode still resumes immediately");
+    }
+
+    #[test]
+    fn space_prepares_practice_in_place_and_keeps_pause_cancel_and_input_guards() {
+        let (_directory, ui, mut c) = controller();
+        c.state.navigation.open(Screen::Songs(Filter::All));
+        c.state.position = 12.0;
+        c.practice.set_enabled(true);
+        let screen = c.state.navigation.current().screen.clone();
+        let event = |text: &str, repeat: bool| {
+            let mut event = slint::language::KeyEvent::default();
+            event.text = text.into();
+            event.repeat = repeat;
+            event
+        };
+        assert!(!c.dispatch(&ui, event(" ", false), true));
+        assert!(
+            c.practice.pending().is_none(),
+            "editing keeps literal spaces"
+        );
+        assert!(c.dispatch(&ui, event(" ", false), false));
+        assert!(c.practice.is_waiting());
+        assert_eq!(c.practice.pending().unwrap().position, 12.0);
+        assert!(
+            !ui.get_practice_open(),
+            "Space never opens the practice panel"
+        );
+        assert_eq!(c.state.navigation.current().screen, screen);
+        let now = Instant::now();
+        c.practice_progress(0, PlaybackStatus::Paused, 12.0, now);
+        assert_eq!(c.practice.remaining(now), Some(3));
+        assert!(c.dispatch(&ui, event(" ", true), false));
+        assert!(
+            c.practice.pending().is_some(),
+            "key repeat must not cancel the countdown"
+        );
+        c.poll_practice(&ui, now + Duration::from_secs(3));
+        assert!(!c.state.paused);
+        assert!(c.dispatch(&ui, event(" ", false), false));
+        assert!(c.state.paused, "Space during playback pauses");
+        assert!(c.dispatch(&ui, event(" ", false), false));
+        assert!(
+            c.practice.pending().is_some(),
+            "Space resumes through preparation"
+        );
+        assert!(c.dispatch(&ui, event(" ", false), false));
+        assert!(
+            c.practice.pending().is_none(),
+            "Space during preparation cancels"
+        );
+        assert!(c.state.paused);
+        assert!(!ui.get_practice_open());
+        assert_eq!(c.state.navigation.current().screen, screen);
     }
 
     #[test]

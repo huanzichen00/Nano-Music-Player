@@ -2,7 +2,7 @@ import { ElasticFlickable } from "overscroll.slint";
 import { BackScroll } from "back-scroll.slint";
 import { IconButton, NanoSlider } from "components.slint";
 import { I18n } from "i18n.slint";
-import { PracticeMarkerRow } from "practice.slint";
+import { PracticeMarkerRow, PracticeCountdown } from "practice.slint";
 
 // Wrap only artwork/text, keeping seek and volume drags outside the recognizer.
 component PlaybackBackArea inherits SwipeGestureHandler {
@@ -278,14 +278,10 @@ export component NowPlayingView inherits Rectangle {
             }
         }
     }
-    if root.practice-available && root.practice-pending: Rectangle {
+    if root.practice-available && root.practice-pending: PracticeCountdown {
         x: (root.width - self.width) / 2; y: art.y + (art.height - self.height) / 2;
-        width: 152px * root.s; height: 96px * root.s;
-        border-radius: 12px * root.s; border-width: 1px * root.s; border-color: #8bd5ff88; background: #17283cee;
-        Text { x: 8px * root.s; y: 7px * root.s; width: parent.width - 16px * root.s; height: 23px * root.s; text: I18n.tr(root.practice-countdown > 0 ? "Get ready" : "Preparing audio…"); font-size: 12px * root.s; font-weight: 600; color: #d8efff; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
-        Text { x: 8px * root.s; y: 29px * root.s; width: parent.width - 16px * root.s; height: 38px * root.s; text: root.practice-countdown > 0 ? "" + root.practice-countdown : "…"; font-size: 31px * root.s; font-weight: 700; color: white; horizontal-alignment: center; vertical-alignment: center; }
-        Text { x: 8px * root.s; y: 70px * root.s; width: parent.width - 16px * root.s; height: 18px * root.s; text: I18n.tr("Cancel"); font-size: 11px * root.s; color: #9ed7ff; horizontal-alignment: center; vertical-alignment: center; }
-        TouchArea { enabled: root.navigation-enabled; mouse-cursor: pointer; accessible-role: button; accessible-label: I18n.tr("Cancel"); clicked => { root.practice-cancel-requested(); } }
+        s: root.s; countdown: root.practice-countdown; enabled: root.navigation-enabled;
+        cancel => { root.practice-cancel-requested(); }
     }
     Rectangle {
         y: art.y + art.height; height: root.height - self.y;

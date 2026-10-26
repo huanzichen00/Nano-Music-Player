@@ -7,7 +7,7 @@ export { WheelGesture }
 import { HomeView } from "home.slint";
 import { StatisticsView, StatisticsItem, StatisticsDay, StatisticsSummary } from "statistics.slint";
 import { TrackDetails } from "track-details.slint";
-import { PracticePanel, PracticeMarkerRow } from "practice.slint";
+import { PracticePanel, PracticeMarkerRow, PracticeCountdown } from "practice.slint";
 export { PracticeMarkerRow }
 export { StatisticsItem, StatisticsDay, StatisticsSummary }
 import "fonts/maple-mono/MapleMono-Regular.ttf";
@@ -828,6 +828,15 @@ export component AppWindow inherits Window {
                     TouchArea { clicked => { root.subtitle-command("close"); } }
                 }
             }
+        }
+        if root.practice-pending && !root.practice-open && root.screen != 2 && root.screen != 9 && root.screen != 10
+            && !root.reference-open && !root.track-details-open && !root.native-status-open
+            && !root.shortcut-editor-open && !root.deepseek-settings-open && !root.genius-preview-open
+            && !root.playlist-editor-open && !root.podcast-subscribe-open: PracticeCountdown {
+            x: display.x + (display.width - self.width) / 2;
+            y: display.y + (display.height - self.height) / 2;
+            s: root.s; countdown: root.practice-countdown;
+            cancel => { root.practice-command("cancel", "", ""); }
         }
         if root.practice-open: TouchArea {
             x: display.x; y: display.y; width: display.width; height: display.height;

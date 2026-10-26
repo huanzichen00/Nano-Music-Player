@@ -231,8 +231,20 @@ fn desktop_practice_panel_owns_pointer_input_and_edits_points_in_both_modes() {
         click(&ui, 120.0, 202.0);
         assert_eq!(commands.borrow().last().unwrap().0, "cancel");
         assert!(underlying.borrow().is_empty());
+        // Preparation also overlays lists without navigating to a practice page.
+        ui.set_screen(1);
+        for count in [3, 2, 1] {
+            ui.set_practice_countdown(count);
+            snapshot(&ui, &format!("list-countdown-{count}-{device}"));
+            assert_eq!(ui.get_screen(), 1);
+            assert!(!ui.get_practice_open());
+        }
+        click(&ui, 120.0, 216.0);
+        assert_eq!(commands.borrow().last().unwrap().0, "cancel");
+        assert!(underlying.borrow().is_empty());
         ui.set_practice_pending(false);
         ui.set_practice_countdown(0);
+        ui.set_screen(2);
         ui.global::<I18n>().set_language(0);
     }
 }
