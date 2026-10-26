@@ -166,7 +166,7 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ("Lead-in", "提前进入", "先行再生"),
     ("seconds", "秒", "秒"),
     ("Start practice", "开始练习", "練習開始"),
-    ("Restart section", "重练当前段", "この区間をやり直す"),
+    ("Restart section", "重练当前段", "区間を再練習"),
     ("Mark position", "标记当前位置", "現在位置を登録"),
     ("Key points", "关键时间点", "練習ポイント"),
     ("New point", "新建关键点", "ポイントを追加"),
