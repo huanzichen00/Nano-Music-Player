@@ -55,7 +55,7 @@ On macOS, File, Playback, View and Help are native menus at the top of the scree
 | Playback | N | Now Playing |
 | Playback | Y | Toggle lyrics on Now Playing |
 | Playback | T | Show / hide translation on Now Playing; generate a missing translation when enabling |
-| Playback | Cmd/Ctrl + Alt/Option + P | Open / close Practice Mode (desktop) |
+| Playback | P | Open / close Practice Mode (desktop) |
 | Playback | Cmd/Ctrl + Alt/Option + M | Mark the current song position |
 | Playback | Cmd/Ctrl + Alt/Option + Left / Right | Practice from the previous / next marker |
 | Playback | Cmd/Ctrl + Alt/Option + R | Restart the current practice section |
@@ -67,6 +67,7 @@ On macOS, File, Playback, View and Help are native menus at the top of the scree
 | Navigation | D | Open / close Track Details for the selected or playing song; automatically read long text horizontally |
 | Navigation | F, then A–Z | Jump to the first matching list entry and scroll it into view |
 | Navigation | Left / Right | Home grid/pages; back/activate in lists; seek on Now Playing; volume when its slider is selected |
+| Application | Q | Toggle Landscape Lyrics (desktop) |
 | Application | Cmd/Ctrl + O / F | Import folder / search library |
 | Application | Cmd/Ctrl + Comma | Settings |
 | Application | Cmd/Ctrl + 1 / 2 | Device Mode / Screen Mode |
@@ -96,7 +97,7 @@ While practice is enabled, selecting another song starts its preparation countdo
 
 Choose **View → Landscape Lyrics** for a rounded wide window with album artwork on the left and lyrics on the right, beneath a compact song-title and artist header. Synchronized lyrics scroll automatically with playback. Drag the artwork to move the window, and resize its edges to change the display size. **Escape** exits and restores the previous player window; the View menu also toggles this display.
 
-Playback and the queue continue unchanged when entering or leaving this view. **Space** retains the existing play/pause and practice-countdown behavior, including starting or cancelling the countdown when practice is enabled. Landscape Lyrics has no default keyboard shortcut; one can be assigned in **Settings → Keyboard Shortcuts**. This desktop view is temporary and does not reopen automatically after restarting the app.
+Playback and the queue continue unchanged when entering or leaving this view. **Space** retains the existing play/pause and practice-countdown behavior, including starting or cancelling the countdown when practice is enabled. **Q** toggles Landscape Lyrics and **P** opens or closes Practice Mode; both can be changed in **Settings → Keyboard Shortcuts**. This desktop view is temporary and does not reopen automatically after restarting the app.
 
 ## Podcasts (desktop)
 
@@ -162,7 +163,7 @@ Desktop album imports and startup library publication automatically enqueue arti
 
 Desktop Settings groups Appearance, Playback, Lyrics, Language, Keyboard Shortcuts, AI Services and a direct **Translate Current Song** entry on one page. The translation entry also remains under **Settings → Lyrics**. Each preference has a short explanation; switches show their state, and selection pages mark the saved value. Appearance includes explicit Window Style and Window Size choices. Lyrics keeps display preferences separate from commands for the current song.
 
-The first launch creates `shortcuts.json` (version 8); `settings.json` saves display preferences and interface language. **Settings → Language** selects English (default), 简体中文 or 日本語. **Settings → Appearance → Font** selects Classic, Maple Mono or JetBrains Mono, with bundled licensed fonts and a persisted preference; see [font notes](docs/FONTS.md). Music metadata and lyrics keep their original text. On macOS the default directory is `~/Library/Application Support/Nano.Nano-Music-Player`; Windows and Linux use their native application configuration directories. `--config-dir` overrides this.
+The first launch creates `shortcuts.json` (version 9); `settings.json` saves display preferences and interface language. **Settings → Language** selects English (default), 简体中文 or 日本語. **Settings → Appearance → Font** selects Classic, Maple Mono or JetBrains Mono, with bundled licensed fonts and a persisted preference; see [font notes](docs/FONTS.md). Music metadata and lyrics keep their original text. On macOS the default directory is `~/Library/Application Support/Nano.Nano-Music-Player`; Windows and Linux use their native application configuration directories. `--config-dir` overrides this.
 
 Startup shows cached songs and saved manual lyrics before refreshing source files in the background. A slow or blocked file open cannot hide the existing library. Background updates preserve newer imports, lyric edits, and the playing queue.
 
@@ -172,7 +173,7 @@ Automatic library monitoring is suspended in the playback recovery build, includ
 
 **Settings → Keyboard Shortcuts** edits bindings in the app. Select an action with J/K, open it with L/Enter, choose **Replace keys** or **Add key**, then press a key combination. **Remove keys** disables that action’s shortcuts, **Default keys** restores its bindings, and **Restore All Defaults** resets the complete keymap. Changes are validated for conflicts, saved atomically, and applied immediately; Escape cancels recording or closes the editor. You can also edit JSON while the app is closed and restart to apply changes. Examples are in [`examples/`](examples/). Shortcut entries contain a semantic action, a key, and exact modifiers. `primary` means Command on macOS and Control elsewhere; `secondary` means Control on macOS and Super elsewhere. Remove a binding to disable it, or add an alias. Duplicate/ambiguous bindings are rejected with a visible message and defaults are used.
 
-Untouched version 1–3 defaults upgrade to the current navigation and F-prefix shortcut. Existing custom chords retain their assignments; version 7 adds B/D only when their actions and chords are free, preserving an explicitly empty version 6 keymap. Version 8 adds practice shortcuts only when their actions and chords are free and preserves empty keymaps. Jump to letter can be assigned in Settings. On the desktop Now Playing screen, plain **F** finds missing lyrics online and shows persistent search status. It uses the same lookup as **Find Lyrics Online**, preserves existing synchronized or manually imported lyrics, and does not request translation. Downloaded plain text can be upgraded to a matching timed source. In lists, **F** keeps its letter-jump prefix. Custom F assignments take priority; **Find Lyrics Online** can also be assigned its own shortcut. On Home, H/L move horizontally between icons and pages, J/K move vertically, and Enter opens the selection. In lists, H/L go back/open and J/K move by one row. Arrow keys additionally provide seeking and volume adjustments on Now Playing.
+Untouched version 1–3 defaults upgrade to the current navigation and F-prefix shortcut. Existing custom chords retain their assignments; version 7 adds B/D only when their actions and chords are free, preserving an explicitly empty version 6 keymap. Version 8 adds practice shortcuts only when their actions and chords are free and preserves empty keymaps. Version 9 moves the old default Practice Mode chord to plain P and adds Q for Landscape Lyrics when free; custom assignments, explicit unassignments and empty keymaps are preserved. Jump to letter can be assigned in Settings. On the desktop Now Playing screen, plain **F** finds missing lyrics online and shows persistent search status. It uses the same lookup as **Find Lyrics Online**, preserves existing synchronized or manually imported lyrics, and does not request translation. Downloaded plain text can be upgraded to a matching timed source. In lists, **F** keeps its letter-jump prefix. Custom F assignments take priority; **Find Lyrics Online** can also be assigned its own shortcut. On Home, H/L move horizontally between icons and pages, J/K move vertically, and Enter opens the selection. In lists, H/L go back/open and J/K move by one row. Arrow keys additionally provide seeking and volume adjustments on Now Playing.
 
 `zoom` ranges from 0.75 to 3.0. A saved `window_width` takes precedence over zoom at startup; `window_height` is used when only height is provided. Remove both dimensions to size the window from `zoom`. Screen Mode preserves 240:432; Device Mode follows the complete hardware ratio 39.6:76.5. The LCD uses one logical coordinate system at every zoom. Resizing persists the resulting dimensions.
 

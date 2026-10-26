@@ -271,6 +271,7 @@ impl Controller {
             if action == Action::Home
                 || action.category() == Category::Playback
                 || Action::PRACTICE.contains(&action)
+                || action == Action::PresentationMode
             {
                 self.execute(ui, action);
             }

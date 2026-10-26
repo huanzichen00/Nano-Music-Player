@@ -28,7 +28,7 @@ impl Controller {
                 self.set_presentation_mode(ui, false);
             } else if !self.dialog_open
                 && !self.state.reference_open
-                && !ui.get_practice_open()
+                && !ui.get_practice_editing()
                 && !ui.get_track_details_open()
                 && !ui.get_native_status_open()
                 && !ui.get_genius_preview_open()
@@ -39,6 +39,8 @@ impl Controller {
                 && !self.state.video_active
                 && self.state.podcasts.active.is_none()
             {
+                // Switching views keeps practice armed and an active countdown intact.
+                ui.set_practice_open(false);
                 self.set_presentation_mode(ui, true);
             }
             self.sync(ui);
@@ -132,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn presentation_routes_space_to_practice_in_place_and_escape_back_exits() {
+    fn presentation_routes_q_p_space_and_escape_without_changing_playback() {
         i_slint_backend_testing::init_no_event_loop();
         let directory = tempfile::tempdir().unwrap();
         let ui = AppWindow::new().unwrap();
@@ -153,12 +155,16 @@ mod tests {
         c.state.paused = true;
         c.state.position = 8.0;
         c.practice_command(&ui, "toggle", "", "");
-        c.execute(&ui, Action::PresentationMode);
         let event = |text: &str| {
             let mut event = slint::language::KeyEvent::default();
             event.text = text.into();
             event
         };
+        assert!(c.dispatch(&ui, event("p"), false));
+        assert!(ui.get_practice_open());
+        assert!(c.dispatch(&ui, event("q"), false));
+        assert!(c.state.presentation_mode);
+        assert!(!ui.get_practice_open());
         assert!(c.dispatch(&ui, event(" "), false));
         assert!(c.practice.pending().is_some());
         assert!(c.state.presentation_mode);
@@ -166,6 +172,13 @@ mod tests {
         assert!(c.dispatch(&ui, event(" "), false));
         assert!(c.practice.pending().is_none());
         assert!(c.state.paused);
+        assert!(c.state.presentation_mode);
+        assert!(c.dispatch(&ui, event("p"), false));
+        assert!(!c.state.presentation_mode);
+        assert!(ui.get_practice_open());
+        assert!(c.dispatch(&ui, event("p"), false));
+        assert!(!ui.get_practice_open());
+        assert!(c.dispatch(&ui, event("q"), false));
         assert!(c.state.presentation_mode);
         assert!(c.dispatch(&ui, event("\u{1b}"), false));
         assert!(!c.state.presentation_mode);
