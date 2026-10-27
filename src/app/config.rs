@@ -7,6 +7,7 @@ pub struct Settings {
     pub language: super::i18n::Language,
     pub font: super::typography::Font,
     pub always_on_top: bool,
+    pub cover_wallpaper: bool,
     #[serde(default = "smooth_slides_default")]
     pub smooth_slides: bool,
     pub romaji_visible: bool,
@@ -39,6 +40,7 @@ impl Default for Settings {
             language: super::i18n::Language::English,
             font: super::typography::Font::Classic,
             always_on_top: true,
+            cover_wallpaper: false,
             smooth_slides: true,
             romaji_visible: true,
             lyrics_visible: true,

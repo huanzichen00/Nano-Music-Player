@@ -85,6 +85,10 @@ Added desktop tools—including AI Services, shortcut dialogs, playlist editing,
 
 Available lyrics appear by default over the artwork in a translucent, left-aligned panel. Click the cover or lyrics to toggle this overlay together with the seek bar, repeat, shuffle and album track-list controls. Artwork fits the available region without cropping, including portrait and landscape images. Transport and volume remain available at the bottom. Lists and lyrics accept mouse-wheel, trackpad and pointer scrolling, with [rubber-band resistance and spring-back](docs/OVERSCROLL.md) at their boundaries. Horizontal scrolling changes Home pages; the page-dot area also supports a mouse drag. Drag the bezel to move the window. Resize its edges or use zoom shortcuts; the display keeps its aspect ratio. Device Mode has a rounded transparent outer silhouette. **Settings → Appearance → Keep on Top** (also in the native View menu) starts enabled and persists your choice. macOS three-finger dragging is controlled by the system's trackpad settings.
 
+On macOS, **Settings → Appearance → Song Cover Wallpaper** follows the current music artwork. It defaults off and persists your choice. The cover is centered intact over a blurred, dimmed version of itself. Pausing keeps it visible; missing artwork, stopped/failed playback, videos and podcasts restore the previous wallpaper. Turning the option off or quitting normally also restores it, while respecting manual wallpaper changes. Rendering runs locally in the background without network or Automation permission. Original URLs and display options are saved to `wallpaper/originals.archive` in the configuration directory before changes, allowing recovery on the next launch after an interrupted session.
+
+Apple's [NSWorkspace wallpaper API](https://developer.apple.com/documentation/appkit/nsworkspace/setdesktopimageurl(_:for:options:)) applies to the current desktop of connected displays; this feature does not traverse every Space. Return to the desktop where you enabled it before disabling or quitting. Dynamic wallpaper restoration uses the image URL and options returned by macOS; animation state is not guaranteed. Ultrawide and portrait displays fit the complete generated wallpaper, with dark borders when needed.
+
 ## Practice Mode (desktop)
 
 Open **Playback → Practice Mode**, or choose **Practice** at the top right of the music Now Playing screen. Enable practice, set **Start delay** from 0 to 30 seconds (default 3) and **Lead-in** from 0 to 10 seconds (default 0), then press **Space** or choose **Start practice**. The song stays paused while audio is prepared and the countdown runs. Lead-in starts playback before the selected position so you can hear the preceding music; it is separate from the silent countdown. In practice mode, Space starts the countdown directly over the current screen without opening the practice panel; during playback it pauses, and during a countdown it cancels. Outside practice mode, pause/resume continues immediately.
@@ -190,6 +194,8 @@ cargo fmt --all -- --check
 cargo test --all-targets
 cargo clippy --all-targets -- -D warnings
 ```
+
+On macOS, `scripts/check-macos-wallpaper.sh` tests restoration, original display options, manual changes and partial multi-display failures against a fake desktop without changing the real wallpaper. `cargo test --lib wallpaper` covers background rendering, superseded results and playback state changes.
 
 Tests include dispatcher/state regressions, small original MP3/M4A/FLAC/WAV fixtures, embedded lyrics, and headless Slint key/pointer events plus rendered screenshots. GUI test snapshots are written to the system temporary directory. Platform-specific audio output and gestures still benefit from native testing on each target OS.
 

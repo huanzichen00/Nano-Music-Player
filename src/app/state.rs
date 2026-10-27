@@ -97,6 +97,7 @@ pub struct State {
     pub language: Language,
     pub font: Font,
     pub always_on_top: bool,
+    pub cover_wallpaper: bool,
     pub smooth_slides: bool,
     pub navigation: Navigation,
     pub tracks: Vec<Track>,
@@ -162,6 +163,7 @@ impl Default for State {
             language: Language::English,
             font: Font::Classic,
             always_on_top: true,
+            cover_wallpaper: false,
             smooth_slides: true,
             navigation: Navigation::default(),
             tracks: Vec::new(),
@@ -1681,6 +1683,11 @@ impl State {
             }
             ToggleAlwaysOnTop => {
                 self.always_on_top = !self.always_on_top;
+                return vec![Effect::WindowPreferencesChanged];
+            }
+            #[cfg(all(target_os = "macos", not(feature = "mobile")))]
+            ToggleCoverWallpaper => {
+                self.cover_wallpaper = !self.cover_wallpaper;
                 return vec![Effect::WindowPreferencesChanged];
             }
             ToggleSmoothSlides => {

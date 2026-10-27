@@ -186,6 +186,7 @@ impl Controller {
             language: self.state.language,
             font: self.state.font,
             always_on_top: self.state.always_on_top,
+            cover_wallpaper: self.state.cover_wallpaper,
             smooth_slides: self.state.smooth_slides,
             romaji_visible: self.state.romaji_visible,
             translation_target: self.settings.translation_target,

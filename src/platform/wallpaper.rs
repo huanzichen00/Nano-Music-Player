@@ -42,6 +42,7 @@ impl Wallpaper {
 
     /// Called only by the real app, never by headless controller tests.
     pub(crate) fn start(&mut self) -> Result<(), String> {
+        self.artwork.clear();
         #[cfg(target_os = "macos")]
         {
             std::fs::create_dir_all(&self.directory).map_err(|e| e.to_string())?;
@@ -299,6 +300,45 @@ mod tests {
         // A 2:1 cover is fitted intact rather than stretched to a square.
         assert_eq!(*result.get_pixel(160, 30), Rgb([76, 38, 19]));
         assert_eq!(*result.get_pixel(40, 100), Rgb([200, 100, 50]));
+    }
+
+    #[test]
+    fn worker_applies_a_complete_cover_once_and_restores_for_missing_artwork() {
+        struct Fake(Arc<Mutex<Vec<&'static str>>>);
+        impl Desktop for Fake {
+            fn apply(&mut self, path: &Path) -> Result<(), String> {
+                assert_eq!(image::image_dimensions(path).unwrap(), (2560, 1600));
+                self.0.lock().unwrap().push("apply");
+                Ok(())
+            }
+            fn restore(&mut self) -> Result<(), String> {
+                self.0.lock().unwrap().push("restore");
+                Ok(())
+            }
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut wallpaper = Wallpaper::new(directory.path().to_owned());
+        wallpaper.desktop = Some(Box::new(Fake(calls.clone())));
+        let bytes = include_bytes!("../../assets/generated/music.png");
+        wallpaper.update(Some(bytes)).unwrap();
+        let revision = wallpaper.revision;
+        wallpaper.update(Some(bytes)).unwrap();
+        assert_eq!(
+            wallpaper.revision, revision,
+            "same album cover does not render again"
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while calls.lock().unwrap().is_empty() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "wallpaper worker timed out"
+            );
+            wallpaper.poll().unwrap();
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
+        wallpaper.update(Some(&[])).unwrap();
+        assert_eq!(*calls.lock().unwrap(), ["apply", "restore"]);
     }
 
     #[test]

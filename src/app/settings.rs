@@ -17,6 +17,14 @@ impl State {
                 .and_then(|id| self.tracks.get(id))
                 .map(|track| track.title.as_str()),
         )?;
+        #[cfg(target_os = "macos")]
+        if *screen == Screen::SettingsSection(SettingsSection::Display) {
+            rows.push(settings::Row {
+                title: "Song Cover Wallpaper".into(),
+                subtitle: "Follow the song on this desktop".into(),
+                target: SharedTarget::Action(super::action::Action::ToggleCoverWallpaper),
+            });
+        }
         if *screen == Screen::Settings {
             rows.push(settings::Row {
                 title: "Translate Current Song".into(),
@@ -42,6 +50,13 @@ impl State {
     }
 
     pub(crate) fn setting_toggle(&self, target: &Target) -> Option<bool> {
+        #[cfg(target_os = "macos")]
+        if matches!(
+            target,
+            Target::Action(super::action::Action::ToggleCoverWallpaper)
+        ) {
+            return Some(self.cover_wallpaper);
+        }
         Values::from(self).toggle(&shared_target(target)?)
     }
 

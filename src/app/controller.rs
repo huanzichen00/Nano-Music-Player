@@ -14,6 +14,7 @@ mod presentation;
 mod statistics;
 mod ui_sync;
 mod video;
+mod wallpaper;
 mod window;
 
 use library::{LibraryTasks, LoadEvent as LibraryLoadEvent};
@@ -83,6 +84,8 @@ pub struct Controller {
     directory: PathBuf,
     iphone_sync: Option<super::iphone_sync::SyncPanel>,
     settings: Settings,
+    wallpaper: crate::platform::wallpaper::Wallpaper,
+    wallpaper_marker: Option<(bool, Option<usize>)>,
     media_bridge: crate::platform::macos_media::MediaBridge,
     device_status: crate::platform::desktop_status::Monitor,
     media_marker: Option<(Option<usize>, PlaybackStatus, i64)>,
@@ -145,6 +148,7 @@ impl Controller {
         state.language = settings.language;
         state.font = settings.font;
         state.always_on_top = settings.always_on_top;
+        state.cover_wallpaper = settings.cover_wallpaper;
         state.smooth_slides = settings.smooth_slides;
         state.romaji_visible = settings.romaji_visible;
         state.translation_visible = settings.translation_visible;
@@ -208,6 +212,8 @@ impl Controller {
             artist_images: crate::library::artist_images::ArtistImages::new(directory.clone()),
             artist_images_enabled: false,
             artist_photos: Default::default(),
+            wallpaper: crate::platform::wallpaper::Wallpaper::new(directory.clone()),
+            wallpaper_marker: None,
             directory,
             settings,
             iphone_sync: None,
@@ -1246,6 +1252,9 @@ impl Controller {
         self.poll_practice(ui, std::time::Instant::now());
         self.schedule_gapless_prefetch();
         self.sync(ui);
+        if let Err(error) = self.wallpaper.poll() {
+            self.state.notice = format!("Wallpaper error: {error}");
+        }
         self.publish_media_snapshot();
         if let Some(artwork) = self.artwork.poll() {
             ui.set_artwork(artwork);

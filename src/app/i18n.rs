@@ -41,6 +41,13 @@ impl Language {
 // Keep English source strings as stable catalog keys so call sites can pass the
 // existing UI text directly. Runtime metadata and user-provided text stay untouched.
 const CATALOG: &[(&str, &str, &str)] = &[
+    ("Song Cover Wallpaper", "歌曲封面壁纸", "曲のカバー壁紙"),
+    (
+        "Follow the song on this desktop",
+        "当前桌面随歌曲切换封面",
+        "このデスクトップで曲に合わせて変更",
+    ),
+    ("Wallpaper error", "壁纸错误", "壁紙エラー"),
     ("Landscape Lyrics", "横版歌词展示", "横長の歌詞表示"),
     (
         "Audio preparation timed out. Try again.",
@@ -2465,6 +2472,7 @@ pub fn notice(language: Language, text: &str) -> String {
         }
     }
     for key in [
+        "Wallpaper error",
         "Settings could not be saved",
         "Could not copy address",
         "Could not delete playlist",

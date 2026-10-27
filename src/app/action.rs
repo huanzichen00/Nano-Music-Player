@@ -47,6 +47,8 @@ pub enum Action {
     DeviceMode,
     ScreenMode,
     ToggleAlwaysOnTop,
+    #[cfg(all(target_os = "macos", not(feature = "mobile")))]
+    ToggleCoverWallpaper,
     ToggleSmoothSlides,
     ZoomIn,
     ZoomOut,
@@ -127,6 +129,8 @@ impl Action {
             | Self::PracticeRestart => Category::Playback,
             #[cfg(not(any(target_os = "ios", feature = "mobile")))]
             Self::PresentationMode => Category::Application,
+            #[cfg(all(target_os = "macos", not(feature = "mobile")))]
+            Self::ToggleCoverWallpaper => Category::Application,
             Self::ToggleOverlay | Self::TrackList | Self::ToggleSubtitles => Category::Playback,
             Self::ImportFolder
             | Self::RefreshLibrary
@@ -225,6 +229,8 @@ impl Action {
             Self::DeviceMode => "Device Mode",
             Self::ScreenMode => "Screen Mode",
             Self::ToggleAlwaysOnTop => "Always on Top",
+            #[cfg(all(target_os = "macos", not(feature = "mobile")))]
+            Self::ToggleCoverWallpaper => "Song Cover Wallpaper",
             Self::ToggleSmoothSlides => "Smooth Slides",
             Self::NewPlaylist => "New Playlist…",
             Self::EditPlaylist => "Edit Playlist…",
@@ -323,6 +329,8 @@ impl Action {
         #[cfg(not(any(target_os = "ios", feature = "mobile")))]
         Self::PresentationMode,
         Self::ToggleAlwaysOnTop,
+        #[cfg(all(target_os = "macos", not(feature = "mobile")))]
+        Self::ToggleCoverWallpaper,
         Self::NewPlaylist,
         Self::EditPlaylist,
         Self::ZoomIn,

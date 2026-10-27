@@ -94,6 +94,17 @@ fn settings_controls_are_explicit_persist_and_keep_the_playback_context() {
     click(&ui, 210.0, 64.0 + 4.0 * 56.0 + 18.0);
     assert!(!ui.get_rows().row_data(4).unwrap().checked);
     assert!(!Settings::load(&path).unwrap().always_on_top);
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(ui.get_rows().row_count(), 6);
+        let wallpaper = ui.get_rows().row_data(5).unwrap();
+        assert_eq!(wallpaper.title, "Song Cover Wallpaper");
+        assert!(wallpaper.toggle);
+        assert!(!wallpaper.checked);
+        ui.invoke_item_clicked(5);
+        assert!(ui.get_rows().row_data(5).unwrap().checked);
+        assert!(Settings::load(&path).unwrap().cover_wallpaper);
+    }
     ui.invoke_item_clicked(0);
     assert_eq!(ui.get_selected(), 1, "open with the saved choice selected");
     ui.invoke_item_clicked(0);
@@ -167,7 +178,28 @@ fn settings_controls_are_explicit_persist_and_keep_the_playback_context() {
     );
     assert_eq!(c.state.navigation.current().screen, Screen::Settings);
     drop(c);
+    #[cfg(target_os = "macos")]
+    {
+        let reloaded = Controller::new(directory.path().to_owned());
+        assert!(
+            reloaded.state.cover_wallpaper,
+            "unrelated settings saves retain the preference"
+        );
+        controller
+            .borrow_mut()
+            .execute(&ui, Action::ToggleCoverWallpaper);
+        assert!(!Settings::load(&path).unwrap().cover_wallpaper);
+    }
     ui.hide().unwrap();
+}
+
+#[test]
+fn legacy_settings_leave_wallpaper_disabled() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("settings.json");
+    std::fs::write(&path, br#"{"language":"simplified_chinese"}"#).unwrap();
+    assert!(!Settings::load(&path).unwrap().cover_wallpaper);
+    assert!(!Settings::default().cover_wallpaper);
 }
 
 #[test]

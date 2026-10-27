@@ -193,6 +193,7 @@ impl Controller {
     }
 
     pub(super) fn sync(&mut self, ui: &AppWindow) {
+        self.sync_wallpaper();
         if self.state.presentation_mode
             && (self.state.video_active || self.state.podcasts.active.is_some())
         {

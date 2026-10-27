@@ -47,6 +47,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             None
         }
     };
+    controller.borrow_mut().start_wallpaper();
     controller.borrow_mut().initialize(&ui);
     let timer = Timer::default();
     let weak = ui.as_weak();
@@ -88,7 +89,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     ui.invoke_focus_screen();
-    ui.run()?;
+    let result = ui.run();
+    timer.stop();
+    video_timer.stop();
+    controller.borrow_mut().stop_wallpaper();
     controller.borrow_mut().save_settings(&ui);
+    result?;
     Ok(())
 }
