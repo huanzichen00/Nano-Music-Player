@@ -6,6 +6,11 @@ fn main() {
             .flag("-fobjc-arc")
             .flag("-fblocks")
             .compile("nano_desktop_status");
+        println!("cargo:rerun-if-changed=src/platform/wallpaper.m");
+        cc::Build::new()
+            .file("src/platform/wallpaper.m")
+            .flag("-fobjc-arc")
+            .compile("nano_wallpaper");
         for framework in ["Foundation", "AppKit", "CoreAudio", "IOKit"] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }

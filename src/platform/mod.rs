@@ -5,6 +5,8 @@ pub mod ios;
 #[cfg(all(target_os = "macos", not(feature = "mobile")))]
 pub(crate) mod macos_hotkey;
 pub mod macos_media;
+#[cfg(not(any(target_os = "ios", feature = "mobile")))]
+pub(crate) mod wallpaper;
 
 /// Keep both frontends on the same native renderer and honor diagnostic overrides.
 pub fn select_ui_backend() -> Result<(), slint::PlatformError> {
