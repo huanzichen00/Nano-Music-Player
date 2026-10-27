@@ -19,6 +19,13 @@ static NSString *NMScreenKey(NSScreen *screen) {
     return [screen.deviceDescription[@"NSScreenNumber"] stringValue];
 }
 
+static bool NMSameURL(NSURL *left, NSURL *right) {
+    // Directory enumeration may return URLs relative to a base URL; NSWorkspace
+    // returns absolute URLs. Compare resolved paths, including /var aliases.
+    return left && right && [[left URLByResolvingSymlinksInPath].path
+                             isEqual:[right URLByResolvingSymlinksInPath].path];
+}
+
 static bool NMSave(NMWallpaper *state, char *error, size_t capacity) {
     NSError *failure = nil;
     NSData *data = [NSKeyedArchiver archivedDataWithRootObject:state.originals
@@ -31,7 +38,11 @@ static bool NMSave(NMWallpaper *state, char *error, size_t capacity) {
 
 static bool NMReferences(NMWallpaper *state, NSURL *url) {
     for (NSDictionary *entry in state.originals.allValues) {
-        if ([url isEqual:entry[@"owned"]] || [url isEqual:entry[@"pending"]]) return true;
+        if (NMSameURL(url, entry[@"owned"]) || NMSameURL(url, entry[@"pending"])
+                || NMSameURL(url, entry[@"url"])) return true;
+    }
+    for (NSScreen *screen in NSScreen.screens) {
+        if (NMSameURL(url, [NSWorkspace.sharedWorkspace desktopImageURLForScreen:screen])) return true;
     }
     return false;
 }
@@ -57,7 +68,7 @@ static bool NMRestore(NMWallpaper *state, char *error, size_t capacity) {
         NSDictionary *entry = state.originals[key];
         if (!entry) continue;
         NSURL *current = [workspace desktopImageURLForScreen:screen];
-        if ([current isEqual:entry[@"owned"]] || [current isEqual:entry[@"pending"]]) {
+        if (NMSameURL(current, entry[@"owned"]) || NMSameURL(current, entry[@"pending"])) {
             NSError *failure = nil;
             if (![workspace setDesktopImageURL:entry[@"url"] forScreen:screen
                                        options:entry[@"options"] error:&failure]) {
@@ -71,7 +82,7 @@ static bool NMRestore(NMWallpaper *state, char *error, size_t capacity) {
         [state.originals removeObjectForKey:key];
     }
     for (NSURL *url in restoredFiles) {
-        if ([url.URLByDeletingLastPathComponent isEqual:state.journal.URLByDeletingLastPathComponent]
+        if (NMSameURL(url.URLByDeletingLastPathComponent, state.journal.URLByDeletingLastPathComponent)
                 && [url.lastPathComponent hasPrefix:@"cover-"] && !NMReferences(state, url)) {
             [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
         }
@@ -134,7 +145,7 @@ bool nm_wallpaper_apply(void *handle, const char *path, char *error, size_t capa
             NSURL *current = [workspace desktopImageURLForScreen:screen];
             NSDictionary *previous = state.originals[key];
             // Respect manual changes and do not follow the user into other Spaces.
-            if (previous && ![current isEqual:previous[@"owned"]]) continue;
+            if (previous && !NMSameURL(current, previous[@"owned"])) continue;
             if (!previous && !current) return NMError(@"Cannot read original wallpaper", error, capacity);
             NSDictionary *entry = @{
                 @"url": previous ? previous[@"url"] : current,

@@ -63,6 +63,7 @@ int main(void) {
         assert(workspace.changes == 2);
         assert([[workspace.urls[@"1"] path] isEqual:cover]);
         assert([files fileExistsAtPath:journal]);
+        assert([files fileExistsAtPath:cover]);
         nm_wallpaper_destroy(state); // Simulate an interrupted app without restore.
         state = nm_wallpaper_create(journal.UTF8String, error, sizeof(error));
         assert(state); // Exercise secure archive decoding, including NSColor.
@@ -92,6 +93,20 @@ int main(void) {
         assert(nm_wallpaper_restore(state, error, sizeof(error)));
         assert([workspace.urls[@"1"] isEqual:manual]);
         assert([workspace.urls[@"2"] isEqual:original]);
+        // A user may have chosen an earlier generated cover as their own wallpaper.
+        NSString *savedCover = [directory stringByAppendingPathComponent:@"cover-personal.png"];
+        [@"fixture" writeToFile:savedCover atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        NSURL *savedURL = [NSURL fileURLWithPath:savedCover];
+        workspace.urls[@"1"] = savedURL;
+        [@"fixture" writeToFile:cover atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        assert(nm_wallpaper_apply(state, cover.UTF8String, error, sizeof(error)));
+        NSString *next = [directory stringByAppendingPathComponent:@"cover-next.png"];
+        [@"fixture" writeToFile:next atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+        assert(nm_wallpaper_apply(state, next.UTF8String, error, sizeof(error)));
+        assert([files fileExistsAtPath:savedCover]);
+        assert(nm_wallpaper_restore(state, error, sizeof(error)));
+        assert([workspace.urls[@"1"] isEqual:savedURL]);
+        assert([files fileExistsAtPath:savedCover]);
         nm_wallpaper_destroy(state);
         [files removeItemAtPath:directory error:NULL];
         puts("Native wallpaper tests passed: recovery, options, manual changes, partial failure.");
