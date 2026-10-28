@@ -5,7 +5,7 @@ use crate::library::{
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    sync::mpsc::Receiver,
+    sync::mpsc::{Receiver, TryRecvError},
     thread::JoinHandle,
 };
 
@@ -204,13 +204,21 @@ impl PlaylistsService {
     }
 
     pub(super) fn poll_load(&mut self) -> Option<Result<Vec<Playlist>, String>> {
-        let result = self.loading.as_ref()?.try_recv().ok()?;
+        let result = match self.loading.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("Playlist loading stopped unexpectedly".into()),
+        };
         self.loading = None;
         Some(result)
     }
 
     pub(super) fn poll_save(&mut self) -> Option<Result<SavedPlaylist, String>> {
-        let result = self.saving.as_ref()?.try_recv().ok()?;
+        let result = match self.saving.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("Playlist saving stopped unexpectedly".into()),
+        };
         self.saving = None;
         self.shutdown();
         Some(result.map(|playlist| {
@@ -275,6 +283,38 @@ mod tests {
             assert!(Instant::now() < deadline, "playlist fixture timed out");
             std::thread::yield_now();
         }
+    }
+
+    #[test]
+    fn disconnected_tasks_report_once_preserve_the_draft_and_allow_save_retry() {
+        let directory = tempfile::tempdir().unwrap();
+        let tracks = tracks(directory.path());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut service = PlaylistsService::new(receiver);
+        assert!(service.poll_load().is_none());
+        drop(sender);
+        assert!(matches!(service.poll_load(), Some(Err(message))
+            if message == "Playlist loading stopped unexpectedly"));
+        assert!(service.poll_load().is_none());
+
+        service.begin_new();
+        service.refresh_candidates(&tracks);
+        assert!(service.toggle(&tracks[0].path));
+        let (sender, receiver) = std::sync::mpsc::channel();
+        service.saving = Some(receiver);
+        assert!(service.poll_save().is_none());
+        assert!(service.is_saving());
+        drop(sender);
+        assert!(matches!(service.poll_save(), Some(Err(message))
+            if message == "Playlist saving stopped unexpectedly"));
+        assert!(!service.is_saving());
+        assert!(service.poll_save().is_none());
+        assert_eq!(service.paths(), &[tracks[0].path.clone()]);
+        assert!(service.save(&directory.path().join("library.sqlite3"), "Retry", &tracks));
+        assert_eq!(
+            saved(&mut service).unwrap().playlist.tracks,
+            [tracks[0].path.clone()]
+        );
     }
 
     #[test]
