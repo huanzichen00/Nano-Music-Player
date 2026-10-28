@@ -176,7 +176,16 @@ fn refresh_track_inner(database: &Database, path: &Path) -> Result<Track, Refres
         cached
     } else {
         match read_track(path.to_path_buf()) {
-            Ok(track) => {
+            Ok(source) => {
+                // A matching legacy snapshot can contain a phone-selected cover
+                // or exported display metadata. Only its lyric provenance is
+                // unknown; repair those lyrics without discarding these values.
+                let track = if let Some(mut cached) = database.cached(path, stamp) {
+                    cached.lyrics = source.lyrics;
+                    cached
+                } else {
+                    source
+                };
                 // Cache automatic source lyrics, never a projected manual override.
                 // Unchanged source snapshots need neither serialization nor a write.
                 database

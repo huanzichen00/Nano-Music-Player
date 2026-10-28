@@ -151,6 +151,31 @@ fn legacy_projected_metadata_repairs_once_without_losing_manual_lyrics() {
 }
 
 #[test]
+fn repairing_legacy_lyrics_preserves_custom_artwork_and_display_metadata() {
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("song.wav");
+    audio(&source);
+    fs::write(source.with_extension("txt"), "Automatic source").unwrap();
+    let path = directory.path().join("library.sqlite3");
+    let database = Database::open(&path).unwrap();
+    let mut legacy = read_track(source.clone()).unwrap();
+    legacy.title = "Phone title".into();
+    legacy.artwork = vec![7, 8, 9];
+    legacy.lyrics = Lyrics::plain_text("Old projected override");
+    database.save(&legacy, metadata_stamp(&source)).unwrap();
+    let connection = Connection::open(&path).unwrap();
+    audit(&connection);
+
+    let refreshed = refresh_track(&database, &source).unwrap();
+    assert_eq!(refreshed.title, legacy.title);
+    assert_eq!(refreshed.artwork, legacy.artwork);
+    assert_eq!(refreshed.lyrics.lines(), ["Automatic source"]);
+    assert_eq!(writes(&connection), 1);
+    assert_eq!(refresh_track(&database, &source).unwrap(), refreshed);
+    assert_eq!(writes(&connection), 1);
+}
+
+#[test]
 fn unreadable_legacy_source_keeps_its_snapshot_and_repairs_after_recovery() {
     let directory = tempfile::tempdir().unwrap();
     let source = directory.path().join("song.wav");
