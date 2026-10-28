@@ -946,14 +946,18 @@ fn library_hierarchy_opens_complete_albums_and_searches_metadata() {
     );
     state.navigation.select(1);
     state.apply(Action::Activate);
-    assert_eq!(state.rows().len(), 2);
-    assert!(matches!(state.rows()[0].target, Target::Play(0)));
-    assert!(matches!(state.rows()[1].target, Target::Play(2)));
+    assert_eq!(state.rows().len(), 3);
+    assert!(matches!(
+        state.rows()[0].target,
+        Target::Action(Action::ShuffleList)
+    ));
+    assert!(matches!(state.rows()[1].target, Target::Play(0)));
+    assert!(matches!(state.rows()[2].target, Target::Play(2)));
     state.navigation.open(Screen::Songs(Filter::Album {
         name: "Shared".to_owned(),
         artist: None,
     }));
-    assert_eq!(state.rows().len(), 2);
+    assert_eq!(state.rows().len(), 3);
     state
         .navigation
         .open(Screen::Songs(Filter::Genre("Jazz".to_owned())));
@@ -1758,8 +1762,8 @@ fn settings_and_album_track_list_are_real_navigation_screens() {
     state.apply(Action::TrackList);
     assert_eq!(
         state.rows().len(),
-        2,
-        "the current album includes tracks by every artist"
+        3,
+        "the current album includes Shuffle and tracks by every artist"
     );
     state.apply(Action::Back);
     assert_eq!(state.navigation.current().screen, Screen::NowPlaying);

@@ -121,6 +121,36 @@ fn shuffle_header_pointer_keyboard_and_cover_geometry_use_the_same_model() {
     tap(&ui, "f");
     tap(&ui, "r");
     assert_eq!(ui.get_selected(), 1);
+    tap(&ui, "l");
+    assert_eq!(ui.get_screen_title(), "Reference Album");
+    assert!(ui.get_shuffle_list());
+    assert_eq!(ui.get_rows().row_count(), 3);
+    assert_eq!(ui.get_rows().row_data(0).unwrap().title, "Shuffle");
+    assert_eq!(ui.get_list_header_height(), 48.0 * ui.get_display_scale());
+    controller.borrow_mut().execute(&ui, Action::ToggleShuffle);
+    assert!(!controller.borrow().state.shuffle);
+    tap(&ui, "j");
+    tap(&ui, "l");
+    assert_eq!(controller.borrow().state.current, Some(0));
+    assert_eq!(controller.borrow().state.queue.order, [0, 1]);
+    controller.borrow_mut().execute(&ui, Action::Back);
+    assert_eq!(ui.get_selected(), 1);
+    tap(&ui, "k");
+    tap(&ui, "l");
+    assert!(controller.borrow().state.shuffle);
+    assert_eq!(ui.get_screen(), 2);
+    controller.borrow_mut().execute(&ui, Action::Back);
+    ui.window().dispatch_event(WindowEvent::PointerPressed {
+        position,
+        button: PointerEventButton::Left,
+    });
+    ui.window().dispatch_event(WindowEvent::PointerReleased {
+        position,
+        button: PointerEventButton::Left,
+    });
+    assert_eq!(ui.get_screen(), 2);
+    assert_eq!(controller.borrow().state.queue.order.len(), 2);
+    assert_eq!(controller.borrow().state.queue.position, 0);
     // Escape cannot turn the control into a metadata entry or rename the album.
     tap(&ui, Key::Escape);
 }

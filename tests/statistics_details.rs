@@ -252,7 +252,7 @@ fn artist_albums_include_unplayed_albums_and_keep_same_named_other_artists_separ
     );
     assert_no_audio(&activate_title(&mut state, "See All Tracks"));
     assert_eq!(play_ids(&state), [2]);
-    assert!(!state.supports_list_shuffle());
+    assert!(state.supports_list_shuffle());
 
     let artist_a = open_album(&mut state, "Shared", "Artist A");
     let artist_b = open_album(&mut state, "Shared", "Artist B");
@@ -322,7 +322,7 @@ fn see_all_tracks_uses_exact_group_paths_and_existing_album_order() {
     assert_no_audio(&activate_title(&mut state, "See All Tracks"));
     assert!(matches!(&state.navigation.current().screen,
         Screen::Songs(Filter::Statistics { paths, album_order: true, .. }) if **paths == *album.paths));
-    assert!(!state.supports_list_shuffle());
+    assert!(state.supports_list_shuffle());
     assert_eq!(play_ids(&state), [0, 1, 5]);
     assert_eq!(play_paths(&state), *album.paths);
     assert_eq!(state.queue.order, [3, 4]);
@@ -386,7 +386,7 @@ fn play_album_preserves_number_order_and_respects_existing_global_shuffle() {
             state.navigation.current().screen,
             Screen::Songs(group.filter())
         );
-        assert!(!state.supports_list_shuffle());
+        assert!(state.supports_list_shuffle());
     }
 }
 

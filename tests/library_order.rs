@@ -72,7 +72,7 @@ fn album_tracks_order_known_numbers_then_unknown_and_deterministic_ties() {
             artist: Some("A".into()),
         }),
     );
-    let rows = s.rows();
+    let rows = s.rows().into_iter().skip(1).collect::<Vec<_>>();
     assert_eq!(
         rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(),
         ["ALPHA", "Alpha", "beta", "zulu", "unknown"]
@@ -97,7 +97,8 @@ fn artist_album_and_now_playing_include_guest_tracks_in_album_order() {
     s.navigation.select(1); // Skip the artist shuffle control.
     s.apply(Action::Activate);
     assert_eq!(titles(&s), ["Opening", "Guest", "Finale"]);
-    assert_eq!(s.selection_count(), 3);
+    assert_eq!(s.selection_count(), 4);
+    s.navigation.select(1); // Skip album shuffle to play in album order.
     s.apply(Action::Activate);
     assert_eq!(s.queue.order, [2, 1, 0]);
     assert_eq!(s.current, Some(2));
@@ -106,6 +107,13 @@ fn artist_album_and_now_playing_include_guest_tracks_in_album_order() {
     s.apply(Action::TrackList);
     assert_eq!(titles(&s), ["Opening", "Guest", "Finale"]);
     assert_eq!(s.rating_target().map(|t| t.title.as_str()), Some("Guest"));
+    s.apply(Action::Activate); // Shuffle from the Now Playing album list.
+    assert!(s.shuffle);
+    let mut members = s.queue.order.clone();
+    members.sort_unstable();
+    assert_eq!(members, [0, 1, 2]);
+    s.apply(Action::ToggleShuffle);
+    assert_eq!(s.queue.order, [2, 1, 0]);
 }
 
 #[test]
