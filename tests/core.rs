@@ -1506,6 +1506,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
         language: nano_music_player::app::i18n::Language::English,
         font: nano_music_player::app::typography::Font::Classic,
         always_on_top: true,
+        cover_wallpaper: true,
         smooth_slides: false,
         romaji_visible: false,
         lyrics_visible: false,
@@ -1525,6 +1526,7 @@ fn settings_default_partial_and_atomic_saved_configuration_round_trip() {
     saved.save(&path).unwrap();
     let loaded = Settings::load(&path).unwrap();
     assert_eq!(loaded.zoom, 2.0);
+    assert!(loaded.cover_wallpaper);
     assert!(!loaded.smooth_slides);
     assert!(!loaded.romaji_visible);
     assert!(!loaded.lyrics_visible);
