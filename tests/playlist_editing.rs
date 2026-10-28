@@ -360,6 +360,22 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
         long_paths
     );
     click(&ui, 25.0, 16.0);
+    // A suspended draft belongs to its playlist, even when Edit targets another one.
+    controller.borrow_mut().execute(&ui, Action::EditPlaylist);
+    ui.set_playlist_name("Unsaved long draft".into());
+    controller.borrow_mut().execute(&ui, Action::Home);
+    controller
+        .borrow_mut()
+        .state
+        .navigation
+        .open(Screen::Songs(Filter::Playlist {
+            id: original.id,
+            name: saved[0].name.clone(),
+        }));
+    controller.borrow_mut().execute(&ui, Action::EditPlaylist);
+    assert_eq!(ui.get_playlist_name(), "Failed name");
+    assert_eq!(ui.get_playlist_draft().row_count(), 0);
+    click(&ui, 25.0, 16.0);
     let mut restarted = Controller::new(directory.path().to_owned());
     let deadline = Instant::now() + Duration::from_secs(5);
     while restarted.state.playlists.is_empty() {

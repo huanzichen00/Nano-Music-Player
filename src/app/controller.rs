@@ -1412,9 +1412,12 @@ impl Controller {
             return;
         }
         self.prepare_portrait_dialog(ui);
-        if self.playlists.resume() {
+        if self.playlists.resume(id) {
             ui.set_playlist_editor_open(true);
             ui.invoke_focus_screen();
+            return;
+        }
+        if self.playlists.is_saving() {
             return;
         }
         if let Some(id) = id {

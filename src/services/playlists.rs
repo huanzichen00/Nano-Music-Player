@@ -88,6 +88,7 @@ impl PlaylistsService {
             return;
         }
         self.edit_id = None;
+        self.suspended = false;
         self.original_paths.clear();
         self.paths.clear();
     }
@@ -97,6 +98,7 @@ impl PlaylistsService {
             return;
         }
         self.edit_id = Some(playlist.id);
+        self.suspended = false;
         self.paths = playlist.tracks.clone();
         self.original_paths = self.paths.iter().cloned().collect();
     }
@@ -105,7 +107,12 @@ impl PlaylistsService {
         self.suspended = true;
     }
 
-    pub(crate) fn resume(&mut self) -> bool {
+    pub(crate) fn resume(&mut self, requested_id: Option<i64>) -> bool {
+        // New Playlist can recover any hidden draft; an explicit Edit must
+        // never substitute a draft belonging to another saved playlist.
+        if requested_id.is_some() && requested_id != self.edit_id {
+            return false;
+        }
         std::mem::take(&mut self.suspended)
     }
 
@@ -347,8 +354,9 @@ mod tests {
         assert!(service.move_to(&tracks[2].path, 0));
         service.nudge(&tracks[0].path, true);
         service.suspend();
-        assert!(service.resume());
-        assert!(!service.resume());
+        assert!(!service.resume(Some(18)));
+        assert!(service.resume(Some(17)));
+        assert!(!service.resume(None));
         assert!(service.is_editing());
         assert_eq!(
             service.paths(),
@@ -403,7 +411,7 @@ mod tests {
         assert!(service.paths().is_empty());
         assert!(service.candidates().is_empty());
         assert!(!service.is_editing());
-        assert!(!service.resume());
+        assert!(!service.resume(None));
     }
 
     #[test]
