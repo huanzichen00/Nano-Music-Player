@@ -245,7 +245,7 @@ impl Controller {
         self.notice = result.err().unwrap_or_else(|| match command {
             Command::Translate | Command::Regenerate => "Translating lyrics…".into(),
             Command::Cancel => "Translation cancelled".into(),
-            Command::Remove => "Translation removed".into(),
+            Command::Remove => "Saving…".into(),
             Command::SetTarget(_) => String::new(),
             Command::Toggle | Command::FindLyrics => String::new(),
         });
@@ -483,6 +483,12 @@ impl Controller {
             .poll_translation(current, self.settings.translation_target)
         {
             self.notice = notice.into();
+            if notice == "Translation removed" {
+                self.settings.translation_visible = false;
+                if let Err(error) = self.settings.save(&self.storage.settings_path()) {
+                    self.notice = error;
+                }
+            }
             changed = true;
         }
         for event in self.annotations.service.poll_romaji(&self.tracks) {

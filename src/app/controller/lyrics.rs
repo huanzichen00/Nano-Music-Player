@@ -7,9 +7,13 @@ use crate::{
     translation::{self, Cancellation, TargetLanguage},
 };
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, TryRecvError},
+    sync::{
+        Arc,
+        mpsc::{self, Receiver, TryRecvError},
+    },
+    thread::JoinHandle,
 };
 
 type TranslationResult = (
@@ -52,15 +56,90 @@ pub(super) struct RomajiRemoval {
     pub result: Result<(), String>,
 }
 
+enum CacheChange {
+    Insert(translation::Translation),
+    Remove(translation::CacheKey),
+}
+
+struct CacheWrite {
+    id: u64,
+    change: CacheChange,
+}
+
+struct CacheWritten {
+    id: u64,
+    result: Result<Arc<translation::Cache>, translation::Error>,
+}
+
+/// One FIFO writer owns the durable cache. Snapshot cloning, JSON encoding,
+/// fsync and atomic replacement all stay off the UI thread.
+struct TranslationWriter {
+    commands: Option<mpsc::Sender<CacheWrite>>,
+    events: Receiver<CacheWritten>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl TranslationWriter {
+    fn new(path: PathBuf, initial: Arc<translation::Cache>) -> Self {
+        let (commands, receiver) = mpsc::channel::<CacheWrite>();
+        let (sender, events) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let mut confirmed = initial;
+            while let Ok(write) = receiver.recv() {
+                let mut next = (*confirmed).clone();
+                match write.change {
+                    CacheChange::Insert(value) => next.insert(value),
+                    CacheChange::Remove(key) => {
+                        next.remove(&key);
+                    }
+                }
+                let result = next.save(&path).map(|()| {
+                    confirmed = Arc::new(next);
+                    confirmed.clone()
+                });
+                // Continue draining accepted writes even after the UI closes.
+                let _ = sender.send(CacheWritten {
+                    id: write.id,
+                    result,
+                });
+            }
+        });
+        Self {
+            commands: Some(commands),
+            events,
+            worker: Some(worker),
+        }
+    }
+}
+
+impl Drop for TranslationWriter {
+    fn drop(&mut self) {
+        self.commands.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+struct PendingCacheWrite {
+    id: u64,
+    request: translation::Request,
+    removal: bool,
+}
+
 pub(super) struct LyricsService {
     directory: PathBuf,
     romaji_request: Option<romaji::Request>,
     romaji_store: romaji::Store,
     romaji_touched: HashSet<PathBuf>,
-    translation_cache: translation::Cache,
+    translation_cache: Arc<translation::Cache>,
+    translation_writer: Option<TranslationWriter>,
+    translation_writes: VecDeque<PendingCacheWrite>,
+    translation_write_id: u64,
     translation_request: Option<Receiver<TranslationResult>>,
     translation_request_id: u64,
     translation_active_request: Option<translation::Request>,
+    translation_silenced_request: Option<u64>,
     translation_visible: bool,
     // A preference inherited by another song must not consume that song's first T.
     translation_shortcut_track: Option<PathBuf>,
@@ -75,14 +154,19 @@ impl LyricsService {
     pub(super) fn new(directory: PathBuf, visible: bool) -> Self {
         Self {
             romaji_store: romaji::Store::new(directory.join("library.sqlite3")),
-            translation_cache: translation::Cache::load(&directory.join("translations.json"))
-                .unwrap_or_default(),
+            translation_cache: Arc::new(
+                translation::Cache::load(&directory.join("translations.json")).unwrap_or_default(),
+            ),
+            translation_writer: None,
+            translation_writes: VecDeque::new(),
+            translation_write_id: 0,
             directory,
             romaji_request: None,
             romaji_touched: HashSet::new(),
             translation_request: None,
             translation_request_id: 0,
             translation_active_request: None,
+            translation_silenced_request: None,
             translation_visible: visible,
             translation_shortcut_track: None,
             translation_cancel: None,
@@ -128,7 +212,7 @@ impl LyricsService {
     }
 
     pub(super) fn translation_busy(&self) -> bool {
-        self.translation_request.is_some()
+        self.translation_request.is_some() || !self.translation_writes.is_empty()
     }
 
     pub(super) fn lookup_busy(&self) -> bool {
@@ -238,11 +322,36 @@ impl LyricsService {
         current: Option<&Track>,
         target: TargetLanguage,
     ) -> Option<&'static str> {
-        let (request, result) = self.translation_request.as_ref()?.try_recv().ok()?;
+        if let Some(notice) = self.poll_translation_writes(current, target) {
+            return Some(notice);
+        }
+        let received = self.translation_request.as_ref()?.try_recv();
+        let (request, result) = match received {
+            Ok(value) => value,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                self.translation_request = None;
+                self.translation_active_request = None;
+                self.translation_cancel = None;
+                return if self.translation_silenced_request.take().is_some()
+                    || !self.translation_writes.is_empty()
+                {
+                    None
+                } else {
+                    Some("Translation failed; try again")
+                };
+            }
+        };
         self.translation_request = None;
         self.translation_active_request = None;
         self.translation_cancel = None;
-        Some(self.apply_translation_result(request, result, current, target))
+        let silenced = self.translation_silenced_request.take() == Some(request.request_id);
+        let notice = self.apply_translation_result(request, result, current, target);
+        if !silenced && self.translation_writes.is_empty() {
+            notice
+        } else {
+            None
+        }
     }
 
     pub(super) fn apply_translation_result(
@@ -251,7 +360,7 @@ impl LyricsService {
         result: Result<translation::Translation, translation::Error>,
         current: Option<&Track>,
         target: TargetLanguage,
-    ) -> &'static str {
+    ) -> Option<&'static str> {
         let source = current.map(Self::source).unwrap_or_default();
         match result {
             Ok(value)
@@ -266,23 +375,107 @@ impl LyricsService {
                     )
                 }) =>
             {
-                let previous = self.translation_cache.clone();
-                self.translation_cache.insert(value);
-                match self
-                    .translation_cache
-                    .save(&self.directory.join("translations.json"))
+                if self
+                    .queue_translation_write(request, CacheChange::Insert(value), false)
+                    .is_err()
                 {
-                    Ok(()) => "Translation ready",
-                    Err(_) => {
-                        self.translation_cache = previous;
-                        "Could not save translation cache"
-                    }
+                    return Some("Could not save translation cache");
                 }
+                None
             }
-            Ok(_) => "Lyrics or target changed; translation discarded",
-            Err(translation::Error::Cancelled) => "Translation cancelled",
-            Err(_) => "Translation failed; try again",
+            Ok(_) => Some("Lyrics or target changed; translation discarded"),
+            Err(translation::Error::Cancelled) => Some("Translation cancelled"),
+            Err(_) => Some("Translation failed; try again"),
         }
+    }
+
+    fn queue_translation_write(
+        &mut self,
+        request: translation::Request,
+        change: CacheChange,
+        removal: bool,
+    ) -> Result<(), String> {
+        let writer = self.translation_writer.get_or_insert_with(|| {
+            TranslationWriter::new(
+                self.directory.join("translations.json"),
+                self.translation_cache.clone(),
+            )
+        });
+        self.translation_write_id = self.translation_write_id.wrapping_add(1);
+        let id = self.translation_write_id;
+        if writer
+            .commands
+            .as_ref()
+            .is_none_or(|sender| sender.send(CacheWrite { id, change }).is_err())
+        {
+            self.translation_writer = None;
+            self.translation_writes.clear();
+            return Err("Could not save translation cache".into());
+        }
+        self.translation_writes.push_back(PendingCacheWrite {
+            id,
+            request,
+            removal,
+        });
+        Ok(())
+    }
+
+    fn poll_translation_writes(
+        &mut self,
+        current: Option<&Track>,
+        target: TargetLanguage,
+    ) -> Option<&'static str> {
+        while !self.translation_writes.is_empty() {
+            let received = self.translation_writer.as_ref()?.events.try_recv();
+            let event = match received {
+                Ok(event) => event,
+                Err(TryRecvError::Empty) => return None,
+                Err(TryRecvError::Disconnected) => {
+                    self.translation_writes.clear();
+                    self.translation_writer = None;
+                    return Some("Could not save translation cache");
+                }
+            };
+            let pending = self.translation_writes.pop_front()?;
+            debug_assert_eq!(pending.id, event.id);
+            let success = event.result.is_ok();
+            if let Ok(cache) = event.result {
+                self.translation_cache = cache;
+            }
+            // Older writes can become durable, but cannot replace the notice or
+            // visibility of a later remove, cancellation, song or target change.
+            if pending.id != self.translation_write_id {
+                continue;
+            }
+            let context_matches = current.is_some_and(|track| {
+                pending.request.track_id == track.path
+                    && pending.request.target == target
+                    && pending.request.source == Self::source(track)
+                    && pending.request.provider_version == self.provider_version()
+            });
+            if !context_matches {
+                return None;
+            }
+            if pending.removal {
+                if success {
+                    self.translation_visible = false;
+                }
+                return Some(if success {
+                    "Translation removed"
+                } else {
+                    "Could not remove translation"
+                });
+            }
+            if pending.request.request_id != self.translation_request_id {
+                return None;
+            }
+            return Some(if success {
+                "Translation ready"
+            } else {
+                "Could not save translation cache"
+            });
+        }
+        None
     }
 
     pub(super) fn cancel_translation(&mut self) {
@@ -319,20 +512,15 @@ impl LyricsService {
             .as_ref()
             .is_some_and(|active| active.cache_key() == request.cache_key())
         {
+            self.translation_silenced_request = self
+                .translation_active_request
+                .as_ref()
+                .map(|active| active.request_id);
             self.cancel_translation();
             self.translation_active_request = None;
         }
-        let previous = self.translation_cache.clone();
-        self.translation_cache.remove(&request.cache_key());
-        if let Err(error) = self
-            .translation_cache
-            .save(&self.directory.join("translations.json"))
-        {
-            self.translation_cache = previous;
-            return Err(format!("Could not remove translation: {error:?}"));
-        }
-        self.translation_visible = false;
-        Ok(())
+        let key = request.cache_key();
+        self.queue_translation_write(request, CacheChange::Remove(key), true)
     }
 
     /// External lyric-edit/import admission remains the controller's decision.
@@ -582,7 +770,7 @@ impl Drop for LyricsService {
 #[cfg(test)]
 impl LyricsService {
     pub(super) fn insert_cached_for_test(&mut self, value: translation::Translation) {
-        self.translation_cache.insert(value);
+        Arc::make_mut(&mut self.translation_cache).insert(value);
     }
 
     pub(super) fn cached_for_test(
@@ -594,6 +782,26 @@ impl LyricsService {
 
     pub(super) fn cache_is_empty_for_test(&self) -> bool {
         self.translation_cache.is_empty()
+    }
+
+    pub(super) fn finish_translation_writes_for_test(
+        &mut self,
+        current: Option<&Track>,
+        target: TargetLanguage,
+    ) -> Option<&'static str> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let mut notice = None;
+        while !self.translation_writes.is_empty() {
+            if let Some(value) = self.poll_translation_writes(current, target) {
+                notice = Some(value);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "translation cache writer timed out"
+            );
+            std::thread::yield_now();
+        }
+        notice
     }
 
     pub(super) fn save_cache_for_test(&self) -> Result<(), translation::Error> {
@@ -689,6 +897,14 @@ mod tests {
             .unwrap()
     }
 
+    fn finish_translation(service: &mut LyricsService, track: &Track) -> Option<&'static str> {
+        service
+            .poll_translation(Some(track), TargetLanguage::English)
+            .or_else(|| {
+                service.finish_translation_writes_for_test(Some(track), TargetLanguage::English)
+            })
+    }
+
     fn found() -> online_lyrics::Found {
         online_lyrics::Found {
             lyrics: Lyrics::plain_text("original"),
@@ -714,7 +930,7 @@ mod tests {
             assert!(service.translation_busy());
             assert_eq!(service.translation_generation_for_test(), 1);
             assert_eq!(
-                service.poll_translation(Some(&track), TargetLanguage::English),
+                finish_translation(&mut service, &track),
                 Some("Translation ready")
             );
             assert!(!service.visible());
@@ -824,21 +1040,23 @@ mod tests {
         let request = request(&track, 1);
         let old = translated(&request, "old");
         let mut service = LyricsService::new(directory.path().into(), true);
-        service.translation_cache.insert(old.clone());
+        service.insert_cached_for_test(old.clone());
         service.install_translation_completion(request.clone(), Ok(translated(&request, "new")));
         std::fs::create_dir(directory.path().join("translations.json")).unwrap();
         assert_eq!(
-            service.poll_translation(Some(&track), TargetLanguage::English),
+            finish_translation(&mut service, &track),
             Some("Could not save translation cache")
         );
         assert_eq!(
             service.translation_cache.get(&request.cache_key()),
             Some(&old)
         );
-        assert!(
-            service
-                .remove_translation(Some(&track), TargetLanguage::English)
-                .is_err()
+        service
+            .remove_translation(Some(&track), TargetLanguage::English)
+            .unwrap();
+        assert_eq!(
+            service.finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+            Some("Could not remove translation")
         );
         assert_eq!(
             service.translation_cache.get(&request.cache_key()),
@@ -854,7 +1072,7 @@ mod tests {
         let request = request(&track, 21);
         let value = translated(&request, "old");
         let mut service = LyricsService::new(directory.path().into(), true);
-        service.translation_cache.insert(value.clone());
+        service.insert_cached_for_test(value.clone());
         service.save_cache_for_test().unwrap();
         let token = service.install_translation_completion(request.clone(), Ok(value));
         service
@@ -862,13 +1080,133 @@ mod tests {
             .unwrap();
         assert!(token.is_cancelled());
         assert!(service.translation_busy());
+        assert_eq!(
+            service.finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+            Some("Translation removed")
+        );
         assert!(!service.visible());
         assert_eq!(
             service.poll_translation(Some(&track), TargetLanguage::English),
-            Some("Lyrics or target changed; translation discarded")
+            None
         );
         let cache = translation::Cache::load(&directory.path().join("translations.json")).unwrap();
         assert!(cache.get(&request.cache_key()).is_none());
+    }
+
+    #[test]
+    fn accepted_translation_publishes_only_after_durable_ack_and_removal_drains_on_exit() {
+        let directory = tempfile::tempdir().unwrap();
+        let track = track(directory.path(), Lyrics::plain_text("original"));
+        let request = request(&track, 1);
+        let value = translated(&request, "saved");
+        let mut service = LyricsService::new(directory.path().into(), true);
+        service.set_translation_generation_for_test(1);
+        assert_eq!(
+            service.apply_translation_result(
+                request.clone(),
+                Ok(value),
+                Some(&track),
+                TargetLanguage::English
+            ),
+            None
+        );
+        assert!(service.translation_busy());
+        assert!(
+            service.translation_cache.is_empty(),
+            "unacknowledged data is not published"
+        );
+        service
+            .remove_translation(Some(&track), TargetLanguage::English)
+            .unwrap();
+        assert_eq!(
+            service.finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+            Some("Translation removed")
+        );
+        assert!(!service.visible());
+        assert!(service.translation_cache.is_empty());
+        assert!(
+            translation::Cache::load(&directory.path().join("translations.json"))
+                .unwrap()
+                .is_empty()
+        );
+
+        // Explicit local writes survive closing the app before the next UI poll.
+        service.set_translation_generation_for_test(1);
+        let value = translated(&request, "second");
+        service.apply_translation_result(
+            request.clone(),
+            Ok(value),
+            Some(&track),
+            TargetLanguage::English,
+        );
+        service
+            .remove_translation(Some(&track), TargetLanguage::English)
+            .unwrap();
+        drop(service);
+        assert!(
+            translation::Cache::load(&directory.path().join("translations.json"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn storage_completion_cannot_change_a_new_target_or_cancelled_notice() {
+        let directory = tempfile::tempdir().unwrap();
+        let track = track(directory.path(), Lyrics::plain_text("original"));
+        let request = request(&track, 1);
+        let mut service = LyricsService::new(directory.path().into(), true);
+        service.set_translation_generation_for_test(1);
+        service.apply_translation_result(
+            request.clone(),
+            Ok(translated(&request, "saved")),
+            Some(&track),
+            TargetLanguage::English,
+        );
+        service.change_target(TargetLanguage::English, TargetLanguage::Japanese);
+        assert_eq!(
+            service.finish_translation_writes_for_test(Some(&track), TargetLanguage::Japanese),
+            None
+        );
+        assert!(
+            service
+                .cached_translation(&track, TargetLanguage::Japanese)
+                .is_none()
+        );
+        service.apply_translation_result(
+            request.clone(),
+            Ok(translated(&request, "again")),
+            Some(&track),
+            TargetLanguage::English,
+        );
+        service.cancel_translation();
+        assert_eq!(
+            service.finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+            None
+        );
+    }
+
+    #[test]
+    fn disconnected_translation_worker_clears_admission_and_reports_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let track = track(directory.path(), Lyrics::plain_text("original"));
+        let mut service = LyricsService::new(directory.path().into(), false);
+        let (sender, receiver) = mpsc::channel();
+        service.translation_request = Some(receiver);
+        assert_eq!(
+            service.poll_translation(Some(&track), TargetLanguage::English),
+            None
+        );
+        drop(sender);
+        assert_eq!(
+            service.poll_translation(Some(&track), TargetLanguage::English),
+            Some("Translation failed; try again")
+        );
+        assert!(!service.translation_busy());
+        assert_eq!(
+            service.poll_translation(Some(&track), TargetLanguage::English),
+            None
+        );
     }
 
     #[test]

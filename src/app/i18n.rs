@@ -2098,6 +2098,12 @@ const CATALOG: &[(&str, &str, &str)] = &[
     ),
     ("Generating translation…", "正在生成译文…", "翻訳を生成中…"),
     ("Translation ready", "译文已就绪", "翻訳の準備ができました"),
+    ("Translation removed", "译文已移除", "翻訳を削除しました"),
+    (
+        "Could not remove translation",
+        "无法移除译文",
+        "翻訳を削除できませんでした",
+    ),
     (
         "Could not save translation cache",
         "无法保存译文缓存",

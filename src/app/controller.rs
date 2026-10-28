@@ -1833,10 +1833,7 @@ impl Controller {
             Command::Remove => {
                 self.cancel_online_lyrics();
                 self.state.notice = match self.remove_translation_for_current() {
-                    Ok(()) => {
-                        self.save_settings(ui);
-                        "Translation removed".into()
-                    }
+                    Ok(()) => "Saving…".into(),
                     Err(error) => error,
                 };
                 self.sync(ui);
@@ -1885,6 +1882,9 @@ impl Controller {
         ) {
             self.state.notice = notice.into();
             self.lyrics_dirty = true;
+            if notice == "Translation removed" {
+                self.save_settings(ui);
+            }
             self.sync(ui);
         }
     }
@@ -1895,12 +1895,14 @@ impl Controller {
         request: crate::translation::Request,
         result: Result<crate::translation::Translation, crate::translation::Error>,
     ) -> &'static str {
-        self.lyrics.apply_translation_result(
-            request,
-            result,
-            self.state.current.and_then(|id| self.state.tracks.get(id)),
-            self.settings.translation_target,
-        )
+        let current = self.state.current.and_then(|id| self.state.tracks.get(id));
+        self.lyrics
+            .apply_translation_result(request, result, current, self.settings.translation_target)
+            .or_else(|| {
+                self.lyrics
+                    .finish_translation_writes_for_test(current, self.settings.translation_target)
+            })
+            .expect("translation fixture completion")
     }
 
     fn set_translation_target(
@@ -1928,8 +1930,6 @@ impl Controller {
             self.state.current.and_then(|id| self.state.tracks.get(id)),
             self.settings.translation_target,
         )?;
-        self.settings.translation_visible = false;
-        self.lyrics_dirty = true;
         Ok(())
     }
 
@@ -3178,6 +3178,12 @@ mod ai_controller_tests {
             .install_translation_completion(request.clone(), Ok(translation.clone()));
 
         controller.remove_translation_for_current().unwrap();
+        assert_eq!(
+            controller
+                .lyrics
+                .finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+            Some("Translation removed")
+        );
         assert!(token.is_cancelled());
         assert!(!controller.lyrics.cached_for_test(&request).is_some());
         let _ = controller
@@ -3261,7 +3267,13 @@ mod ai_controller_tests {
         let value = fixture_translation(&request, serde_json::json!({"translations":["hola"]}));
         controller.lyrics.insert_cached_for_test(value);
         std::fs::create_dir(dir.path().join("translations.json")).unwrap();
-        assert!(controller.remove_translation_for_current().is_err());
+        controller.remove_translation_for_current().unwrap();
+        assert_eq!(
+            controller
+                .lyrics
+                .finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+            Some("Could not remove translation")
+        );
         assert!(controller.lyrics.cached_for_test(&request).is_some());
     }
 
