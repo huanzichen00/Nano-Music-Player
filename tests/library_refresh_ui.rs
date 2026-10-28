@@ -3,14 +3,14 @@ use nano_music_player::{
         action::Action,
         config::Settings,
         controller::{Controller, connect},
-        navigation::Screen,
+        navigation::{Filter, Screen},
         state::Target,
     },
     audio::PlaybackStatus,
-    library::{database::Database, scanner},
+    library::{database::Database, playlists, scanner},
     ui::AppWindow,
 };
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use std::{
     cell::RefCell,
     fs,
@@ -146,5 +146,77 @@ fn startup_discovers_new_files_and_explicit_refresh_uses_menu_and_settings_witho
         "unavailable volume preserves cache"
     );
     assert_eq!(controller.borrow().state.current, Some(active));
-    fs::rename(disconnected, root).unwrap();
+    fs::rename(disconnected, &root).unwrap();
+
+    // An open editor must see newly imported/refreshed songs without losing
+    // its name, selected songs or stable playlist identity.
+    let playlist = playlists::create(&database, "Before refresh", &[first.clone()]).unwrap();
+    {
+        let mut c = controller.borrow_mut();
+        c.state.playlists.push(playlist.clone());
+        c.state.navigation.open(Screen::Songs(Filter::Playlist {
+            id: playlist.id,
+            name: playlist.name,
+        }));
+        c.execute(&ui, Action::EditPlaylist);
+    }
+    ui.set_playlist_name("Renamed while adding songs".into());
+    ui.invoke_playlist_action("toggle".into(), third.to_string_lossy().into_owned().into());
+    let fourth = root.join("fourth.wav");
+    copy_audio(&fourth);
+    ui.invoke_command("refresh_library".into());
+    settle(&ui, &controller);
+    assert!(
+        ui.get_playlist_candidates()
+            .iter()
+            .any(|song| song.id == fourth.to_string_lossy())
+    );
+    assert_eq!(ui.get_playlist_name(), "Renamed while adding songs");
+    assert_eq!(ui.get_playlist_draft().row_count(), 2);
+    ui.invoke_playlist_action(
+        "toggle".into(),
+        fourth.to_string_lossy().into_owned().into(),
+    );
+
+    fs::remove_file(&third).unwrap();
+    ui.invoke_command("refresh_library".into());
+    settle(&ui, &controller);
+    assert!(
+        !ui.get_playlist_candidates()
+            .iter()
+            .any(|song| song.id == third.to_string_lossy())
+    );
+    assert_eq!(
+        ui.get_playlist_draft().row_data(1).unwrap().artist,
+        "Unavailable song"
+    );
+    ui.invoke_playlist_action("remove".into(), third.to_string_lossy().into_owned().into());
+
+    // Library updates while Home hides the draft must be visible on resume too.
+    controller.borrow_mut().execute(&ui, Action::Home);
+    let fifth = root.join("fifth.wav");
+    copy_audio(&fifth);
+    ui.invoke_command("refresh_library".into());
+    settle(&ui, &controller);
+    controller.borrow_mut().execute(&ui, Action::NewPlaylist);
+    assert!(
+        ui.get_playlist_candidates()
+            .iter()
+            .any(|song| song.id == fifth.to_string_lossy())
+    );
+    assert_eq!(ui.get_playlist_name(), "Renamed while adding songs");
+    assert!(ui.get_playlist_editing());
+    ui.invoke_playlist_action("toggle".into(), fifth.to_string_lossy().into_owned().into());
+    ui.invoke_playlist_action("create".into(), "".into());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while ui.get_playlist_saving() {
+        controller.borrow_mut().poll(&ui);
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let saved = playlists::load(&database).unwrap();
+    assert_eq!(saved.len(), 1);
+    assert_eq!(saved[0].id, playlist.id);
+    assert_eq!(saved[0].name, "Renamed while adding songs");
+    assert_eq!(saved[0].tracks, [first, fourth, fifth]);
 }

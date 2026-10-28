@@ -29,11 +29,15 @@ impl Controller {
                     self.artwork.clear();
                     self.last_track = None;
                     self.rows_dirty = true;
+                    self.playlist_candidates_dirty = true;
                 }
                 LibraryLoadEvent::Refreshed { original, prepared } => {
                     let Prepared { value, previews } = *prepared;
                     let artwork_changed = value.artwork != original.artwork;
+                    let playlist_metadata_changed =
+                        value.title != original.title || value.artist != original.artist;
                     if self.state.refresh_cached_track(&original, value) {
+                        self.playlist_candidates_dirty |= playlist_metadata_changed;
                         self.statistics.invalidate();
                         self.media_marker = None;
                         self.lyrics_dirty = true;
@@ -81,6 +85,7 @@ impl Controller {
                     }
                     let _ = self.settings.save(&self.directory.join("settings.json"));
                     self.state.merge_library(result.tracks);
+                    self.playlist_candidates_dirty = true;
 
                     self.update_smart_playlist_library();
                     self.lyrics_dirty = true;
@@ -196,6 +201,7 @@ impl Controller {
             self.lyrics_dirty = true;
             self.media_marker = None;
             self.rows_dirty = true;
+            self.playlist_candidates_dirty = true;
         }
         let count = self
             .state
@@ -225,6 +231,7 @@ impl Controller {
             return;
         };
         self.state.mark_track_available(path, false);
+        self.playlist_candidates_dirty = true;
         self.cancel_gapless_prefetch();
         if self.state.current == Some(id) {
             if !self.state.video_active && self.state.podcasts.active.is_none() {

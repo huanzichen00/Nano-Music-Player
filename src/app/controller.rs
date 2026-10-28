@@ -98,6 +98,7 @@ pub struct Controller {
     library_tasks: LibraryTasks,
     playlists: PlaylistsService,
     playlist_candidates: Vec<PlaylistCandidate>,
+    playlist_candidates_dirty: bool,
     lyrics_edit: Option<Receiver<Result<Option<scanner::LyricsUpdate>, String>>>,
     lyrics: LyricsService,
     genius: GeniusService,
@@ -226,6 +227,7 @@ impl Controller {
             library_tasks,
             playlists: PlaylistsService::new(receiver),
             playlist_candidates: Vec::new(),
+            playlist_candidates_dirty: true,
             lyrics_edit: None,
             lyrics,
             genius: GeniusService::default(),
@@ -1399,6 +1401,7 @@ impl Controller {
                 selected: false,
             })
             .collect();
+        self.playlist_candidates_dirty = false;
     }
 
     fn open_playlist_draft(&mut self, ui: &AppWindow, id: Option<i64>) {
@@ -1413,6 +1416,8 @@ impl Controller {
         }
         self.prepare_portrait_dialog(ui);
         if self.playlists.resume(id) {
+            self.refresh_playlist_candidates();
+            self.sync_playlist_draft(ui);
             ui.set_playlist_editor_open(true);
             ui.invoke_focus_screen();
             return;
@@ -1585,7 +1590,7 @@ impl Controller {
             ui.set_playlist_library_loading(
                 self.state.tracks.is_empty() && !self.library_tasks.ready(),
             );
-            if self.playlists.candidates().is_empty() && !self.state.tracks.is_empty() {
+            if self.playlist_candidates_dirty {
                 self.refresh_playlist_candidates();
                 self.sync_playlist_draft(ui);
             }
