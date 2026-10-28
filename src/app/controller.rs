@@ -1974,32 +1974,45 @@ impl Controller {
     }
 
     fn poll_genius(&mut self, ui: &AppWindow) {
-        let Some(result) = self.genius.poll(&self.state.tracks) else {
-            return;
-        };
-        ui.set_genius_busy(false);
-        let message = match result {
-            Ok(sparse) => {
-                let rows = self
-                    .genius
-                    .entries()
-                    .iter()
-                    .map(|entry| crate::ui::GeniusRow {
-                        title: entry.title.as_str().into(),
-                        artist: entry.artist.as_str().into(),
-                        path: entry.path.to_string_lossy().into_owned().into(),
-                    })
-                    .collect::<Vec<_>>();
-                ui.set_genius_songs(ModelRc::new(VecModel::from(rows)));
-                if sparse {
-                    "Short local playlist"
-                } else {
-                    "Genius playlist ready"
+        if let Some(result) = self.genius.poll(&self.state.tracks) {
+            let message = match result {
+                Ok(sparse) => {
+                    let rows = self
+                        .genius
+                        .entries()
+                        .iter()
+                        .map(|entry| crate::ui::GeniusRow {
+                            title: entry.title.as_str().into(),
+                            artist: entry.artist.as_str().into(),
+                            path: entry.path.to_string_lossy().into_owned().into(),
+                        })
+                        .collect::<Vec<_>>();
+                    ui.set_genius_songs(ModelRc::new(VecModel::from(rows)));
+                    if sparse {
+                        "Short local playlist"
+                    } else {
+                        "Genius playlist ready"
+                    }
                 }
+                Err(message) => message,
+            };
+            ui.set_genius_message(self.text(message));
+        }
+        if let Some(saved) = self.genius.poll_save() {
+            let success = saved.result.is_ok();
+            if let Ok(playlist) = saved.result {
+                self.state.playlists.push(playlist);
+                self.rows_dirty = true;
             }
-            Err(message) => message,
-        };
-        ui.set_genius_message(self.text(message));
+            if saved.current_preview && ui.get_genius_preview_open() {
+                ui.set_genius_message(self.text(if success {
+                    "Genius playlist saved"
+                } else {
+                    "Could not save Genius playlist; retry"
+                }));
+            }
+        }
+        ui.set_genius_busy(self.genius.is_busy());
     }
 
     #[cfg(test)]
@@ -2056,9 +2069,11 @@ impl Controller {
             }
             "save" => {
                 match self.save_genius_playlist() {
-                    Ok(()) => {
-                        ui.set_genius_message(self.text("Genius playlist saved"));
+                    Ok(true) => {
+                        ui.set_genius_busy(true);
+                        ui.set_genius_message(self.text("Saving…"));
                     }
+                    Ok(false) => {}
                     Err(_) => {
                         ui.set_genius_message(self.text("Could not save Genius playlist; retry"))
                     }
@@ -2099,11 +2114,25 @@ impl Controller {
         (start, keep, position)
     }
 
-    fn save_genius_playlist(&mut self) -> Result<(), String> {
-        let (name, paths) = self.genius.playlist_snapshot(&self.state.tracks)?;
-        let playlist = playlists::create(&self.directory.join("library.sqlite3"), &name, &paths)?;
-        self.state.playlists.push(playlist);
-        Ok(())
+    fn save_genius_playlist(&mut self) -> Result<bool, String> {
+        self.genius
+            .save_playlist(&self.directory.join("library.sqlite3"), &self.state.tracks)
+    }
+
+    #[cfg(test)]
+    fn finish_genius_save_for_test(&mut self) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            if let Some(saved) = self.genius.poll_save() {
+                self.state.playlists.push(saved.result?);
+                return Ok(());
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "Genius save timed out"
+            );
+            std::thread::yield_now();
+        }
     }
 
     pub fn deepseek_command(&mut self, ui: &AppWindow, command: &str) {
@@ -3335,12 +3364,14 @@ mod ai_controller_tests {
         assert_eq!(controller.state.position, 37.25);
         assert!(!controller.state.paused);
         assert_eq!(controller.state.status, PlaybackStatus::Playing);
-        controller.save_genius_playlist().unwrap();
+        assert!(controller.save_genius_playlist().unwrap());
+        controller.finish_genius_save_for_test().unwrap();
         assert_eq!(
             playlists::load(&dir.path().join("library.sqlite3")).unwrap()[0].tracks,
             [seed.clone(), next.clone()]
         );
-        assert!(controller.save_genius_playlist().is_err());
+        assert!(controller.save_genius_playlist().unwrap());
+        assert!(controller.finish_genius_save_for_test().is_err());
         assert_eq!(
             playlists::load(&dir.path().join("library.sqlite3"))
                 .unwrap()

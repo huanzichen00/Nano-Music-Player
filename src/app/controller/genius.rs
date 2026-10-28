@@ -5,13 +5,19 @@ use crate::{
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    sync::mpsc::Receiver,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    thread::JoinHandle,
 };
 
 // A cancelled blocking provider still owns its permit until it actually exits.
 static WORKERS: RequestGate = RequestGate::new(1);
 
 type Completion = (Request, Result<ResultSet, Error>);
+
+pub(super) struct SavedPreview {
+    pub result: Result<crate::library::playlists::Playlist, String>,
+    pub current_preview: bool,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PreviewEntry {
@@ -28,14 +34,19 @@ pub(super) struct GeniusService {
     entries: Vec<PreviewEntry>,
     variation: u64,
     cancellation: Option<Cancellation>,
+    saving: Option<Receiver<Result<crate::library::playlists::Playlist, String>>>,
+    writer: Option<JoinHandle<()>>,
+    preview_revision: u64,
+    saving_revision: u64,
 }
 
 impl GeniusService {
     pub(super) fn is_busy(&self) -> bool {
-        self.request.is_some()
+        self.request.is_some() || self.saving.is_some()
     }
 
     pub(super) fn set_seed(&mut self, seed: PathBuf) {
+        self.preview_revision = self.preview_revision.wrapping_add(1);
         self.seed = Some(seed);
         self.entries.clear();
     }
@@ -45,6 +56,7 @@ impl GeniusService {
         current: Option<&Track>,
         refresh: bool,
     ) -> Option<PathBuf> {
+        self.preview_revision = self.preview_revision.wrapping_add(1);
         if self.seed.is_none() {
             self.seed = current.map(|track| track.path.clone());
         }
@@ -145,7 +157,15 @@ impl GeniusService {
     }
 
     pub(super) fn poll(&mut self, tracks: &[Track]) -> Option<Result<bool, &'static str>> {
-        let (request, result) = self.request.as_ref()?.try_recv().ok()?;
+        let (request, result) = match self.request.as_ref()?.try_recv() {
+            Ok(completion) => completion,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                self.request = None;
+                self.cancellation = None;
+                return Some(Err("Genius failed; retry is available"));
+            }
+        };
         self.request = None;
         self.cancellation = None;
         Some(self.apply_result(&request, result, tracks))
@@ -211,6 +231,7 @@ impl GeniusService {
     }
 
     pub(super) fn close(&mut self) {
+        self.preview_revision = self.preview_revision.wrapping_add(1);
         if let Some(cancellation) = self.cancellation.take() {
             cancellation.cancel();
         }
@@ -255,6 +276,58 @@ impl GeniusService {
         Ok((name, paths))
     }
 
+    /// Capture the explicit save intent; the worker never reads mutable UI state.
+    pub(super) fn save_playlist(
+        &mut self,
+        database: &Path,
+        tracks: &[Track],
+    ) -> Result<bool, String> {
+        if self.is_busy() {
+            return Ok(false);
+        }
+        let (name, paths) = self.playlist_snapshot(tracks)?;
+        let database = database.to_owned();
+        self.spawn_save(move || {
+            if paths.iter().any(|path| !path.is_file()) {
+                return Err("Some selected songs are unavailable".into());
+            }
+            crate::library::playlists::create(&database, &name, &paths)
+        });
+        Ok(true)
+    }
+
+    fn spawn_save(
+        &mut self,
+        save: impl FnOnce() -> Result<crate::library::playlists::Playlist, String> + Send + 'static,
+    ) {
+        let (sender, receiver) = mpsc::channel();
+        self.saving_revision = self.preview_revision;
+        self.writer = Some(std::thread::spawn(move || {
+            let _ = sender.send(save());
+        }));
+        self.saving = Some(receiver);
+    }
+
+    pub(super) fn poll_save(&mut self) -> Option<SavedPreview> {
+        let result = match self.saving.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("Could not save Genius playlist; retry".into()),
+        };
+        self.saving = None;
+        self.finish_save();
+        Some(SavedPreview {
+            result,
+            current_preview: self.saving_revision == self.preview_revision,
+        })
+    }
+
+    fn finish_save(&mut self) {
+        if let Some(worker) = self.writer.take() {
+            let _ = worker.join();
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn variation(&self) -> u64 {
         self.variation
@@ -270,6 +343,8 @@ impl GeniusService {
 impl Drop for GeniusService {
     fn drop(&mut self) {
         self.close();
+        // A user-confirmed local save drains even if its preview has been closed.
+        self.finish_save();
     }
 }
 
@@ -429,6 +504,102 @@ mod tests {
             service.playlist_snapshot(&tracks).unwrap().1,
             [tracks[0].path.clone()]
         );
+    }
+
+    fn saved(service: &mut GeniusService) -> SavedPreview {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(result) = service.poll_save() {
+                return result;
+            }
+            assert!(Instant::now() < deadline, "Genius save timed out");
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn playlist_save_is_nonblocking_keeps_frozen_order_and_ignores_closed_preview() {
+        let directory = tempfile::tempdir().unwrap();
+        let tracks = tracks(directory.path());
+        let database = directory.path().join("library.sqlite3");
+        crate::library::playlists::load(&database).unwrap();
+        let lock = rusqlite::Connection::open(&database).unwrap();
+        lock.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut service = GeniusService::default();
+        service.set_preview(
+            tracks[0].path.clone(),
+            [0, 2, 1]
+                .into_iter()
+                .map(|id| PreviewEntry::from(&tracks[id]))
+                .collect(),
+        );
+        assert!(service.save_playlist(&database, &tracks).unwrap());
+        assert!(service.is_busy());
+        assert!(!service.save_playlist(&database, &tracks).unwrap());
+        assert!(
+            service.poll_save().is_none(),
+            "SQLite is still locked; submission must not wait for it"
+        );
+        service.close();
+        lock.execute_batch("COMMIT").unwrap();
+        let result = saved(&mut service);
+        assert!(!result.current_preview);
+        assert_eq!(
+            result.result.unwrap().tracks,
+            [
+                tracks[0].path.clone(),
+                tracks[2].path.clone(),
+                tracks[1].path.clone()
+            ]
+        );
+        assert!(!service.is_busy());
+        assert_eq!(crate::library::playlists::load(&database).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn playlist_errors_preserve_preview_allow_retry_and_shutdown_drains_explicit_save() {
+        let directory = tempfile::tempdir().unwrap();
+        let tracks = tracks(directory.path());
+        let database = directory.path().join("library.sqlite3");
+        let mut service = GeniusService::default();
+        service.set_preview(
+            tracks[0].path.clone(),
+            tracks.iter().map(PreviewEntry::from).collect(),
+        );
+        let (sender, receiver) = mpsc::channel();
+        service.saving = Some(receiver);
+        drop(sender);
+        assert!(saved(&mut service).result.is_err());
+        assert!(!service.is_busy());
+        assert_eq!(service.entries().len(), 3);
+        assert!(service.save_playlist(&database, &tracks).unwrap());
+        drop(service);
+        let persisted = crate::library::playlists::load(&database).unwrap();
+        assert_eq!(persisted.len(), 1);
+        assert_eq!(
+            persisted[0].tracks,
+            tracks
+                .iter()
+                .map(|track| track.path.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn disconnected_provider_reports_once_and_releases_admission() {
+        let directory = tempfile::tempdir().unwrap();
+        let tracks = tracks(directory.path());
+        let mut service = GeniusService::default();
+        let (sender, receiver) = mpsc::channel();
+        service.request = Some(receiver);
+        assert!(service.poll(&tracks).is_none());
+        drop(sender);
+        assert_eq!(
+            service.poll(&tracks),
+            Some(Err("Genius failed; retry is available"))
+        );
+        assert!(!service.is_busy());
+        assert!(service.poll(&tracks).is_none());
     }
 
     #[test]
