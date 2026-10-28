@@ -89,7 +89,7 @@ enum WorkerEvent {
     Error(String),
 }
 
-pub(super) enum Event {
+pub(crate) enum Event {
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     Statistics {
         range: StatisticsRange,
@@ -109,7 +109,7 @@ pub(super) enum Event {
     Unavailable(String),
 }
 
-pub(super) struct StatisticsService {
+pub(crate) struct StatisticsService {
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
     queries: Queries,
     commands: Sender<Command>,
@@ -120,7 +120,7 @@ pub(super) struct StatisticsService {
 }
 
 impl StatisticsService {
-    pub(super) fn new(database: PathBuf) -> Self {
+    pub(crate) fn new(database: PathBuf) -> Self {
         let (commands, receiver) = mpsc::channel();
         let (events, event_receiver) = mpsc::channel();
         let worker = thread::spawn(move || run_worker(database, receiver, events));
@@ -136,14 +136,14 @@ impl StatisticsService {
     }
 
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
-    pub(super) fn needs_query(&self, range: StatisticsRange) -> bool {
+    pub(crate) fn needs_query(&self, range: StatisticsRange) -> bool {
         self.queries.attempted != Some(self.queries.key(range))
     }
 
     /// Cache by library/play revision and local date/offset. An attempted failure
     /// stays idle until navigation or explicit Refresh, avoiding poll-loop retries.
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
-    pub(super) fn query(
+    pub(crate) fn query(
         &mut self,
         range: StatisticsRange,
         tracks: Vec<StatisticsTrack>,
@@ -188,19 +188,19 @@ impl StatisticsService {
     }
 
     #[cfg(not(any(target_os = "ios", feature = "mobile")))]
-    pub(super) fn invalidate(&self) {
+    pub(crate) fn invalidate(&self) {
         self.queries
             .revision
             .set(self.queries.revision.get().wrapping_add(1));
     }
 
-    pub(super) fn set_library(&self, paths: Vec<PathBuf>) {
+    pub(crate) fn set_library(&self, paths: Vec<PathBuf>) {
         #[cfg(not(any(target_os = "ios", feature = "mobile")))]
         self.invalidate();
         let _ = self.commands.send(Command::Library(paths));
     }
 
-    pub(super) fn record_play(&self, play: QualifiedPlay) {
+    pub(crate) fn record_play(&self, play: QualifiedPlay) {
         #[cfg(not(any(target_os = "ios", feature = "mobile")))]
         self.invalidate();
         let _ = self.commands.send(Command::Played {
@@ -212,7 +212,7 @@ impl StatisticsService {
 
     /// Queue an optimistic edit, returning the rollback value if the worker is
     /// unavailable. During a burst, the fallback remains the last confirmed edit.
-    pub(super) fn rate(&mut self, path: &Path, stars: u8, old: u8) -> Result<(), u8> {
+    pub(crate) fn rate(&mut self, path: &Path, stars: u8, old: u8) -> Result<(), u8> {
         self.rating_request = self.rating_request.wrapping_add(1);
         let previous = self
             .pending_ratings
@@ -240,7 +240,7 @@ impl StatisticsService {
     /// Consume acknowledgements internally and expose only UI-relevant changes.
     /// Pending paths overlay snapshots only while they remain in the controller's
     /// projection; a refresh may already have removed a path there.
-    pub(super) fn poll(&mut self, current_ratings: &HashMap<PathBuf, u8>) -> Option<Event> {
+    pub(crate) fn poll(&mut self, current_ratings: &HashMap<PathBuf, u8>) -> Option<Event> {
         while let Ok(event) = self.events.try_recv() {
             match event {
                 #[cfg(not(any(target_os = "ios", feature = "mobile")))]
@@ -315,7 +315,7 @@ impl StatisticsService {
 
     /// FIFO shutdown drains queued ratings and listening records before joining.
     /// The controller calls this before joining its playlist persistence worker.
-    pub(super) fn shutdown(&mut self) {
+    pub(crate) fn shutdown(&mut self) {
         if let Some(worker) = self.worker.take() {
             let _ = self.commands.send(Command::Shutdown);
             let _ = worker.join();

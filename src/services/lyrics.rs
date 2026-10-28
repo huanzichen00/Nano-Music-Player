@@ -22,7 +22,7 @@ type TranslationResult = (
 );
 type LookupResult = (online_lyrics::Request, Result<online_lyrics::Found, String>);
 
-pub(super) enum LookupEvent {
+pub(crate) enum LookupEvent {
     /// Accepted source lyrics still need durable storage before UI publication.
     Found {
         request: online_lyrics::Request,
@@ -34,7 +34,7 @@ pub(super) enum LookupEvent {
     },
 }
 
-pub(super) enum RomajiEvent {
+pub(crate) enum RomajiEvent {
     Loaded(HashMap<PathBuf, romaji::Romaji>),
     StorageFailed(String),
     Progress {
@@ -51,7 +51,7 @@ pub(super) enum RomajiEvent {
     },
 }
 
-pub(super) struct RomajiRemoval {
+pub(crate) struct RomajiRemoval {
     pub cancelled: bool,
     pub result: Result<(), String>,
 }
@@ -128,7 +128,7 @@ struct PendingCacheWrite {
     ui_generation: u64,
 }
 
-pub(super) struct LyricsService {
+pub(crate) struct LyricsService {
     directory: PathBuf,
     romaji_request: Option<romaji::Request>,
     romaji_store: romaji::Store,
@@ -154,7 +154,7 @@ pub(super) struct LyricsService {
 }
 
 impl LyricsService {
-    pub(super) fn new(directory: PathBuf, visible: bool) -> Self {
+    pub(crate) fn new(directory: PathBuf, visible: bool) -> Self {
         Self {
             romaji_store: romaji::Store::new(directory.join("library.sqlite3")),
             translation_cache: Arc::new(
@@ -182,23 +182,23 @@ impl LyricsService {
         }
     }
 
-    pub(super) fn visible(&self) -> bool {
+    pub(crate) fn visible(&self) -> bool {
         self.translation_visible
     }
 
-    pub(super) fn set_visible(&mut self, visible: bool) {
+    pub(crate) fn set_visible(&mut self, visible: bool) {
         self.translation_ui_generation = self.translation_ui_generation.wrapping_add(1);
         self.translation_visible = visible;
     }
 
-    pub(super) fn toggle_visible(&mut self) {
+    pub(crate) fn toggle_visible(&mut self) {
         self.set_visible(!self.translation_visible);
         if !self.translation_visible {
             self.translation_shortcut_track = None;
         }
     }
 
-    pub(super) fn shortcut_should_translate(
+    pub(crate) fn shortcut_should_translate(
         &self,
         current: Option<&Track>,
         target: TargetLanguage,
@@ -213,29 +213,29 @@ impl LyricsService {
         !self.translation_visible || inherited_missing_translation
     }
 
-    pub(super) fn mark_shortcut(&mut self, current: Option<&Track>) {
+    pub(crate) fn mark_shortcut(&mut self, current: Option<&Track>) {
         self.translation_shortcut_track = current.map(|track| track.path.clone());
     }
 
-    pub(super) fn translation_busy(&self) -> bool {
+    pub(crate) fn translation_busy(&self) -> bool {
         self.translation_request.is_some() || !self.translation_writes.is_empty()
     }
 
     /// Durable cache changes invalidate presentation even when a stale operation
     /// must stay silent and preserve a newer notice or display preference.
-    pub(super) fn translation_cache_revision(&self) -> u64 {
+    pub(crate) fn translation_cache_revision(&self) -> u64 {
         self.translation_cache_revision
     }
 
-    pub(super) fn lookup_busy(&self) -> bool {
+    pub(crate) fn lookup_busy(&self) -> bool {
         self.online_lyrics_request.is_some()
     }
 
-    pub(super) fn lookup_path(&self) -> Option<&Path> {
+    pub(crate) fn lookup_path(&self) -> Option<&Path> {
         self.online_lyrics_path.as_deref()
     }
 
-    pub(super) fn source(track: &Track) -> Vec<translation::SourceLine> {
+    pub(crate) fn source(track: &Track) -> Vec<translation::SourceLine> {
         if track.lyrics.timed.is_empty() {
             track
                 .lyrics
@@ -276,7 +276,7 @@ impl LyricsService {
         }
     }
 
-    pub(super) fn cached_translation(
+    pub(crate) fn cached_translation(
         &self,
         track: &Track,
         target: TargetLanguage,
@@ -286,7 +286,7 @@ impl LyricsService {
     }
 
     /// The controller routes an empty source through online lookup first.
-    pub(super) fn start_translation(
+    pub(crate) fn start_translation(
         &mut self,
         track: Option<&Track>,
         target: TargetLanguage,
@@ -329,7 +329,7 @@ impl LyricsService {
         Ok(())
     }
 
-    pub(super) fn poll_translation(
+    pub(crate) fn poll_translation(
         &mut self,
         current: Option<&Track>,
         target: TargetLanguage,
@@ -366,7 +366,7 @@ impl LyricsService {
         }
     }
 
-    pub(super) fn apply_translation_result(
+    pub(crate) fn apply_translation_result(
         &mut self,
         request: translation::Request,
         result: Result<translation::Translation, translation::Error>,
@@ -495,7 +495,7 @@ impl LyricsService {
         None
     }
 
-    pub(super) fn cancel_translation(&mut self) {
+    pub(crate) fn cancel_translation(&mut self) {
         if let Some(token) = self.translation_cancel.as_ref() {
             token.cancel();
         }
@@ -503,7 +503,7 @@ impl LyricsService {
         self.translation_ui_generation = self.translation_ui_generation.wrapping_add(1);
     }
 
-    pub(super) fn change_target(
+    pub(crate) fn change_target(
         &mut self,
         previous: TargetLanguage,
         target: TargetLanguage,
@@ -520,7 +520,7 @@ impl LyricsService {
         path
     }
 
-    pub(super) fn remove_translation(
+    pub(crate) fn remove_translation(
         &mut self,
         current: Option<&Track>,
         target: TargetLanguage,
@@ -544,7 +544,7 @@ impl LyricsService {
     }
 
     /// External lyric-edit/import admission remains the controller's decision.
-    pub(super) fn start_lookup(
+    pub(crate) fn start_lookup(
         &mut self,
         track: Option<&Track>,
         translate_after: bool,
@@ -594,7 +594,7 @@ impl LyricsService {
         Ok(path)
     }
 
-    pub(super) fn cancel_lookup(&mut self) -> Option<PathBuf> {
+    pub(crate) fn cancel_lookup(&mut self) -> Option<PathBuf> {
         if let Some(token) = self.online_lyrics_cancel.as_ref() {
             token.cancel();
         }
@@ -604,7 +604,7 @@ impl LyricsService {
         self.online_lyrics_path.clone()
     }
 
-    pub(super) fn accepts_lookup(
+    pub(crate) fn accepts_lookup(
         &self,
         request: &online_lyrics::Request,
         tracks: &[Track],
@@ -623,7 +623,7 @@ impl LyricsService {
                 || current.is_some_and(|track| track.path == request.path))
     }
 
-    pub(super) fn poll_lookup(
+    pub(crate) fn poll_lookup(
         &mut self,
         tracks: &[Track],
         unavailable: &BTreeSet<PathBuf>,
@@ -670,7 +670,7 @@ impl LyricsService {
     }
 
     /// Called only when the controller's lyric storage/edit receiver completes.
-    pub(super) fn take_storage_context(&mut self) -> (Option<PathBuf>, Option<PathBuf>) {
+    pub(crate) fn take_storage_context(&mut self) -> (Option<PathBuf>, Option<PathBuf>) {
         let online_path = if self.lookup_busy() {
             None
         } else {
@@ -679,7 +679,7 @@ impl LyricsService {
         (online_path, self.translation_after_lookup.take())
     }
 
-    pub(super) fn start_romaji(&mut self, track: Option<&Track>) -> Result<PathBuf, String> {
+    pub(crate) fn start_romaji(&mut self, track: Option<&Track>) -> Result<PathBuf, String> {
         if self.romaji_request.is_some() {
             return Err("Romaji generation is already running".into());
         }
@@ -697,11 +697,11 @@ impl LyricsService {
         Ok(path)
     }
 
-    pub(super) fn cancel_romaji(&mut self) -> bool {
+    pub(crate) fn cancel_romaji(&mut self) -> bool {
         self.romaji_request.take().is_some()
     }
 
-    pub(super) fn remove_romaji(&mut self, path: PathBuf) -> RomajiRemoval {
+    pub(crate) fn remove_romaji(&mut self, path: PathBuf) -> RomajiRemoval {
         let cancelled = self
             .romaji_request
             .as_ref()
@@ -714,7 +714,7 @@ impl LyricsService {
         }
     }
 
-    pub(super) fn poll_romaji(&mut self, tracks: &[Track]) -> Vec<RomajiEvent> {
+    pub(crate) fn poll_romaji(&mut self, tracks: &[Track]) -> Vec<RomajiEvent> {
         let mut events = Vec::new();
         while let Ok(event) = self.romaji_store.events.try_recv() {
             match event {
@@ -789,22 +789,22 @@ impl Drop for LyricsService {
 // mutable worker channels, tokens, or cache ownership to production callers.
 #[cfg(test)]
 impl LyricsService {
-    pub(super) fn insert_cached_for_test(&mut self, value: translation::Translation) {
+    pub(crate) fn insert_cached_for_test(&mut self, value: translation::Translation) {
         Arc::make_mut(&mut self.translation_cache).insert(value);
     }
 
-    pub(super) fn cached_for_test(
+    pub(crate) fn cached_for_test(
         &self,
         request: &translation::Request,
     ) -> Option<&translation::Translation> {
         self.translation_cache.get(&request.cache_key())
     }
 
-    pub(super) fn cache_is_empty_for_test(&self) -> bool {
+    pub(crate) fn cache_is_empty_for_test(&self) -> bool {
         self.translation_cache.is_empty()
     }
 
-    pub(super) fn finish_translation_writes_for_test(
+    pub(crate) fn finish_translation_writes_for_test(
         &mut self,
         current: Option<&Track>,
         target: TargetLanguage,
@@ -824,24 +824,24 @@ impl LyricsService {
         notice
     }
 
-    pub(super) fn save_cache_for_test(&self) -> Result<(), translation::Error> {
+    pub(crate) fn save_cache_for_test(&self) -> Result<(), translation::Error> {
         self.translation_cache
             .save(&self.directory.join("translations.json"))
     }
 
-    pub(super) fn active_translation_for_test(&self) -> Option<&translation::Request> {
+    pub(crate) fn active_translation_for_test(&self) -> Option<&translation::Request> {
         self.translation_active_request.as_ref()
     }
 
-    pub(super) fn translation_generation_for_test(&self) -> u64 {
+    pub(crate) fn translation_generation_for_test(&self) -> u64 {
         self.translation_request_id
     }
 
-    pub(super) fn set_translation_generation_for_test(&mut self, generation: u64) {
+    pub(crate) fn set_translation_generation_for_test(&mut self, generation: u64) {
         self.translation_request_id = generation;
     }
 
-    pub(super) fn install_translation_completion(
+    pub(crate) fn install_translation_completion(
         &mut self,
         request: translation::Request,
         result: Result<translation::Translation, translation::Error>,
@@ -856,11 +856,11 @@ impl LyricsService {
         cancellation
     }
 
-    pub(super) fn take_translation_completion_for_test(&mut self) -> Option<TranslationResult> {
+    pub(crate) fn take_translation_completion_for_test(&mut self) -> Option<TranslationResult> {
         self.translation_request.take()?.try_recv().ok()
     }
 
-    pub(super) fn install_lookup_completion(
+    pub(crate) fn install_lookup_completion(
         &mut self,
         request: online_lyrics::Request,
         result: Result<online_lyrics::Found, String>,
@@ -873,7 +873,7 @@ impl LyricsService {
         self.online_lyrics_cancel = Some(cancellation);
     }
 
-    pub(super) fn set_lookup_continuation_for_test(&mut self, path: Option<PathBuf>) {
+    pub(crate) fn set_lookup_continuation_for_test(&mut self, path: Option<PathBuf>) {
         self.translation_after_lookup = path;
     }
 }

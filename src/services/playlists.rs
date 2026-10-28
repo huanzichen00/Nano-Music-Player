@@ -10,19 +10,19 @@ use std::{
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Candidate {
+pub(crate) struct Candidate {
     pub path: PathBuf,
     pub title: String,
     pub artist: String,
 }
 
-pub(super) struct SavedPlaylist {
+pub(crate) struct SavedPlaylist {
     pub playlist: Playlist,
     pub editing: bool,
 }
 
 /// Owns a recoverable editing draft and its background persistence work.
-pub(super) struct PlaylistsService {
+pub(crate) struct PlaylistsService {
     loading: Option<Receiver<Result<Vec<Playlist>, String>>>,
     saving: Option<Receiver<Result<Playlist, String>>>,
     writer: Option<JoinHandle<()>>,
@@ -35,7 +35,7 @@ pub(super) struct PlaylistsService {
 
 impl PlaylistsService {
     /// The caller starts loading before scanning, preserving schema migration order.
-    pub(super) fn new(loading: Receiver<Result<Vec<Playlist>, String>>) -> Self {
+    pub(crate) fn new(loading: Receiver<Result<Vec<Playlist>, String>>) -> Self {
         Self {
             loading: Some(loading),
             saving: None,
@@ -48,7 +48,7 @@ impl PlaylistsService {
         }
     }
 
-    pub(super) fn refresh_candidates<'a>(&mut self, tracks: impl IntoIterator<Item = &'a Track>) {
+    pub(crate) fn refresh_candidates<'a>(&mut self, tracks: impl IntoIterator<Item = &'a Track>) {
         let mut songs: Vec<_> = tracks.into_iter().collect();
         songs.sort_by_cached_key(|song| {
             (
@@ -67,23 +67,23 @@ impl PlaylistsService {
             .collect();
     }
 
-    pub(super) fn candidates(&self) -> &[Candidate] {
+    pub(crate) fn candidates(&self) -> &[Candidate] {
         &self.candidates
     }
 
-    pub(super) fn paths(&self) -> &[PathBuf] {
+    pub(crate) fn paths(&self) -> &[PathBuf] {
         &self.paths
     }
 
-    pub(super) fn is_editing(&self) -> bool {
+    pub(crate) fn is_editing(&self) -> bool {
         self.edit_id.is_some()
     }
 
-    pub(super) fn is_saving(&self) -> bool {
+    pub(crate) fn is_saving(&self) -> bool {
         self.saving.is_some()
     }
 
-    pub(super) fn begin_new(&mut self) {
+    pub(crate) fn begin_new(&mut self) {
         if self.is_saving() {
             return;
         }
@@ -92,7 +92,7 @@ impl PlaylistsService {
         self.paths.clear();
     }
 
-    pub(super) fn begin_edit(&mut self, playlist: &Playlist) {
+    pub(crate) fn begin_edit(&mut self, playlist: &Playlist) {
         if self.is_saving() {
             return;
         }
@@ -101,15 +101,15 @@ impl PlaylistsService {
         self.original_paths = self.paths.iter().cloned().collect();
     }
 
-    pub(super) fn suspend(&mut self) {
+    pub(crate) fn suspend(&mut self) {
         self.suspended = true;
     }
 
-    pub(super) fn resume(&mut self) -> bool {
+    pub(crate) fn resume(&mut self) -> bool {
         std::mem::take(&mut self.suspended)
     }
 
-    pub(super) fn move_to(&mut self, path: &Path, target: usize) -> bool {
+    pub(crate) fn move_to(&mut self, path: &Path, target: usize) -> bool {
         if self.is_saving() {
             return false;
         }
@@ -122,7 +122,7 @@ impl PlaylistsService {
         true
     }
 
-    pub(super) fn toggle(&mut self, path: &Path) -> bool {
+    pub(crate) fn toggle(&mut self, path: &Path) -> bool {
         // Commands carry the UI's lossy path string, including for non-Unicode paths.
         if self.is_saving()
             || !self
@@ -140,7 +140,7 @@ impl PlaylistsService {
         true
     }
 
-    pub(super) fn nudge(&mut self, path: &Path, down: bool) {
+    pub(crate) fn nudge(&mut self, path: &Path, down: bool) {
         if self.is_saving() {
             return;
         }
@@ -154,13 +154,13 @@ impl PlaylistsService {
         }
     }
 
-    pub(super) fn remove(&mut self, path: &Path) {
+    pub(crate) fn remove(&mut self, path: &Path) {
         if !self.is_saving() {
             self.paths.retain(|p| p != path);
         }
     }
 
-    pub(super) fn cancel(&mut self) {
+    pub(crate) fn cancel(&mut self) {
         if !self.is_saving() {
             self.clear_draft();
         }
@@ -175,7 +175,7 @@ impl PlaylistsService {
     }
 
     /// Capture user intent before spawning; the worker never borrows live state.
-    pub(super) fn save(&mut self, database: &Path, name: &str, tracks: &[Track]) -> bool {
+    pub(crate) fn save(&mut self, database: &Path, name: &str, tracks: &[Track]) -> bool {
         if self.is_saving() {
             return false;
         }
@@ -203,7 +203,7 @@ impl PlaylistsService {
         true
     }
 
-    pub(super) fn poll_load(&mut self) -> Option<Result<Vec<Playlist>, String>> {
+    pub(crate) fn poll_load(&mut self) -> Option<Result<Vec<Playlist>, String>> {
         let result = match self.loading.as_ref()?.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
@@ -213,7 +213,7 @@ impl PlaylistsService {
         Some(result)
     }
 
-    pub(super) fn poll_save(&mut self) -> Option<Result<SavedPlaylist, String>> {
+    pub(crate) fn poll_save(&mut self) -> Option<Result<SavedPlaylist, String>> {
         let result = match self.saving.as_ref()?.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
@@ -229,7 +229,7 @@ impl PlaylistsService {
     }
 
     /// Controller invokes this after draining statistics during application exit.
-    pub(super) fn shutdown(&mut self) {
+    pub(crate) fn shutdown(&mut self) {
         if let Some(worker) = self.writer.take() {
             let _ = worker.join();
         }

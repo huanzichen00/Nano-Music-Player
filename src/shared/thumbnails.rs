@@ -17,29 +17,29 @@ const CACHE_BYTES: u64 = 32 * 1024 * 1024;
 const PREVIEW_RESOLUTION: u32 = 96;
 const PREVIEW_FILE_BYTES: u64 = 64 * 1024;
 
-pub(super) struct Previews {
+pub(crate) struct Previews {
     pixels: Vec<image::RgbaImage>,
     tracks: Vec<(PathBuf, usize)>,
 }
 
 impl Previews {
-    pub(super) fn retain_tracks(&mut self, tracks: &[Track]) {
+    pub(crate) fn retain_tracks(&mut self, tracks: &[Track]) {
         let paths: HashSet<_> = tracks.iter().map(|track| &track.path).collect();
         self.tracks.retain(|(path, _)| paths.contains(path));
     }
 }
 
-pub(super) struct Prepared<T> {
+pub(crate) struct Prepared<T> {
     pub value: T,
     pub previews: Previews,
 }
 
-pub(super) enum ImportEvent {
+pub(crate) enum ImportEvent {
     SelectionClosed,
     Completed(Result<Option<Prepared<scanner::ScanResult>>, String>),
 }
 
-pub(super) enum LoadEvent {
+pub(crate) enum LoadEvent {
     Cached(Prepared<Vec<Track>>),
     Refreshed {
         original: Box<Track>,
@@ -50,7 +50,7 @@ pub(super) enum LoadEvent {
 }
 
 // Publish cached metadata and tiny covers before opening any audio source.
-pub(super) fn load(database_path: PathBuf) -> Receiver<LoadEvent> {
+pub(crate) fn load(database_path: PathBuf) -> Receiver<LoadEvent> {
     let cache = database_path.with_file_name("cover-previews-v1");
     let loading = scanner::load_cached_metadata(database_path);
     let (sender, receiver) = mpsc::sync_channel(2);
@@ -80,7 +80,7 @@ pub(super) fn load(database_path: PathBuf) -> Receiver<LoadEvent> {
 }
 
 #[cfg(not(any(target_os = "ios", feature = "mobile")))]
-pub(super) fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
+pub(crate) fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
     let cache = database_path.with_file_name("cover-previews-v1");
     let importing = scanner::import(database_path, title);
     let (sender, receiver) = mpsc::channel();
@@ -105,7 +105,7 @@ pub(super) fn import(database_path: PathBuf, title: String) -> Receiver<ImportEv
     receiver
 }
 
-pub(super) fn refresh(
+pub(crate) fn refresh(
     database: PathBuf,
     roots: Vec<PathBuf>,
 ) -> Receiver<Result<Prepared<crate::library::refresh::Snapshot>, String>> {
@@ -205,7 +205,7 @@ struct Decoded {
 }
 
 // Only visible covers are queued. A new viewport replaces obsolete waiting work.
-pub(super) struct Thumbnails {
+pub(crate) struct Thumbnails {
     jobs: Arc<(Mutex<Jobs>, Condvar)>,
     decoded: Receiver<Decoded>,
     cache: VecDeque<(Key, slint::Image)>,

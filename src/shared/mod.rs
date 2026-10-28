@@ -12,5 +12,7 @@ pub mod i18n;
 #[path = "../app/navigation.rs"]
 pub mod navigation;
 pub mod settings;
+#[cfg_attr(any(target_os = "ios", feature = "mobile"), allow(dead_code))]
+pub(crate) mod thumbnails;
 #[path = "../app/typography.rs"]
 pub mod typography;

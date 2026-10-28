@@ -14,13 +14,13 @@ static WORKERS: RequestGate = RequestGate::new(1);
 
 type Completion = (Request, Result<ResultSet, Error>);
 
-pub(super) struct SavedPreview {
+pub(crate) struct SavedPreview {
     pub result: Result<crate::library::playlists::Playlist, String>,
     pub current_preview: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct PreviewEntry {
+pub(crate) struct PreviewEntry {
     pub title: String,
     pub artist: String,
     pub path: PathBuf,
@@ -28,7 +28,7 @@ pub(super) struct PreviewEntry {
 
 /// Owns recommendation requests and their frozen preview, independently of the UI.
 #[derive(Default)]
-pub(super) struct GeniusService {
+pub(crate) struct GeniusService {
     seed: Option<PathBuf>,
     request: Option<Receiver<Completion>>,
     entries: Vec<PreviewEntry>,
@@ -41,17 +41,17 @@ pub(super) struct GeniusService {
 }
 
 impl GeniusService {
-    pub(super) fn is_busy(&self) -> bool {
+    pub(crate) fn is_busy(&self) -> bool {
         self.request.is_some() || self.saving.is_some()
     }
 
-    pub(super) fn set_seed(&mut self, seed: PathBuf) {
+    pub(crate) fn set_seed(&mut self, seed: PathBuf) {
         self.preview_revision = self.preview_revision.wrapping_add(1);
         self.seed = Some(seed);
         self.entries.clear();
     }
 
-    pub(super) fn prepare_seed(
+    pub(crate) fn prepare_seed(
         &mut self,
         current: Option<&Track>,
         refresh: bool,
@@ -70,7 +70,7 @@ impl GeniusService {
     }
 
     /// Returns false for an already active request without changing its snapshot.
-    pub(super) fn start(
+    pub(crate) fn start(
         &mut self,
         directory: &Path,
         tracks: &[Track],
@@ -156,7 +156,7 @@ impl GeniusService {
         self.cancellation = Some(cancellation);
     }
 
-    pub(super) fn poll(&mut self, tracks: &[Track]) -> Option<Result<bool, &'static str>> {
+    pub(crate) fn poll(&mut self, tracks: &[Track]) -> Option<Result<bool, &'static str>> {
         let (request, result) = match self.request.as_ref()?.try_recv() {
             Ok(completion) => completion,
             Err(TryRecvError::Empty) => return None,
@@ -171,7 +171,7 @@ impl GeniusService {
         Some(self.apply_result(&request, result, tracks))
     }
 
-    pub(super) fn apply_result(
+    pub(crate) fn apply_result(
         &mut self,
         request: &Request,
         result: Result<ResultSet, Error>,
@@ -196,7 +196,7 @@ impl GeniusService {
         Ok(result.sparse)
     }
 
-    pub(super) fn context_matches(&self, request: &Request, tracks: &[Track]) -> bool {
+    pub(crate) fn context_matches(&self, request: &Request, tracks: &[Track]) -> bool {
         self.seed.as_deref() == Some(request.seed_path.as_path())
             && Self::library_revision_for(tracks) == request.library_revision
             && request.candidates.iter().all(|candidate| {
@@ -211,7 +211,7 @@ impl GeniusService {
             })
     }
 
-    pub(super) fn library_revision_for(tracks: &[Track]) -> u64 {
+    pub(crate) fn library_revision_for(tracks: &[Track]) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for track in tracks {
@@ -226,11 +226,11 @@ impl GeniusService {
         hasher.finish()
     }
 
-    pub(super) fn entries(&self) -> &[PreviewEntry] {
+    pub(crate) fn entries(&self) -> &[PreviewEntry] {
         &self.entries
     }
 
-    pub(super) fn close(&mut self) {
+    pub(crate) fn close(&mut self) {
         self.preview_revision = self.preview_revision.wrapping_add(1);
         if let Some(cancellation) = self.cancellation.take() {
             cancellation.cancel();
@@ -241,7 +241,7 @@ impl GeniusService {
         self.variation = 0;
     }
 
-    pub(super) fn playable_indices(&self, tracks: &[Track]) -> Vec<usize> {
+    pub(crate) fn playable_indices(&self, tracks: &[Track]) -> Vec<usize> {
         // Preview actions historically resolve the lossy path strings shown by the UI.
         self.entries
             .iter()
@@ -254,7 +254,7 @@ impl GeniusService {
             .collect()
     }
 
-    pub(super) fn playlist_snapshot(
+    pub(crate) fn playlist_snapshot(
         &self,
         tracks: &[Track],
     ) -> Result<(String, Vec<PathBuf>), String> {
@@ -277,7 +277,7 @@ impl GeniusService {
     }
 
     /// Capture the explicit save intent; the worker never reads mutable UI state.
-    pub(super) fn save_playlist(
+    pub(crate) fn save_playlist(
         &mut self,
         database: &Path,
         tracks: &[Track],
@@ -308,7 +308,7 @@ impl GeniusService {
         self.saving = Some(receiver);
     }
 
-    pub(super) fn poll_save(&mut self) -> Option<SavedPreview> {
+    pub(crate) fn poll_save(&mut self) -> Option<SavedPreview> {
         let result = match self.saving.as_ref()?.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
@@ -329,12 +329,12 @@ impl GeniusService {
     }
 
     #[cfg(test)]
-    pub(super) fn variation(&self) -> u64 {
+    pub(crate) fn variation(&self) -> u64 {
         self.variation
     }
 
     #[cfg(test)]
-    pub(super) fn set_preview(&mut self, seed: PathBuf, entries: Vec<PreviewEntry>) {
+    pub(crate) fn set_preview(&mut self, seed: PathBuf, entries: Vec<PreviewEntry>) {
         self.seed = Some(seed);
         self.entries = entries;
     }

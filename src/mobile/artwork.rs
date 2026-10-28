@@ -1,5 +1,4 @@
 //! Decode covers on a worker; construct Slint images only on the UI thread.
-pub(super) use crate::shared::artwork::decode_thumbnail;
 use std::{
     io::Cursor,
     sync::mpsc::{self, Receiver, Sender},

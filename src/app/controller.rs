@@ -1,17 +1,14 @@
+use crate::services::{genius, lyrics, playlists as playlist_service, statistics};
+
 mod artist_images;
-mod genius;
 mod library;
 mod library_ui;
-mod lyrics;
 mod media_events;
 mod native_status;
 mod playback;
-#[path = "controller/playlists.rs"]
-mod playlist_service;
 mod podcasts;
 mod practice;
 mod presentation;
-mod statistics;
 mod ui_sync;
 mod video;
 mod wallpaper;
@@ -27,7 +24,6 @@ use super::{
     i18n::{self, Language, translate},
     navigation::{Filter, Group, Screen, StatisticsPage},
     state::{Effect, State, Target},
-    thumbnails::{self, Prepared, Thumbnails},
 };
 use crate::{
     audio::{
@@ -35,7 +31,8 @@ use crate::{
         engine::{AudioCommand, AudioEvent, Engine},
     },
     input::{Binding, Context, Dispatch, Dispatcher, Key, KeyPress, Keymap, Modifiers},
-    library::{playlists, scanner},
+    library::scanner,
+    shared::thumbnails::{self, Prepared, Thumbnails},
     ui::{
         AppWindow, BackScroll, I18n, LibraryRow, PlaylistCandidate, StatisticsItem, SubtitleChoice,
         WheelGesture,
@@ -2729,7 +2726,7 @@ mod cached_library_controller_tests {
 mod ai_controller_tests {
     use super::*;
     use crate::{
-        library::{Track, lyrics::Lyrics},
+        library::{Track, lyrics::Lyrics, playlists},
         translation::{Request, TargetLanguage},
     };
 

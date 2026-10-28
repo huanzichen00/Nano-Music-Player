@@ -9,7 +9,6 @@ mod settings;
 pub mod state;
 pub mod statistics_projection;
 pub mod statistics_state;
-mod thumbnails;
 mod video_thumbnails;
 mod window_events;
 

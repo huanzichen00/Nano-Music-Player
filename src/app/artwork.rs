@@ -227,7 +227,6 @@ impl ArtworkLoader {
     }
 }
 
-pub(super) use crate::shared::artwork::decode_thumbnail;
 use crate::shared::artwork::jpeg_thumbnail;
 
 #[cfg(test)]

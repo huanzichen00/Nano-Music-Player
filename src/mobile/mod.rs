@@ -5,26 +5,11 @@ mod artwork;
 mod audit;
 mod gapless;
 mod genius;
-#[path = "../app/controller/genius.rs"]
-#[allow(dead_code)]
-mod genius_service;
-#[path = "../app/controller/lyrics.rs"]
-#[allow(dead_code)]
-mod lyrics_service;
 mod navigation;
 mod playback;
-#[path = "../app/controller/playlists.rs"]
-#[allow(dead_code)]
-mod playlist_service;
 mod playlists;
 mod statistics;
-#[path = "../app/controller/statistics.rs"]
-#[allow(dead_code)]
-mod statistics_service;
 pub mod storage;
-#[path = "../app/thumbnails.rs"]
-#[allow(dead_code)]
-mod thumbnails;
 pub mod transfer;
 
 #[cfg(test)]
@@ -48,6 +33,11 @@ use crate::{
         ios::{self, Bridge, Event},
         macos_media::{MediaSnapshot, PlaybackState, RemoteCommand},
     },
+    services::{
+        genius as genius_service, lyrics as lyrics_service, playlists as playlist_service,
+        statistics as statistics_service,
+    },
+    shared::thumbnails,
     shared::{
         action::Action,
         config::Settings,

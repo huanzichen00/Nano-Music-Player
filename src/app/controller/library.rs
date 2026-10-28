@@ -4,8 +4,8 @@
 //! the controller. This component owns task receivers and their readiness rules.
 
 use crate::{
-    app::thumbnails::{self, ImportEvent, Prepared},
     library::{Track, playlists},
+    shared::thumbnails::{self, ImportEvent, Prepared},
 };
 use std::{
     path::PathBuf,
