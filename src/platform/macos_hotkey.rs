@@ -259,6 +259,11 @@ mod tests {
     }
 
     fn deliver(id: Option<HotkeyId>, context: &HotkeyContext) -> i32 {
+        // Carbon lazily initializes process-global parameter type tables. The
+        // test harness runs these fixtures concurrently, unlike the app's
+        // main-thread callbacks; serialize native event construction as well.
+        static EVENTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = EVENTS.lock().unwrap();
         let mut event = ptr::null_mut();
         // SAFETY: Use a real Carbon event to exercise parameter decoding. The
         // callback borrows a live Cell synchronously; the event is then released.
