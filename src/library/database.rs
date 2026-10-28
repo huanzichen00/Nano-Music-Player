@@ -4,6 +4,19 @@ use std::path::Path;
 
 pub struct Database(Connection);
 
+// A canonical JSON prefix marks snapshots written before applying lyric overrides.
+// Track's deserializer ignores this field, so old readers and exported databases
+// keep the same metadata shape. Unmarked snapshots remain readable, but the
+// scanner refreshes them once because older versions may have cached an overlay.
+const SOURCE_CACHE_PREFIX: &[u8] = b"{\"_scanner_source_version\":1,";
+
+#[derive(serde::Serialize)]
+struct SourceMetadata<'a> {
+    _scanner_source_version: u8,
+    #[serde(flatten)]
+    track: &'a Track,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LyricsAssociation {
     Automatic,
@@ -95,6 +108,14 @@ impl Database {
     }
 
     pub fn cached(&self, path: &Path, modified: u64) -> Option<Track> {
+        self.cached_metadata(path, modified, false)
+    }
+
+    pub(crate) fn cached_source(&self, path: &Path, modified: u64) -> Option<Track> {
+        self.cached_metadata(path, modified, true)
+    }
+
+    fn cached_metadata(&self, path: &Path, modified: u64, source_only: bool) -> Option<Track> {
         let data: Vec<u8> = self
             .0
             .query_row(
@@ -103,18 +124,72 @@ impl Database {
                 |row| row.get(0),
             )
             .ok()?;
+        if source_only && !data.starts_with(SOURCE_CACHE_PREFIX) {
+            return None;
+        }
         serde_json::from_slice(&data).ok()
     }
 
+    /// Generic cache writes do not claim to contain unmodified source lyrics.
     pub fn save(&self, track: &Track, modified: u64) -> Result<(), String> {
+        self.save_metadata(
+            &track.path,
+            modified,
+            serde_json::to_vec(track).map_err(|e| e.to_string())?,
+        )
+    }
+
+    /// Called only after the scanner reads source metadata, before lyric overlays.
+    pub(crate) fn save_source(&self, track: &Track, modified: u64) -> Result<(), String> {
+        self.save_metadata(&track.path, modified, source_metadata(track)?)
+    }
+
+    fn save_metadata(&self, path: &Path, modified: u64, metadata: Vec<u8>) -> Result<(), String> {
         self.0
             .execute(
                 "INSERT OR REPLACE INTO tracks VALUES (?, ?, ?)",
-                params![
-                    track.path.to_string_lossy(),
-                    modified,
-                    serde_json::to_vec(track).map_err(|e| e.to_string())?
-                ],
+                params![path.to_string_lossy(), modified, metadata],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Artwork repair preserves source provenance and cannot replace a newer scan.
+    pub(crate) fn update_cached_artwork(
+        &self,
+        path: &Path,
+        modified: u64,
+        artwork: &[u8],
+    ) -> Result<(), String> {
+        let previous: Option<Vec<u8>> = self
+            .0
+            .query_row(
+                "SELECT metadata FROM tracks WHERE path=? AND modified=?",
+                params![path.to_string_lossy(), modified],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+        let mut track: Track = match serde_json::from_slice(&previous) {
+            Ok(track) => track,
+            Err(_) => return Ok(()),
+        };
+        if track.artwork == artwork {
+            return Ok(());
+        }
+        track.artwork = artwork.to_vec();
+        let updated = if previous.starts_with(SOURCE_CACHE_PREFIX) {
+            source_metadata(&track)?
+        } else {
+            serde_json::to_vec(&track).map_err(|e| e.to_string())?
+        };
+        self.0
+            .execute(
+                "UPDATE tracks SET metadata=? WHERE path=? AND modified=? AND metadata=?",
+                params![updated, path.to_string_lossy(), modified, previous],
             )
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -254,6 +329,14 @@ impl Database {
         }
         Ok(())
     }
+}
+
+fn source_metadata(track: &Track) -> Result<Vec<u8>, String> {
+    serde_json::to_vec(&SourceMetadata {
+        _scanner_source_version: 1,
+        track,
+    })
+    .map_err(|e| e.to_string())
 }
 
 use rusqlite::OptionalExtension;

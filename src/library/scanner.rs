@@ -5,11 +5,16 @@ use lofty::{
     probe::Probe,
 };
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver},
     thread,
     time::UNIX_EPOCH,
 };
+
+#[cfg(test)]
+#[path = "scanner/refresh_tests.rs"]
+mod refresh_tests;
 
 pub struct ScanResult {
     pub tracks: Vec<Track>,
@@ -45,6 +50,14 @@ pub fn import(database_path: PathBuf, title: String) -> Receiver<ImportEvent> {
 pub fn scan_folders(database_path: &Path, folders: &[PathBuf]) -> Result<ScanResult, String> {
     let database = Database::open(database_path)?;
     let mut tracks = database.load()?;
+    for track in &mut tracks {
+        database.apply_lyrics(track)?;
+    }
+    let mut indices: HashMap<_, _> = tracks
+        .iter()
+        .enumerate()
+        .map(|(index, track)| (track.path.clone(), index))
+        .collect();
     let mut warnings = Vec::new();
     let roots: Vec<_> = folders.iter().map(|p| super::paths::normalize(p)).collect();
     for folder in &roots {
@@ -63,25 +76,18 @@ pub fn scan_folders(database_path: &Path, folders: &[PathBuf]) -> Result<ScanRes
             if !super::paths::is_audio(path) {
                 continue;
             }
-            let modified = metadata_stamp(path);
-            let mut track = if let Some(track) = database.cached(path, modified) {
-                track
-            } else {
-                match read_track(path.to_path_buf()) {
-                    Ok(track) => {
-                        database.save(&track, modified)?;
-                        track
-                    }
-                    Err(error) => {
-                        warnings.push(format!("{}: {error}", path.display()));
-                        continue;
-                    }
+            let track = match refresh_track_inner(&database, path) {
+                Ok(track) => track,
+                Err(RefreshError::Source(error)) => {
+                    warnings.push(format!("{}: {error}", path.display()));
+                    continue;
                 }
+                Err(RefreshError::Storage(error)) => return Err(error),
             };
-            database.apply_lyrics(&mut track)?;
-            if let Some(existing) = tracks.iter_mut().find(|t| t.path == track.path) {
-                *existing = track;
+            if let Some(&index) = indices.get(&track.path) {
+                tracks[index] = track;
             } else {
+                indices.insert(track.path.clone(), tracks.len());
                 tracks.push(track);
             }
         }
@@ -154,14 +160,42 @@ pub fn reconcile_root(root: &Path, known: &[PathBuf]) -> Result<RootReconciliati
 
 /// Refresh one file using import cache stamps. Call on a background worker.
 pub fn refresh_track(database: &Database, path: &Path) -> Result<Track, String> {
+    refresh_track_inner(database, path).map_err(|error| match error {
+        RefreshError::Source(message) | RefreshError::Storage(message) => message,
+    })
+}
+
+enum RefreshError {
+    Source(String),
+    Storage(String),
+}
+
+fn refresh_track_inner(database: &Database, path: &Path) -> Result<Track, RefreshError> {
     let stamp = metadata_stamp(path);
-    let mut track = if let Some(cached) = database.cached(path, stamp) {
+    let mut track = if let Some(cached) = database.cached_source(path, stamp) {
         cached
     } else {
-        read_track(path.to_path_buf())?
+        match read_track(path.to_path_buf()) {
+            Ok(track) => {
+                // Cache automatic source lyrics, never a projected manual override.
+                // Unchanged source snapshots need neither serialization nor a write.
+                database
+                    .save_source(&track, stamp)
+                    .map_err(RefreshError::Storage)?;
+                track
+            }
+            Err(error) => {
+                // Preserve usable legacy metadata if its source cannot be opened.
+                // Leave it unmarked so a later refresh can repair it when available.
+                database
+                    .cached(path, stamp)
+                    .ok_or(RefreshError::Source(error))?
+            }
+        }
     };
-    database.apply_lyrics(&mut track)?;
-    database.save(&track, stamp)?;
+    database
+        .apply_lyrics(&mut track)
+        .map_err(RefreshError::Storage)?;
     Ok(track)
 }
 

@@ -910,11 +910,8 @@ pub fn apply_artwork(database_path: &Path, tracks: &mut [Track]) -> Vec<String> 
                 )
                 .optional()
                 .map_err(error)?;
-            if let Some(stamp) = stamp
-                && let Some(mut cached) = database.cached(&track.path, stamp)
-            {
-                cached.artwork = bytes.clone();
-                database.save(&cached, stamp)?;
+            if let Some(stamp) = stamp {
+                database.update_cached_artwork(&track.path, stamp, bytes)?;
             }
             track.artwork = bytes.clone();
         }
