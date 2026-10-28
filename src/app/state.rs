@@ -10,7 +10,7 @@ use crate::{
     library::Track,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::PathBuf,
 };
 
@@ -446,6 +446,12 @@ impl State {
                 row("Import Music…", Target::Action(Action::ImportFolder)),
             ],
             Screen::Groups(Group::Playlists) => {
+                let available: HashSet<_> = self
+                    .tracks
+                    .iter()
+                    .filter(|track| self.track_available(track))
+                    .map(|track| &track.path)
+                    .collect();
                 let mut playlists: Vec<_> = self.playlists.iter().collect();
                 playlists.sort_by_cached_key(|p| (p.name.to_lowercase(), p.name.clone(), p.id));
                 let mut rows = vec![
@@ -478,9 +484,7 @@ impl State {
                             playlist
                                 .tracks
                                 .iter()
-                                .filter(|path| self.tracks.iter().any(
-                                    |track| &track.path == *path && self.track_available(track)
-                                ))
+                                .filter(|path| available.contains(path))
                                 .count()
                         ),
                     artwork_id: None,
@@ -591,22 +595,7 @@ impl State {
                     )
                 );
                 let mut rows: Vec<Row> = self
-                    .tracks
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, track)| self.track_available(track))
-                    .filter(|(_, track)| match &self.navigation.current().screen {
-                        Screen::Search => track.matches(&self.query),
-                        Screen::Songs(Filter::Album { name, artist }) => {
-                            track.album == *name
-                                && artist.as_ref().is_none_or(|a| &track.artist == a)
-                        }
-                        Screen::Songs(Filter::Genre(genre)) => &track.genre == genre,
-                        Screen::Songs(Filter::Statistics { paths, .. }) => {
-                            paths.contains(&track.path)
-                        }
-                        _ => true,
-                    })
+                    .matching_tracks()
                     .map(|(id, track)| Row {
                         title: track.title.clone(),
                         subtitle: track.artist.clone(),
@@ -615,45 +604,71 @@ impl State {
                     })
                     .collect();
                 if is_album {
-                    rows.sort_by(|a, b| {
-                        let id = |row: &Row| match row.target {
+                    rows.sort_by_cached_key(|row| {
+                        let id = match row.target {
                             Target::Play(id) => id,
                             _ => unreachable!(),
                         };
-                        let a_id = id(a);
-                        let b_id = id(b);
-                        let a_track = &self.tracks[a_id];
-                        let b_track = &self.tracks[b_id];
+                        let track = &self.tracks[id];
                         (
-                            a_track.number == 0,
-                            a_track.number,
-                            a_track.title.to_lowercase(),
-                            &a_track.title,
-                            a_track.path.to_string_lossy(),
+                            track.number == 0,
+                            track.number,
+                            track.title.to_lowercase(),
+                            &track.title,
+                            track.path.to_string_lossy(),
                         )
-                            .cmp(&(
-                                b_track.number == 0,
-                                b_track.number,
-                                b_track.title.to_lowercase(),
-                                &b_track.title,
-                                b_track.path.to_string_lossy(),
-                            ))
                     });
                 } else {
-                    rows.sort_by(|a, b| {
-                        let id = |row: &Row| match row.target {
+                    rows.sort_by_cached_key(|row| {
+                        let id = match row.target {
                             Target::Play(id) => id,
                             _ => unreachable!(),
                         };
-                        let a_track = &self.tracks[id(a)];
-                        let b_track = &self.tracks[id(b)];
-                        track_title_key(a_track).cmp(&track_title_key(b_track))
+                        track_title_key(&self.tracks[id])
                     });
                 }
                 rows
             }
             _ => Vec::new(),
         }
+    }
+
+    /// The same filter drives row construction and cheap selection counts. No
+    /// persistent index can safely outlive direct edits to the public State.
+    fn matching_tracks(&self) -> impl Iterator<Item = (usize, &Track)> {
+        let screen = &self.navigation.current().screen;
+        let query = if *screen == Screen::Search {
+            self.query.trim().to_lowercase()
+        } else {
+            String::new()
+        };
+        self.tracks.iter().enumerate().filter(move |(_, track)| {
+            self.track_available(track)
+                && match screen {
+                    Screen::Search => {
+                        query.is_empty()
+                            || [&track.title, &track.artist, &track.album, &track.genre]
+                                .iter()
+                                .any(|text| text.to_lowercase().contains(&query))
+                    }
+                    Screen::Songs(Filter::Album { name, artist }) => {
+                        track.album == *name && artist.as_ref().is_none_or(|a| &track.artist == a)
+                    }
+                    Screen::Songs(Filter::Genre(genre)) => &track.genre == genre,
+                    Screen::Songs(Filter::Statistics { paths, .. }) => paths.contains(&track.path),
+                    _ => true,
+                }
+        })
+    }
+
+    fn available_path_count(&self, paths: &[PathBuf]) -> usize {
+        let available: HashSet<_> = self
+            .tracks
+            .iter()
+            .filter(|track| self.track_available(track))
+            .map(|track| &track.path)
+            .collect();
+        paths.iter().filter(|path| available.contains(path)).count()
     }
 
     fn group_rows(&self, group: &Group, artist: Option<&str>) -> Vec<Row> {
@@ -767,12 +782,11 @@ impl State {
             })
             .map(|(id, _)| id)
             .collect();
-        ids.sort_by(|a, b| {
-            self.ratings[&self.tracks[*b].path]
-                .cmp(&self.ratings[&self.tracks[*a].path])
-                .then_with(|| {
-                    track_title_key(&self.tracks[*a]).cmp(&track_title_key(&self.tracks[*b]))
-                })
+        ids.sort_by_cached_key(|id| {
+            (
+                std::cmp::Reverse(self.ratings[&self.tracks[*id].path]),
+                track_title_key(&self.tracks[*id]),
+            )
         });
         ids
     }
@@ -811,6 +825,39 @@ impl State {
                     .len()
                     + 1
             }
+            Screen::LyricSongs => self
+                .tracks
+                .iter()
+                .filter(|track| self.track_available(track))
+                .count(),
+            Screen::Songs(_) | Screen::Search => {
+                let count = match &self.navigation.current().screen {
+                    Screen::Songs(Filter::TopRated) => self
+                        .tracks
+                        .iter()
+                        .filter(|track| {
+                            self.track_available(track)
+                                && self.ratings.get(&track.path).copied().unwrap_or(0) >= 4
+                        })
+                        .count(),
+                    Screen::Songs(Filter::Playlist { id, .. }) => self
+                        .playlists
+                        .iter()
+                        .find(|playlist| playlist.id == *id)
+                        .map_or(0, |playlist| self.available_path_count(&playlist.tracks)),
+                    Screen::Songs(Filter::SmartPlaylist(kind)) => self
+                        .smart_playlists
+                        .get(kind)
+                        .map_or(0, |paths| self.available_path_count(paths)),
+                    _ => self.matching_tracks().count(),
+                };
+                count
+                    + usize::from(self.supports_list_shuffle())
+                    + usize::from(matches!(
+                        self.navigation.current().screen,
+                        Screen::Songs(Filter::Playlist { .. })
+                    ))
+            }
             _ => self.rows().len(),
         }
     }
@@ -818,11 +865,30 @@ impl State {
     pub fn merge_library(&mut self, tracks: Vec<Track>) {
         let selected_path = self.selected_track_path();
         // Existing indexes remain stable for in-flight audio events and the queue.
+        // Rebuild from public storage each time so direct edits cannot leave an
+        // out-of-date path index. As with the former linear find, the first
+        // existing slot wins if a caller supplied duplicate paths.
+        // A one-song metadata update needs just one scan, so avoid allocating
+        // an index of the whole library for that common narrow operation.
+        let mut indices = (tracks.len() > 1).then(|| {
+            let mut indices = HashMap::with_capacity(self.tracks.len() + tracks.len());
+            for (id, track) in self.tracks.iter().enumerate() {
+                indices.entry(track.path.clone()).or_insert(id);
+            }
+            indices
+        });
         for track in tracks {
             self.unavailable_tracks.remove(&track.path);
-            if let Some(existing) = self.tracks.iter_mut().find(|t| t.path == track.path) {
-                *existing = track;
+            let existing = indices.as_ref().map_or_else(
+                || self.tracks.iter().position(|item| item.path == track.path),
+                |indices| indices.get(&track.path).copied(),
+            );
+            if let Some(id) = existing {
+                self.tracks[id] = track;
             } else {
+                if let Some(indices) = &mut indices {
+                    indices.insert(track.path.clone(), self.tracks.len());
+                }
                 self.tracks.push(track);
             }
         }
