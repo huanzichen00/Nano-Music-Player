@@ -920,7 +920,7 @@ fn queued_missing_track_is_skipped_and_restoration_keeps_its_slot() {
 }
 
 #[test]
-fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata() {
+fn library_hierarchy_opens_complete_albums_and_searches_metadata() {
     let mut state = music_state();
     state.navigation.open(Screen::Groups(Group::Artists));
     assert_eq!(
@@ -946,8 +946,9 @@ fn library_hierarchy_filters_same_named_albums_by_artist_and_searches_metadata()
     );
     state.navigation.select(1);
     state.apply(Action::Activate);
-    assert_eq!(state.rows().len(), 1);
+    assert_eq!(state.rows().len(), 2);
     assert!(matches!(state.rows()[0].target, Target::Play(0)));
+    assert!(matches!(state.rows()[1].target, Target::Play(2)));
     state.navigation.open(Screen::Songs(Filter::Album {
         name: "Shared".to_owned(),
         artist: None,
@@ -1757,8 +1758,8 @@ fn settings_and_album_track_list_are_real_navigation_screens() {
     state.apply(Action::TrackList);
     assert_eq!(
         state.rows().len(),
-        1,
-        "same-named albums remain scoped to their artist"
+        2,
+        "the current album includes tracks by every artist"
     );
     state.apply(Action::Back);
     assert_eq!(state.navigation.current().screen, Screen::NowPlaying);

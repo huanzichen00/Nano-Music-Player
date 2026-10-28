@@ -1,5 +1,6 @@
 use nano_music_player::{
     app::{
+        action::Action,
         navigation::{Filter, Group, Screen},
         state::{State, Target},
     },
@@ -77,6 +78,51 @@ fn album_tracks_order_known_numbers_then_unknown_and_deterministic_ties() {
         ["ALPHA", "Alpha", "beta", "zulu", "unknown"]
     );
     assert!(matches!(rows[0].target, Target::Play(4)));
+}
+
+#[test]
+fn artist_album_and_now_playing_include_guest_tracks_in_album_order() {
+    let mut s = state(
+        vec![
+            track("Finale", "Band", "Compilation", 3, "/finale", false),
+            track("Guest", "Band, Guest", "Compilation", 2, "/guest", false),
+            track("Opening", "Band", "Compilation", 1, "/opening", false),
+            track("Other", "Guest", "Other Album", 1, "/other", false),
+            track("Missing", "Guest", "Compilation", 4, "/missing", false),
+        ],
+        Screen::Artist("Band".into()),
+    );
+    s.mark_track_available(&PathBuf::from("/missing"), false);
+    assert_eq!(titles(&s), ["Compilation"]);
+    s.navigation.select(1); // Skip the artist shuffle control.
+    s.apply(Action::Activate);
+    assert_eq!(titles(&s), ["Opening", "Guest", "Finale"]);
+    assert_eq!(s.selection_count(), 3);
+    s.apply(Action::Activate);
+    assert_eq!(s.queue.order, [2, 1, 0]);
+    assert_eq!(s.current, Some(2));
+    s.apply(Action::NextTrack);
+    assert_eq!(s.current, Some(1));
+    s.apply(Action::TrackList);
+    assert_eq!(titles(&s), ["Opening", "Guest", "Finale"]);
+    assert_eq!(s.rating_target().map(|t| t.title.as_str()), Some("Guest"));
+}
+
+#[test]
+fn artist_shuffle_stays_with_the_artist_when_album_navigation_includes_guests() {
+    let mut s = state(
+        vec![
+            track("Finale", "Band", "Compilation", 3, "/finale", false),
+            track("Guest", "Band, Guest", "Compilation", 2, "/guest", false),
+            track("Opening", "Band", "Compilation", 1, "/opening", false),
+            track("Solo", "Band", "Solo Album", 1, "/solo", false),
+        ],
+        Screen::Artist("Band".into()),
+    );
+    s.apply(Action::ShuffleList);
+    assert!(s.shuffle);
+    s.queue.unshuffle();
+    assert_eq!(s.queue.order, [2, 0, 3]);
 }
 
 #[test]

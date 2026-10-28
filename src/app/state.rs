@@ -717,7 +717,9 @@ impl State {
                     Group::Artists => Screen::Artist(name.to_owned()),
                     Group::Albums => Screen::Songs(Filter::Album {
                         name: name.to_owned(),
-                        artist: artist.map(str::to_owned),
+                        // The artist narrows album discovery, not album membership:
+                        // guest credits and compilations still open the full release.
+                        artist: None,
                     }),
                     _ => Screen::Songs(Filter::Genre(name.to_owned())),
                 }),
@@ -1632,8 +1634,10 @@ impl State {
                 if !self.supports_list_shuffle() {
                     return Vec::new();
                 }
-                let ids: Vec<_> = if matches!(self.navigation.current().screen, Screen::Artist(_)) {
-                    // Album collections use only the tracks represented by their album rows.
+                let ids: Vec<_> = if let Screen::Artist(artist) = &self.navigation.current().screen
+                {
+                    // Artist shuffle keeps its artist scope even though opening
+                    // an album now includes tracks with other artist credits.
                     self.list_rows()
                         .iter()
                         .flat_map(|row| {
@@ -1642,6 +1646,7 @@ impl State {
                                 .iter()
                                 .enumerate()
                                 .filter(|(_, track)| self.track_available(track))
+                                .filter(|(_, track)| &track.artist == artist)
                                 .filter(|(_, track)| match &row.target {
                                     Target::Screen(Screen::Songs(Filter::Album {
                                         name,
@@ -1894,7 +1899,7 @@ impl State {
                     self.album_rating_path = Some(track.path.clone());
                     self.navigation.open(Screen::Songs(Filter::Album {
                         name: track.album.clone(),
-                        artist: Some(track.artist.clone()),
+                        artist: None,
                     }));
                 }
             }

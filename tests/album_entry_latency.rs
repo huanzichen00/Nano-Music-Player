@@ -130,7 +130,7 @@ fn library_publishes_immediate_covers_and_sharpening_preserves_model_and_selecti
 }
 
 #[test]
-fn compilation_groups_keep_subtitles_artist_filters_and_representative_order() {
+fn compilation_groups_keep_artist_subtitles_and_open_complete_albums() {
     let mut state = State {
         tracks: [
             ("Zulu", "B", "/z", true),
@@ -162,9 +162,12 @@ fn compilation_groups_keep_subtitles_artist_filters_and_representative_order() {
     let rows = state.rows();
     assert_eq!(rows[1].subtitle, "B");
     assert_eq!(rows[1].artwork_id, Some(0));
-    assert!(matches!(&rows[1].target, Target::Screen(Screen::Songs(
-        nano_music_player::app::navigation::Filter::Album { artist: Some(artist), .. }
-    )) if artist == "B"));
+    assert!(matches!(
+        &rows[1].target,
+        Target::Screen(Screen::Songs(
+            nano_music_player::app::navigation::Filter::Album { artist: None, .. }
+        ))
+    ));
 }
 
 #[test]
