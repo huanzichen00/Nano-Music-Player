@@ -125,6 +125,7 @@ struct PendingCacheWrite {
     id: u64,
     request: translation::Request,
     removal: bool,
+    ui_generation: u64,
 }
 
 pub(super) struct LyricsService {
@@ -133,6 +134,8 @@ pub(super) struct LyricsService {
     romaji_store: romaji::Store,
     romaji_touched: HashSet<PathBuf>,
     translation_cache: Arc<translation::Cache>,
+    translation_cache_revision: u64,
+    translation_ui_generation: u64,
     translation_writer: Option<TranslationWriter>,
     translation_writes: VecDeque<PendingCacheWrite>,
     translation_write_id: u64,
@@ -158,6 +161,8 @@ impl LyricsService {
                 translation::Cache::load(&directory.join("translations.json")).unwrap_or_default(),
             ),
             translation_writer: None,
+            translation_cache_revision: 0,
+            translation_ui_generation: 0,
             translation_writes: VecDeque::new(),
             translation_write_id: 0,
             directory,
@@ -182,11 +187,12 @@ impl LyricsService {
     }
 
     pub(super) fn set_visible(&mut self, visible: bool) {
+        self.translation_ui_generation = self.translation_ui_generation.wrapping_add(1);
         self.translation_visible = visible;
     }
 
     pub(super) fn toggle_visible(&mut self) {
-        self.translation_visible = !self.translation_visible;
+        self.set_visible(!self.translation_visible);
         if !self.translation_visible {
             self.translation_shortcut_track = None;
         }
@@ -213,6 +219,12 @@ impl LyricsService {
 
     pub(super) fn translation_busy(&self) -> bool {
         self.translation_request.is_some() || !self.translation_writes.is_empty()
+    }
+
+    /// Durable cache changes invalidate presentation even when a stale operation
+    /// must stay silent and preserve a newer notice or display preference.
+    pub(super) fn translation_cache_revision(&self) -> u64 {
+        self.translation_cache_revision
     }
 
     pub(super) fn lookup_busy(&self) -> bool {
@@ -416,6 +428,7 @@ impl LyricsService {
             id,
             request,
             removal,
+            ui_generation: self.translation_ui_generation,
         });
         Ok(())
     }
@@ -441,11 +454,15 @@ impl LyricsService {
             let success = event.result.is_ok();
             if let Ok(cache) = event.result {
                 self.translation_cache = cache;
+                self.translation_cache_revision = self.translation_cache_revision.wrapping_add(1);
             }
             // Older writes can become durable, but cannot replace the notice or
             // visibility of a later remove, cancellation, song or target change.
             if pending.id != self.translation_write_id {
                 continue;
+            }
+            if pending.ui_generation != self.translation_ui_generation {
+                return None;
             }
             let context_matches = current.is_some_and(|track| {
                 pending.request.track_id == track.path
@@ -483,6 +500,7 @@ impl LyricsService {
             token.cancel();
         }
         self.translation_request_id = self.translation_request_id.wrapping_add(1);
+        self.translation_ui_generation = self.translation_ui_generation.wrapping_add(1);
     }
 
     pub(super) fn change_target(
@@ -493,6 +511,8 @@ impl LyricsService {
         let path = self.cancel_lookup();
         if previous != target {
             self.translation_shortcut_track = None;
+            self.translation_request_id = self.translation_request_id.wrapping_add(1);
+            self.translation_ui_generation = self.translation_ui_generation.wrapping_add(1);
         }
         if let Some(token) = self.translation_cancel.take() {
             token.cancel();
@@ -1184,6 +1204,58 @@ mod tests {
             service.finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
             None
         );
+    }
+
+    #[test]
+    fn queued_success_is_rejected_after_a_target_round_trip() {
+        let directory = tempfile::tempdir().unwrap();
+        let track = track(directory.path(), Lyrics::plain_text("original"));
+        let request = request(&track, 1);
+        let mut service = LyricsService::new(directory.path().into(), true);
+        let token = service
+            .install_translation_completion(request.clone(), Ok(translated(&request, "obsolete")));
+        service.change_target(TargetLanguage::English, TargetLanguage::Japanese);
+        service.change_target(TargetLanguage::Japanese, TargetLanguage::English);
+        assert!(token.is_cancelled());
+        assert_eq!(
+            service.poll_translation(Some(&track), TargetLanguage::English),
+            Some("Lyrics or target changed; translation discarded")
+        );
+        assert!(!service.translation_busy());
+        assert!(service.translation_cache.is_empty());
+        assert!(!directory.path().join("translations.json").exists());
+    }
+
+    #[test]
+    fn removal_ack_preserves_a_newer_cancel_or_display_choice() {
+        for show_again in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let track = track(directory.path(), Lyrics::plain_text("original"));
+            let request = request(&track, 1);
+            let mut service = LyricsService::new(directory.path().into(), true);
+            service.insert_cached_for_test(translated(&request, "old"));
+            service
+                .remove_translation(Some(&track), TargetLanguage::English)
+                .unwrap();
+            if show_again {
+                service.set_visible(true);
+            } else {
+                service.cancel_translation();
+            }
+            let revision = service.translation_cache_revision();
+            assert_eq!(
+                service.finish_translation_writes_for_test(Some(&track), TargetLanguage::English),
+                None
+            );
+            assert!(service.visible());
+            assert_ne!(service.translation_cache_revision(), revision);
+            assert!(service.translation_cache.is_empty());
+            assert!(
+                translation::Cache::load(&directory.path().join("translations.json"))
+                    .unwrap()
+                    .is_empty()
+            );
+        }
     }
 
     #[test]

@@ -101,3 +101,60 @@ fn navigation_captures_source_rows_selection_and_scroll_before_destination_sync(
     assert_eq!(ui.get_previous_list_scroll_y(), source_scroll);
     assert_eq!(ui.get_screen_transition_generation(), generation + 1);
 }
+
+#[test]
+fn silent_fifo_cache_updates_refresh_current_lyrics_without_replacing_a_newer_notice() {
+    use crate::translation::{Request, TargetLanguage};
+    i_slint_backend_testing::init_no_event_loop();
+    let directory = tempfile::tempdir().unwrap();
+    let mut controller = fixture(directory.path());
+    let first = controller.state.tracks[0].clone();
+    let second = controller.state.tracks[1].clone();
+    let request = Request {
+        request_id: 1,
+        track_id: first.path.clone(),
+        target: TargetLanguage::English,
+        provider_version: format!(
+            "{}:{}",
+            crate::translation::PROMPT_VERSION,
+            crate::ai::DEFAULT_MODEL
+        ),
+        source: LyricsService::source(&first),
+    };
+    let value = |text: &str| {
+        request
+            .validate_response(&serde_json::json!({"translations": [text, "second"]}).to_string())
+            .unwrap()
+    };
+    controller.lyrics.insert_cached_for_test(value("old"));
+    controller.lyrics.set_translation_generation_for_test(1);
+    controller.settings.translation_target = TargetLanguage::English;
+    let ui = AppWindow::new().unwrap();
+    controller.initialize(&ui);
+    assert_eq!(ui.get_translated_lines().row_data(0).unwrap(), "old");
+
+    // Regenerate A, remove B while browsing it, then return to A before either
+    // durable completion is polled. Both notices must remain silent on A.
+    controller.lyrics.apply_translation_result(
+        request.clone(),
+        Ok(value("new")),
+        Some(&first),
+        TargetLanguage::English,
+    );
+    controller
+        .lyrics
+        .remove_translation(Some(&second), TargetLanguage::English)
+        .unwrap();
+    controller.state.notice = "A newer operation".into();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while controller.lyrics.translation_busy() {
+        controller.poll_translation(&ui);
+        assert!(
+            std::time::Instant::now() < deadline,
+            "translation writer timed out"
+        );
+        std::thread::yield_now();
+    }
+    assert_eq!(ui.get_translated_lines().row_data(0).unwrap(), "new");
+    assert_eq!(controller.state.notice, "A newer operation");
+}

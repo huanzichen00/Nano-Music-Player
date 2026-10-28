@@ -1890,15 +1890,19 @@ impl Controller {
     }
 
     fn poll_translation(&mut self, ui: &AppWindow) {
-        if let Some(notice) = self.lyrics.poll_translation(
+        let revision = self.lyrics.translation_cache_revision();
+        let notice = self.lyrics.poll_translation(
             self.state.current.and_then(|id| self.state.tracks.get(id)),
             self.settings.translation_target,
-        ) {
+        );
+        if let Some(notice) = notice {
             self.state.notice = notice.into();
-            self.lyrics_dirty = true;
             if notice == "Translation removed" {
                 self.save_settings(ui);
             }
+        }
+        if notice.is_some() || revision != self.lyrics.translation_cache_revision() {
+            self.lyrics_dirty = true;
             self.sync(ui);
         }
     }

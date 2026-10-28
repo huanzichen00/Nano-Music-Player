@@ -477,6 +477,7 @@ impl Controller {
             changed = true;
         }
         let current = self.playback.current.and_then(|id| self.tracks.get(id));
+        let translation_revision = self.annotations.service.translation_cache_revision();
         if let Some(notice) = self
             .annotations
             .service
@@ -491,6 +492,7 @@ impl Controller {
             }
             changed = true;
         }
+        changed |= translation_revision != self.annotations.service.translation_cache_revision();
         for event in self.annotations.service.poll_romaji(&self.tracks) {
             match event {
                 RomajiEvent::Loaded(cache) => self.annotations.romaji.extend(cache),
