@@ -340,6 +340,19 @@ fn saved_playlist_editing_is_atomic_cancellable_and_preserves_playback() {
     controller.borrow_mut().poll(&ui);
     tap(&ui, "l");
     assert_eq!(ui.get_playlist_draft().row_count(), 12);
+    let before_hold: Vec<_> = ui.get_playlist_draft().iter().map(|song| song.id).collect();
+    drag_with_hold(&ui, (226.0, 361.0), (226.0, 361.0), 30);
+    assert_eq!(
+        ui.get_playlist_draft()
+            .iter()
+            .map(|song| song.id)
+            .collect::<Vec<_>>(),
+        before_hold,
+        "holding a grip without dragging must not reorder the playlist"
+    );
+    // Reset selection/scroll before exercising a genuine edge drag.
+    click(&ui, 25.0, 16.0);
+    controller.borrow_mut().execute(&ui, Action::EditPlaylist);
     drag_with_hold(&ui, (226.0, 88.0), (226.0, 361.0), 30);
     let target = ui
         .get_playlist_draft()
