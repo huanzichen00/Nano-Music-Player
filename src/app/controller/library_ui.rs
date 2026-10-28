@@ -61,15 +61,16 @@ impl Controller {
     }
 
     pub(super) fn poll_library_imports(&mut self, ui: &AppWindow) {
-        while let Some(event) = self.library_tasks.poll_import() {
-            let thumbnails::ImportEvent::Completed(result) = event else {
+        while let Some(update) = self.library_tasks.poll_import() {
+            if update.picker_closed {
                 self.dialog_open = false;
-                self.state.notice = "Scanning music folders…".to_owned();
                 ui.invoke_focus_screen();
+            }
+            let thumbnails::ImportEvent::Completed(result) = update.event else {
+                self.state.notice = "Scanning music folders…".to_owned();
                 continue;
             };
             self.state.importing = false;
-            self.dialog_open = false;
             match result {
                 Ok(Some(prepared)) => {
                     let result = prepared.value;

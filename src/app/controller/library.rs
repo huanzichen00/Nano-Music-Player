@@ -29,6 +29,7 @@ pub(super) struct LibraryTasks {
     database: PathBuf,
     loading: Option<Receiver<thumbnails::LoadEvent>>,
     importing: Option<Receiver<ImportEvent>>,
+    import_picker_open: bool,
     ready: bool,
     refreshing: Option<Receiver<Result<Prepared<crate::library::refresh::Snapshot>, String>>>,
 }
@@ -56,6 +57,7 @@ impl LibraryTasks {
                 database,
                 loading: Some(library_receiver),
                 importing: None,
+                import_picker_open: false,
                 ready: false,
                 refreshing: None,
             },
@@ -68,6 +70,7 @@ impl LibraryTasks {
             return false;
         }
         self.importing = Some(thumbnails::import(self.database.clone(), title));
+        self.import_picker_open = true;
         true
     }
 
@@ -129,7 +132,7 @@ impl LibraryTasks {
     }
 
     /// SelectionClosed and Completed may both be drained in one controller poll.
-    pub(super) fn poll_import(&mut self) -> Option<ImportEvent> {
+    pub(super) fn poll_import(&mut self) -> Option<ImportUpdate> {
         let event = match self.importing.as_ref()?.try_recv() {
             Ok(event) => event,
             Err(TryRecvError::Empty) => return None,
@@ -140,7 +143,10 @@ impl LibraryTasks {
         if matches!(event, ImportEvent::Completed(_)) {
             self.importing = None;
         }
-        Some(event)
+        Some(ImportUpdate {
+            event,
+            picker_closed: std::mem::take(&mut self.import_picker_open),
+        })
     }
 
     #[cfg(test)]
@@ -159,6 +165,11 @@ impl LibraryTasks {
     }
 }
 
+pub(super) struct ImportUpdate {
+    pub(super) event: ImportEvent,
+    pub(super) picker_closed: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +180,7 @@ mod tests {
             database: PathBuf::new(),
             loading: Some(receiver),
             importing: None,
+            import_picker_open: false,
             ready: false,
             refreshing: None,
         }
@@ -284,16 +296,16 @@ mod tests {
         sender.send(ImportEvent::Completed(Ok(None))).unwrap();
         assert!(tasks.is_importing());
         assert!(matches!(
-            tasks.poll_import(),
+            tasks.poll_import().map(|update| update.event),
             Some(ImportEvent::SelectionClosed)
         ));
         assert!(tasks.is_importing());
         assert!(matches!(
-            tasks.poll_import(),
+            tasks.poll_import().map(|update| update.event),
             Some(ImportEvent::Completed(Ok(None)))
         ));
         assert!(!tasks.is_importing());
-        assert!(tasks.poll_import().is_none());
+        assert!(tasks.poll_import().map(|update| update.event).is_none());
     }
 
     #[test]
@@ -302,16 +314,16 @@ mod tests {
         let mut tasks = with_loading(loading);
         let (sender, importing) = mpsc::channel();
         tasks.importing = Some(importing);
-        assert!(tasks.poll_import().is_none());
+        assert!(tasks.poll_import().map(|update| update.event).is_none());
         assert!(tasks.is_importing());
         drop(sender);
         assert!(matches!(
-            tasks.poll_import(),
+            tasks.poll_import().map(|update| update.event),
             Some(ImportEvent::Completed(Err(message)))
                 if message == "Library import stopped unexpectedly"
         ));
         assert!(!tasks.is_importing());
-        assert!(tasks.poll_import().is_none());
+        assert!(tasks.poll_import().map(|update| update.event).is_none());
 
         let (sender, importing) = mpsc::channel();
         tasks.importing = Some(importing);
@@ -319,10 +331,44 @@ mod tests {
             .send(ImportEvent::Completed(Err("import failure".into())))
             .unwrap();
         assert!(matches!(
-            tasks.poll_import(),
+            tasks.poll_import().map(|update| update.event),
             Some(ImportEvent::Completed(Err(message))) if message == "import failure"
         ));
         assert!(!tasks.is_importing());
+    }
+
+    #[test]
+    fn import_completion_releases_only_the_picker_owned_by_that_import() {
+        use crate::{app::controller::Controller, ui::AppWindow};
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let ui = AppWindow::new().unwrap();
+        let mut controller = Controller::new(directory.path().into());
+        for selection_closed in [false, true] {
+            for disconnected in [false, true] {
+                let (sender, receiver) = mpsc::channel();
+                controller.library_tasks.importing = Some(receiver);
+                controller.library_tasks.import_picker_open = true;
+                controller.state.importing = true;
+                controller.dialog_open = true;
+                if selection_closed {
+                    sender.send(ImportEvent::SelectionClosed).unwrap();
+                    controller.poll_library_imports(&ui);
+                    assert!(!controller.dialog_open);
+                    assert!(controller.state.importing);
+                    controller.dialog_open = true; // Another picker owns the gate now.
+                }
+                if !disconnected {
+                    sender.send(ImportEvent::Completed(Ok(None))).unwrap();
+                }
+                drop(sender);
+                controller.poll_library_imports(&ui);
+                assert_eq!(controller.dialog_open, selection_closed);
+                assert!(!controller.state.importing);
+                assert!(!controller.library_tasks.is_importing());
+                assert!(!controller.library_tasks.import_picker_open);
+            }
+        }
     }
 
     #[test]
