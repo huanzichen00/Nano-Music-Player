@@ -129,9 +129,14 @@ impl LibraryTasks {
     }
 
     /// SelectionClosed and Completed may both be drained in one controller poll.
-    /// A disconnected import without completion retains the existing busy state.
     pub(super) fn poll_import(&mut self) -> Option<ImportEvent> {
-        let event = self.importing.as_ref()?.try_recv().ok()?;
+        let event = match self.importing.as_ref()?.try_recv() {
+            Ok(event) => event,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                ImportEvent::Completed(Err("Library import stopped unexpectedly".into()))
+            }
+        };
         if matches!(event, ImportEvent::Completed(_)) {
             self.importing = None;
         }
@@ -292,14 +297,21 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_import_retains_busy_state_and_completed_errors_clear_it() {
+    fn disconnected_import_reports_failure_once_and_clears_busy_state() {
         let (_loading_sender, loading) = mpsc::channel();
         let mut tasks = with_loading(loading);
         let (sender, importing) = mpsc::channel();
         tasks.importing = Some(importing);
-        drop(sender);
         assert!(tasks.poll_import().is_none());
         assert!(tasks.is_importing());
+        drop(sender);
+        assert!(matches!(
+            tasks.poll_import(),
+            Some(ImportEvent::Completed(Err(message)))
+                if message == "Library import stopped unexpectedly"
+        ));
+        assert!(!tasks.is_importing());
+        assert!(tasks.poll_import().is_none());
 
         let (sender, importing) = mpsc::channel();
         tasks.importing = Some(importing);
