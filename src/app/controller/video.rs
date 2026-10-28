@@ -7,7 +7,7 @@ use crate::video::{
 };
 use std::{
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self, Receiver, TryRecvError},
 };
 
 pub(super) struct SubtitleSelection {
@@ -16,24 +16,37 @@ pub(super) struct SubtitleSelection {
     pub(super) selected: Option<PathBuf>,
 }
 
+pub(super) struct ImportUpdate {
+    pub(super) event: Event,
+    /// Only the task that opened the native picker can release the modal gate.
+    pub(super) picker_closed: bool,
+}
+
 /// Owns the one-shot load, import event stream, and captured picker identity.
 /// Workers keep their existing detached lifetime: dropping a receiver never
 /// blocks the UI waiting for file probing or a native picker to finish.
 pub(super) struct VideoTasks {
+    database: PathBuf,
     loading: Option<Receiver<Result<Vec<Video>, String>>>,
     importing: bool,
+    import_picker_open: bool,
     library: import::Worker,
+    library_stopped: bool,
     subtitle_picker: Option<Receiver<SubtitleSelection>>,
 }
 
 impl VideoTasks {
     pub(super) fn new(directory: PathBuf) -> Self {
-        let loading = Some(import::load(directory.join("videos.json")));
-        let library = import::Worker::new(directory.join("videos.json"));
+        let database = directory.join("videos.json");
+        let loading = Some(import::load(database.clone()));
+        let library = import::Worker::new(database.clone());
         Self {
+            database,
             loading,
             importing: false,
+            import_picker_open: false,
             library,
+            library_stopped: false,
             subtitle_picker: None,
         }
     }
@@ -42,12 +55,22 @@ impl VideoTasks {
         if self.importing {
             return;
         }
+        self.restart_library();
         self.importing = true;
+        self.import_picker_open = paths.is_none();
         self.library.start_import(title, paths);
     }
 
-    pub(super) fn remove_missing(&self, path: PathBuf) {
+    pub(super) fn remove_missing(&mut self, path: PathBuf) {
+        self.restart_library();
         self.library.remove_missing(path);
+    }
+
+    fn restart_library(&mut self) {
+        if self.library_stopped {
+            self.library = import::Worker::new(self.database.clone());
+            self.library_stopped = false;
+        }
     }
 
     pub(super) fn subtitle_pending(&self) -> bool {
@@ -85,24 +108,52 @@ impl VideoTasks {
         self.subtitle_picker = Some(receiver);
     }
 
-    pub(super) fn poll_subtitle(&mut self) -> Option<SubtitleSelection> {
-        let result = self.subtitle_picker.as_ref()?.try_recv().ok()?;
+    pub(super) fn poll_subtitle(&mut self) -> Option<Result<SubtitleSelection, String>> {
+        let result = match self.subtitle_picker.as_ref()?.try_recv() {
+            Ok(result) => Ok(result),
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                Err("Subtitle selection stopped unexpectedly".into())
+            }
+        };
         self.subtitle_picker = None;
         Some(result)
     }
 
     pub(super) fn poll_loading(&mut self) -> Option<Result<Vec<Video>, String>> {
-        let result = self.loading.as_ref()?.try_recv().ok()?;
+        let result = match self.loading.as_ref()?.try_recv() {
+            Ok(result) => result,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => Err("Video loading stopped unexpectedly".into()),
+        };
         self.loading = None;
         Some(result)
     }
 
-    pub(super) fn poll_import(&mut self) -> Option<Event> {
-        let event = self.library.events.try_recv().ok()?;
+    pub(super) fn poll_import(&mut self) -> Option<ImportUpdate> {
+        if self.library_stopped {
+            return None;
+        }
+        let event = match self.library.events.try_recv() {
+            Ok(event) => event,
+            Err(TryRecvError::Empty) => return None,
+            Err(TryRecvError::Disconnected) => {
+                self.importing = false;
+                self.library_stopped = true;
+                Event::WorkerStopped
+            }
+        };
         if matches!(&event, Event::Completed(_)) {
             self.importing = false;
         }
-        Some(event)
+        let picker_closed = matches!(
+            &event,
+            Event::SelectionClosed | Event::Completed(_) | Event::WorkerStopped
+        ) && std::mem::take(&mut self.import_picker_open);
+        Some(ImportUpdate {
+            event,
+            picker_closed,
+        })
     }
 }
 
@@ -124,9 +175,12 @@ mod tests {
 
     fn empty_tasks(directory: &Path) -> VideoTasks {
         VideoTasks {
+            database: directory.join("videos.json"),
             loading: None,
             importing: false,
+            import_picker_open: false,
             library: import::Worker::new(directory.join("videos.json")),
+            library_stopped: false,
             subtitle_picker: None,
         }
     }
@@ -192,11 +246,11 @@ mod tests {
         tasks.start_import(String::new(), Some(Vec::new()));
 
         assert!(matches!(
-            wait_for(|| tasks.poll_import()),
+            wait_for(|| tasks.poll_import()).event,
             Event::SelectionClosed
         ));
         assert!(tasks.importing);
-        let Event::Completed(Ok(Some(result))) = wait_for(|| tasks.poll_import()) else {
+        let Event::Completed(Ok(Some(result))) = wait_for(|| tasks.poll_import()).event else {
             panic!("expected successful import completion");
         };
         assert_eq!(result.videos, videos);
@@ -216,11 +270,11 @@ mod tests {
         tasks.start_import(String::new(), Some(Vec::new()));
 
         assert!(matches!(
-            wait_for(|| tasks.poll_import()),
+            wait_for(|| tasks.poll_import()).event,
             Event::SelectionClosed
         ));
         assert!(matches!(
-            wait_for(|| tasks.poll_import()),
+            wait_for(|| tasks.poll_import()).event,
             Event::Completed(Err(_))
         ));
         assert!(!tasks.importing);
@@ -240,7 +294,7 @@ mod tests {
         assert!(tasks.subtitle_pending());
         assert!(tasks.poll_subtitle().is_none());
         selected.send(Some(subtitle.clone())).unwrap();
-        let result = wait_for(|| tasks.poll_subtitle());
+        let result = wait_for(|| tasks.poll_subtitle()).unwrap();
         assert_eq!(result.generation, 8);
         assert_eq!(result.video_path, first);
         assert_eq!(result.selected, Some(subtitle));
@@ -260,7 +314,7 @@ mod tests {
         let mut tasks = empty_tasks(directory.path());
         tasks.start_subtitle_picker(8, path.clone(), || None);
 
-        let result = wait_for(|| tasks.poll_subtitle());
+        let result = wait_for(|| tasks.poll_subtitle()).unwrap();
         assert_eq!(result.generation, 8);
         assert_eq!(result.video_path, path);
         assert!(result.selected.is_none());
@@ -268,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn disconnected_receivers_preserve_existing_pending_semantics() {
+    fn disconnected_receivers_report_once_release_pending_and_allow_retry() {
         let directory = tempfile::tempdir().unwrap();
         let mut tasks = empty_tasks(directory.path());
         let (sender, receiver) = mpsc::channel();
@@ -278,12 +332,148 @@ mod tests {
         tasks.subtitle_picker = Some(receiver);
         drop(sender);
 
+        assert!(matches!(tasks.poll_loading(), Some(Err(message))
+            if message == "Video loading stopped unexpectedly"));
+        assert!(tasks.loading.is_none());
         assert!(tasks.poll_loading().is_none());
-        assert!(tasks.loading.is_some());
         assert!(tasks.poll_import().is_none());
         assert!(!tasks.importing);
+        assert!(matches!(tasks.poll_subtitle(), Some(Err(message))
+            if message == "Subtitle selection stopped unexpectedly"));
         assert!(tasks.poll_subtitle().is_none());
-        assert!(tasks.subtitle_pending());
+        assert!(!tasks.subtitle_pending());
+        tasks.start_subtitle_picker(9, directory.path().join("retry.mp4"), || None);
+        assert_eq!(wait_for(|| tasks.poll_subtitle()).unwrap().generation, 9);
+
+        let (sender, receiver) = mpsc::channel();
+        tasks.library.events = receiver;
+        tasks.importing = true;
+        assert!(tasks.poll_import().is_none());
+        assert!(tasks.importing);
+        drop(sender);
+        assert!(matches!(
+            tasks.poll_import(),
+            Some(ImportUpdate {
+                event: Event::WorkerStopped,
+                picker_closed: false
+            })
+        ));
+        assert!(!tasks.importing);
+        assert!(tasks.poll_import().is_none());
+        tasks.start_import(String::new(), Some(Vec::new()));
+        assert!(!tasks.library_stopped);
+        assert!(matches!(
+            wait_for(|| tasks.poll_import()).event,
+            Event::SelectionClosed
+        ));
+        assert!(matches!(
+            wait_for(|| tasks.poll_import()).event,
+            Event::Completed(Ok(Some(_)))
+        ));
+        assert!(!tasks.importing);
+    }
+
+    #[test]
+    fn background_worker_failure_keeps_the_subtitle_picker_and_active_video_owner() {
+        use crate::{app::controller::Controller, ui::AppWindow, video::Status};
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let ui = AppWindow::new().unwrap();
+        let mut controller = Controller::new(directory.path().into());
+        controller.video_tasks = empty_tasks(directory.path());
+        controller
+            .state
+            .merge_videos(vec![video(directory.path().join("active.mp4"))]);
+        controller.state.video_current = Some(0);
+        controller.state.video_active = true;
+        controller.state.video_generation = 8;
+        controller.state.video_status = Status::Playing;
+        controller.state.video_position = 2.0;
+        let (subtitle_sender, subtitle_receiver) = mpsc::channel();
+        controller.video_tasks.subtitle_picker = Some(subtitle_receiver);
+        controller.dialog_open = true;
+
+        let (sender, receiver) = mpsc::channel();
+        controller.video_tasks.library.events = receiver;
+        drop(sender);
+        controller.poll_videos(&ui);
+        assert!(controller.dialog_open);
+        assert!(controller.video_tasks.subtitle_pending());
+        assert!(controller.state.video_active);
+        assert_eq!(controller.state.video_current, Some(0));
+        assert_eq!(controller.state.video_generation, 8);
+        assert_eq!(controller.state.video_status, Status::Playing);
+        assert_eq!(controller.state.video_position, 2.0);
+
+        // The import failure is terminal; a later notice must survive polling.
+        controller.state.notice = "A newer operation".into();
+        controller.poll_videos(&ui);
+        assert_eq!(controller.state.notice, "A newer operation");
+        assert!(controller.dialog_open);
+
+        // Only completion of the actual subtitle picker releases its gate.
+        drop(subtitle_sender);
+        controller.poll_videos(&ui);
+        assert!(!controller.dialog_open);
+        assert!(!controller.video_tasks.subtitle_pending());
+        assert_eq!(
+            controller.state.notice,
+            "Subtitle selection stopped unexpectedly"
+        );
+    }
+
+    #[test]
+    fn video_import_disconnect_releases_only_its_still_open_picker() {
+        use crate::{app::controller::Controller, ui::AppWindow};
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let ui = AppWindow::new().unwrap();
+        let mut controller = Controller::new(directory.path().into());
+
+        for selection_closed in [false, true] {
+            controller.video_tasks = empty_tasks(directory.path());
+            let (sender, receiver) = mpsc::channel();
+            controller.video_tasks.library.events = receiver;
+            controller.video_tasks.importing = true;
+            controller.video_tasks.import_picker_open = true;
+            controller.state.video_importing = true;
+            controller.dialog_open = true;
+            if selection_closed {
+                sender.send(Event::SelectionClosed).unwrap();
+                controller.poll_videos(&ui);
+                assert!(!controller.dialog_open);
+                assert!(controller.state.video_importing);
+                // A different picker can open while the video scan continues.
+                controller.dialog_open = true;
+            }
+            drop(sender);
+            controller.poll_videos(&ui);
+            assert_eq!(controller.dialog_open, selection_closed);
+            assert!(!controller.state.video_importing);
+            assert!(!controller.video_tasks.importing);
+            assert!(!controller.video_tasks.import_picker_open);
+        }
+    }
+
+    #[test]
+    fn programmatic_video_import_never_releases_an_unrelated_picker() {
+        use crate::{app::controller::Controller, ui::AppWindow};
+        i_slint_backend_testing::init_no_event_loop();
+        let directory = tempfile::tempdir().unwrap();
+        let ui = AppWindow::new().unwrap();
+        let mut controller = Controller::new(directory.path().into());
+        controller.video_tasks = empty_tasks(directory.path());
+        controller.dialog_open = true;
+        controller.import_videos(Vec::new());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while controller.state.video_importing {
+            controller.poll_videos(&ui);
+            assert!(controller.dialog_open);
+            assert!(Instant::now() < deadline, "video import timed out");
+            std::thread::yield_now();
+        }
+        assert!(!controller.video_tasks.import_picker_open);
+        assert_eq!(controller.state.notice, "Imported 0 videos");
     }
 }
 

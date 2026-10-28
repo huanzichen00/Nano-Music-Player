@@ -6,6 +6,7 @@ use std::{
 };
 
 pub enum Event {
+    WorkerStopped,
     SelectionClosed,
     Completed(Result<Option<ImportResult>, String>),
     RemovedMissing {

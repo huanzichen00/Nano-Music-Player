@@ -1060,18 +1060,22 @@ impl Controller {
         let previous_status = self.state.video_status;
         if let Some(result) = self.video_tasks.poll_subtitle() {
             self.dialog_open = false;
-            if let video::SubtitleSelection {
+            if let Ok(video::SubtitleSelection {
                 generation,
                 video_path,
                 selected: Some(path),
-            } = result
-                && self.subtitle_import_matches(generation, &video_path)
+            }) = &result
+                && self.subtitle_import_matches(*generation, video_path)
             {
                 self.set_video_subtitle(crate::video::subtitles::SubtitlePreference::External(
-                    path,
+                    path.clone(),
                 ));
                 ui.set_subtitle_choices(ModelRc::new(VecModel::from(self.subtitle_choices())));
             }
+            if let Err(error) = result {
+                self.state.notice = error;
+            }
+            ui.invoke_focus_screen();
         }
         if let Some(result) = self.video_tasks.poll_loading() {
             match result {
@@ -1083,9 +1087,17 @@ impl Controller {
             }
             self.rows_dirty = true;
         }
-        while let Some(event) = self.video_tasks.poll_import() {
-            match event {
-                crate::video::import::Event::SelectionClosed => self.dialog_open = false,
+        while let Some(update) = self.video_tasks.poll_import() {
+            if update.picker_closed {
+                self.dialog_open = false;
+                ui.invoke_focus_screen();
+            }
+            match update.event {
+                crate::video::import::Event::WorkerStopped => {
+                    self.state.video_importing = false;
+                    self.state.notice = "Video library stopped unexpectedly".into();
+                }
+                crate::video::import::Event::SelectionClosed => {}
                 crate::video::import::Event::RemovedMissing { path, result } => match result {
                     Ok(true) => {
                         let active_removed = self.state.video_active
@@ -1133,7 +1145,9 @@ impl Controller {
                         Err(error) => self.state.notice = format!("Video import failed: {error}"),
                     }
                     self.rows_dirty = true;
-                    ui.invoke_focus_screen();
+                    if !self.dialog_open {
+                        ui.invoke_focus_screen();
+                    }
                 }
             }
         }
