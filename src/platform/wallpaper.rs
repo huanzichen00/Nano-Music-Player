@@ -174,8 +174,9 @@ fn compose(cover: &RgbImage, width: u32, height: u32) -> RgbImage {
         .resize_to_fill(160, 100, imageops::FilterType::Triangle)
         .to_rgb8();
     let mut background = imageops::blur(&small, 10.0);
+    // Keep most of the cover's brightness so the surrounding desktop stays colorful.
     for pixel in background.pixels_mut() {
-        *pixel = Rgb(pixel.0.map(|v| (u16::from(v) * 38 / 100) as u8));
+        *pixel = Rgb(pixel.0.map(|v| (u16::from(v) * 75 / 100) as u8));
     }
     let mut canvas = imageops::resize(&background, width, height, imageops::FilterType::Triangle);
     let size = height * 72 / 100;
@@ -296,9 +297,9 @@ mod tests {
         let result = compose(&cover, 320, 200);
         assert_eq!(result.dimensions(), (320, 200));
         assert_eq!(*result.get_pixel(160, 100), Rgb([200, 100, 50]));
-        assert_eq!(*result.get_pixel(0, 0), Rgb([76, 38, 19]));
+        assert_eq!(*result.get_pixel(0, 0), Rgb([150, 75, 37]));
         // A 2:1 cover is fitted intact rather than stretched to a square.
-        assert_eq!(*result.get_pixel(160, 30), Rgb([76, 38, 19]));
+        assert_eq!(*result.get_pixel(160, 30), Rgb([150, 75, 37]));
         assert_eq!(*result.get_pixel(40, 100), Rgb([200, 100, 50]));
     }
 
