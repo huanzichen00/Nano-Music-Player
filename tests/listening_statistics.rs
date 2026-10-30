@@ -278,8 +278,8 @@ fn statistics_drilldown_preserves_identity_album_order_and_existing_playback_flo
     );
     activate_title(&mut state, "See All Tracks");
     assert!(
-        !state.supports_list_shuffle(),
-        "album keeps the existing album browsing behavior"
+        state.supports_list_shuffle(),
+        "statistics album browsing offers the album shuffle control"
     );
     assert_eq!(
         state
@@ -287,7 +287,7 @@ fn statistics_drilldown_preserves_identity_album_order_and_existing_playback_flo
             .iter()
             .map(|r| r.title.as_str())
             .collect::<Vec<_>>(),
-        ["Z first", "A second"]
+        ["Shuffle", "Z first", "A second"]
     );
 
     state
@@ -586,7 +586,8 @@ fn desktop_statistics_load_refresh_navigate_and_render_in_both_modes() {
             ..
         })
     ));
-    assert_eq!(ui.get_rows().row_count(), 7);
+    assert!(ui.get_shuffle_list());
+    assert_eq!(ui.get_rows().row_count(), 8);
     assert_eq!(c.borrow().state.queue.order, [0, 1]);
     c.borrow_mut().execute(&ui, Action::Back);
     assert_eq!(ui.get_statistics_kind(), 9);
