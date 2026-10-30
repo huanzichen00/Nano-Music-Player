@@ -12,13 +12,13 @@ iOS 开发版复用桌面 iPod 界面与 Rust 服务，已完成签名安装和�
 
 ## 下载
 
-在 [GitHub Releases](https://github.com/huanzichen00/Nano-Music-Player/releases/tag/v0.1.1) 下载预编译安装包：
+在 [GitHub Releases](https://github.com/huanzichen00/Nano-Music-Player/releases/tag/v0.1.2) 下载预编译安装包：
 
 | 平台 | 安装包 | 安装方式 |
 | --- | --- | --- |
-| macOS Apple Silicon | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-macos-arm64.zip) | 解压，将 Nano Music Player.app 移入 Applications（应用程序）文件夹 |
-| Windows x86-64 | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-windows-x86_64.zip) | 完整解压文件夹，运行 `nano-music-player.exe` |
-| Linux x86-64 | [tar.gz](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-linux-x86_64.tar.gz) | 解压后运行 `./nano-music-player`；基于 Ubuntu 22.04 构建 |
+| macOS Apple Silicon | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.2/Nano-Music-Player-0.1.2-macos-arm64.zip) | 解压，将 Nano Music Player.app 移入 Applications（应用程序）文件夹 |
+| Windows x86-64 | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.2/Nano-Music-Player-0.1.2-windows-x86_64.zip) | 完整解压文件夹，运行 `nano-music-player.exe` |
+| Linux x86-64 | [tar.gz](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.2/Nano-Music-Player-0.1.2-linux-x86_64.tar.gz) | 解压后运行 `./nano-music-player`；基于 Ubuntu 22.04 构建 |
 
 发布页面提供 `SHA256SUMS` 校验文件、安装说明和运行依赖。macOS 安装包使用临时签名（ad-hoc），尚未公证；Windows 安装包尚未签名。Windows/Linux 的原生构建和下载文件校验已通过，实际音频输出、桌面集成和手势表现仍需实机验证。
 

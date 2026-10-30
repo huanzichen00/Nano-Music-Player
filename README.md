@@ -17,13 +17,13 @@ merge compatibility changes and verification results.
 
 ## Download
 
-Prebuilt packages are available in [GitHub Releases](https://github.com/huanzichen00/Nano-Music-Player/releases/tag/v0.1.1):
+Prebuilt packages are available in [GitHub Releases](https://github.com/huanzichen00/Nano-Music-Player/releases/tag/v0.1.2):
 
 | Platform | Package | Installation |
 | --- | --- | --- |
-| macOS Apple Silicon | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-macos-arm64.zip) | Extract and move Nano Music Player.app to Applications |
-| Windows x86-64 | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-windows-x86_64.zip) | Extract the complete folder and run `nano-music-player.exe` |
-| Linux x86-64 | [tar.gz](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.1/Nano-Music-Player-0.1.1-linux-x86_64.tar.gz) | Extract and run `./nano-music-player`; built on Ubuntu 22.04 |
+| macOS Apple Silicon | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.2/Nano-Music-Player-0.1.2-macos-arm64.zip) | Extract and move Nano Music Player.app to Applications |
+| Windows x86-64 | [ZIP](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.2/Nano-Music-Player-0.1.2-windows-x86_64.zip) | Extract the complete folder and run `nano-music-player.exe` |
+| Linux x86-64 | [tar.gz](https://github.com/huanzichen00/Nano-Music-Player/releases/download/v0.1.2/Nano-Music-Player-0.1.2-linux-x86_64.tar.gz) | Extract and run `./nano-music-player`; built on Ubuntu 22.04 |
 
 The release includes `SHA256SUMS`, installation notes and runtime requirements. macOS releases are ad-hoc signed and not notarized; Windows releases are unsigned. Windows/Linux native builds and download checksums have been verified, while physical audio output, desktop integration and gestures still need manual testing on those platforms.
 
