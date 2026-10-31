@@ -271,7 +271,22 @@ impl WinitWindowOrNone {
 
     fn set_decorations(&self, decorations: bool) {
         match self {
-            Self::HasWindow { window, .. } => window.set_decorations(decorations),
+            Self::HasWindow { window, .. } => {
+                // Winit's Windows style change keeps the outer rectangle, so
+                // adding/removing a frame changes the client area. Preserve the
+                // current client size, including an app request already in
+                // flight, instead of reporting the frame delta as a user resize.
+                #[cfg(target_os = "windows")]
+                let client_size = (window.is_decorated() != decorations
+                    && !window.is_maximized()
+                    && window.fullscreen().is_none())
+                .then(|| window.inner_size());
+                window.set_decorations(decorations);
+                #[cfg(target_os = "windows")]
+                if let Some(size) = client_size {
+                    let _ = window.request_inner_size(size);
+                }
+            }
             Self::None(attributes) => attributes.borrow_mut().decorations = decorations,
         }
     }

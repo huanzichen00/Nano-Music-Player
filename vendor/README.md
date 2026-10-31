@@ -34,6 +34,10 @@ into another zoom and resize request.
 
 Windows uses Slint's in-window menubar in both Device and Screen modes, including
 when decorations change at runtime. Context menus retain their native support;
-macOS retains its system menubar. `tests/windows_window_resize.rs` exercises the
+macOS retains its system menubar. Windows decoration changes also preserve the
+current client size: winit otherwise retains the outer rectangle, introducing a
+frame-sized resize which the player could interpret as a change to saved zoom.
+Maximized/fullscreen windows retain their system-managed sizing.
+`tests/windows_window_resize.rs` exercises the
 real Windows backend at several scale factors in the release workflow, covering
 idle startup, mode changes and external resize requests.
