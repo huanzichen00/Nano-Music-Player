@@ -22,3 +22,18 @@ Both crates retain their upstream copyright headers and complete LICENSES.
 Remove these path patches after adopting a released Slint version containing
 this upstream fix. Compilation and portable UI tests do not prove physical
 phone lock/unlock behavior; that scenario still requires a device run.
+
+## Windows frameless menus
+
+`i-slint-backend-winit/winitwindowadapter.rs` also disables the native Windows
+menubar for this application. Winit 0.30.13 adds the attached `HMENU` height in
+`WindowFlags::adjust_rect`, while its undecorated `WM_NCCALCSIZE` handler treats
+the full outer rectangle as client area. Each requested client height can thus
+return larger by one menu height, which the player's aspect correction converts
+into another zoom and resize request.
+
+Windows uses Slint's in-window menubar in both Device and Screen modes, including
+when decorations change at runtime. Context menus retain their native support;
+macOS retains its system menubar. `tests/windows_window_resize.rs` exercises the
+real Windows backend at several scale factors in the release workflow, covering
+idle startup, mode changes and external resize requests.

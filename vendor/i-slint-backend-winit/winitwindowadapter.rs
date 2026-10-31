@@ -2176,7 +2176,13 @@ impl WindowAdapterInternal for WinitWindowAdapter {
 
     #[cfg(muda)]
     fn supports_native_menu_bar(&self) -> bool {
-        !crate::muda::is_disabled()
+        // Winit 0.30 adds the HMENU height to request_inner_size(), but its
+        // frameless WM_NCCALCSIZE path makes the whole outer rect client area.
+        // Each aspect correction then grows the client by another menu height.
+        // Our windows can toggle decorations at runtime, so keep the in-window
+        // Slint menubar for their entire lifetime on Windows. Native context
+        // menus and the macOS system menubar remain available.
+        !cfg!(target_os = "windows") && !crate::muda::is_disabled()
     }
 
     #[cfg(muda)]

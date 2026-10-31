@@ -58,6 +58,12 @@ jobs:
             esac
           fi
           test -f "docs/releases/v$version.md"
+      - name: Verify native Windows window sizing
+        if: runner.os == 'Windows'
+        run: |
+          for scale in 1 1.25 1.5 2; do
+            SLINT_SCALE_FACTOR="$scale" cargo test --release --locked --test windows_window_resize -- --nocapture
+          done
       - name: Build optimized executable
         run: cargo build --release --locked
       - name: Package native download
