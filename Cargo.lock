@@ -3220,7 +3220,7 @@ dependencies = [
 
 [[package]]
 name = "nano-music-player"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "cc",
  "chrono",
