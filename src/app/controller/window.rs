@@ -66,7 +66,11 @@ impl Controller {
             width * self.state.zoom,
             height * self.state.zoom + menu_height,
         );
-        ui.window().set_size(self.last_window_size);
+        // Winit converts logical requests using the monitor's DPI, which can
+        // differ from Slint's scale override. Physical pixels keep requests and
+        // resize acknowledgements in the same coordinate system.
+        ui.window()
+            .set_size(self.last_window_size.to_physical(scale_factor));
     }
 
     pub(super) fn maintain_aspect_ratio(&mut self, ui: &AppWindow) {
@@ -90,7 +94,8 @@ impl Controller {
             self.last_window_scale_factor = scale_factor;
             self.resize_guard.invalidate(now_ms);
             self.resize_debouncer.reset();
-            ui.window().set_size(self.last_window_size);
+            ui.window()
+                .set_size(self.last_window_size.to_physical(scale_factor));
             return;
         }
         self.last_window_scale_factor = scale_factor;
@@ -136,7 +141,8 @@ impl Controller {
             }
             crate::app::geometry::ResizeAction::RestoreRequested => {
                 self.resize_debouncer.reset();
-                ui.window().set_size(self.last_window_size);
+                ui.window()
+                    .set_size(self.last_window_size.to_physical(scale_factor));
                 return;
             }
             crate::app::geometry::ResizeAction::ObserveUserResize => {}
